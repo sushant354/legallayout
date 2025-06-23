@@ -1,7 +1,9 @@
+import re
+import math
+
 class HTMLBuilder:
     
     def __init__(self):
-        # self.builder = '''<!DOCTYPE HTML>\n<html>\n<head><meta charset="UTF-8" /></head>\n<body>\n'''
         self.builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -15,22 +17,22 @@ class HTMLBuilder:
 
   .section {
     display: block;
-    margin-left: 0%;
+    margin-left: 2%;
   }
 
   .subsection {
     display: block;
-    margin-left: 2%;
+    margin-left: 5%;
   }
 
   .para {
     display: block;
-    margin-left: 5%;
+    margin-left: 8%;
   }
 
   .subpara {
     display: block;
-    margin-left: 8%;
+    margin-left: 11%;
   }
 
   p {
@@ -60,9 +62,9 @@ class HTMLBuilder:
 '''
 
 
-    def addTitle(self, tb,pg_width):
+    def addTitle(self, tb,pg_width,pg_height):
         
-        if(tb.width > 0.58 * pg_width):
+        if(tb.width > 0.58 * pg_width and tb.height > 0.15 * pg_height):
             self.builder += f"<p class=\"preamble\">{tb.extract_text_from_tb()}</p>\n"
         else:
             doc = ''
@@ -82,9 +84,64 @@ class HTMLBuilder:
 
     def addUnlabelled(self,text):
         self.builder += f"<p>{text}</p>\n"
+
+    def get_center(self,bbox):
+      x0, y0, x1, y1 = bbox
+      return ((x0 + x1) / 2, (y0 + y1) / 2)
+
+    def euclidean_distance(self,c1, c2):
+        return math.sqrt((c1[0] - c2[0])**2 + (c1[1] - c2[1])**2)
+
+
+    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.005):
+      tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
+      vertical_threshold = page_height * vertical_threshold_ratio
+
+      tb_top_right = (tb_x1, tb_y1)
+
+      closest_key = None
+      closest_text = None
+
+      for sn_bbox, sn_text in side_note_datas.items():
+          sn_x0, sn_y0, sn_x1, sn_y1 = sn_bbox
+          sn_top_right = (sn_x1, sn_y1)
+
+          # Check if sidenote is to the immediate left or right
+          is_left = sn_x1 <= tb_x0
+          is_right = sn_x0 >= tb_x1
+          if not (is_left or is_right):
+              continue
+
+          # Compare Y positions of top-right corners (you said y1 is top)
+          if abs(sn_y1 - tb_y1) <= vertical_threshold:
+              closest_key = sn_bbox
+              closest_text = sn_text
+              break  # found one match, stop
+
+      if closest_key:
+          del side_note_datas[closest_key]
+
+      return closest_text
+
     
-    def addSection(self,text):
-        self.builder += f"<div class=\"section\">{text}</div>\n"
+    def addSection(self,tb,side_note_datas,page_height):
+        text = tb.extract_text_from_tb()
+        subsection_re = re.compile(r'^\s*\(\d+\)\s*\S+', re.IGNORECASE) 
+        side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
+        if side_note_text:
+          match = re.match(r'^(\d+\.\s*)(.*)', text.strip())
+          if match:
+            prefix = match.group(1)
+            short_title = side_note_text.strip()
+            rest = match.group(2).strip()
+            if not subsection_re.match(rest):
+                self.builder += f"<div class=\"section\">{prefix}{short_title}<br>{rest}</div>\n"
+            else:
+                self.builder += f"<div class=\"section\">{prefix}{short_title}</div>\n"
+                self.builder += f"<div class=\"subsection\">{rest}</div>\n"
+                
+        else:
+          self.builder += f"<div class=\"section\">{text}</div>\n"
 
     def addSubsection(self,text):
         self.builder += f"<div class=\"subsection\">{text}</div>\n"
@@ -97,7 +154,6 @@ class HTMLBuilder:
 
     def build(self, page):
         visited_for_table = set()
-        visited_sideNotes = set()
 
         for tb, label in page.all_tbs.items():
             if isinstance(label, tuple) and label[0] == "table":
@@ -109,144 +165,25 @@ class HTMLBuilder:
                         self.addTable(table_obj)
                         visited_for_table.add(table_id)
             elif label == "title":
-                self.addTitle(tb,page.pg_width)
+                self.addTitle(tb,page.pg_width,page.pg_height)
             elif label == "section":
-                self.addSection(tb.extract_text_from_tb())
+                self.addSection(tb,page.side_notes_datas,page.pg_height)
+            elif label == "subsection":
+                self.addSubsection(tb.extract_text_from_tb())
             elif label == "para":
                 self.addPara(tb.extract_text_from_tb())
             elif label == "subpara":
                 self.addSubpara(tb.extract_text_from_tb())
             elif label is None:
-                self.addUnlabelled(tb.extract_text_from_tb())
+                if not self.is_pg_num(tb,page.pg_width):
+                  self.addUnlabelled(tb.extract_text_from_tb())
 
-
+    def is_pg_num(self,tb,pg_width):
+        if  tb.width < 0.04 * pg_width:
+            return True
+        return False
+        
     def get_html(self):
         return self.builder + "\n</body>\n</html>"
 
-
-
-
-# class HTMLBuilder:
-#     def __init__(self):
-#         self.html = [
-#     '<!DOCTYPE HTML>',
-#     '<html>',
-#     '<head>',
-#     '<meta charset="UTF-8" />',
-#     '<style>',
-#     '  body {',
-#     '    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;',
-#     '    margin: 5%;',
-#     '    line-height: 1.6;',
-#     '    white-space: normal;',
-#     '  }',
-#     '  .section {',
-#     '    display: block;',
-#     '    margin-left: 0%;',
-#     '  }',
-#     '  .subsection {',
-#     '    display: block;',
-#     '    margin-left: 5%;',
-#     '  }',
-#     '  .para {',
-#     '    display: block;',
-#     '    margin-left: 10%;',
-#     '  }',
-#     '  .subpara {',
-#     '    display: block;',
-#     '    margin-left: 15%;',
-#     '  }',
-#     '  p {',
-#     '    white-space: pre-wrap;',
-#     '  }',
-#     '  table {',
-#     '    border-collapse: collapse;',
-#     '    width: 100%;',
-#     '    font-size: 0.95em;',
-#     '  }',
-#     '  table, td, th {',
-#     '    border: 1px solid #333;',
-#     '  }',
-#     '  th {',
-#     '    display: none;',
-#     '  }',
-#     '  td {',
-#     '    white-space: pre-wrap;',
-#     '  }',
-#     '</style>',
-#     '</head>',
-#     '<body>'
-# ]
-
-
-#         self.stack = []
-#         self.tag_order = ['section', 'subsection', 'para', 'subpara']
-#         self.tag_rank = {tag: i for i, tag in enumerate(self.tag_order)}
-#         self.tag_map = {
-#             'section': 'div class="section"',
-#             'subsection': 'div class="subsection"',
-#             'para': 'section class="para"',
-#             'subpara': 'section class="subpara"'
-#         }
-
-#     def _close_stack(self, level):
-#         while self.stack and self.tag_rank[self.stack[-1]] >= level:
-#             tag = self.stack.pop()
-#             html_tag = self.tag_map[tag].split()[0]
-#             self.html.append(f"</{html_tag}>")
-
-#     def _open_tag(self, label, content):
-#         html_tag = self.tag_map[label]
-#         self.html.append(f"<{html_tag}>{content}")
-#         self.stack.append(label)
-
-#     def addTitle(self, tbox):
-#         self._close_stack(0)
-#         for textline in tbox.findall('.//textline'):
-#             text = ''.join(t.text for t in textline.findall('.//text') if t.text)
-#             if text.strip():
-#                 self.html.append(f"<center><h5>{text.strip()}</h5></center>")
-
-#     def addTable(self, table_df):
-#         self._close_stack(0)
-#         self.html.append(table_df.to_html(index=False, border=1))
-
-#     def addText(self, text):
-#         self._close_stack(0)
-#         self.html.append(f"<p>{text.strip()}</p>")
-
-#     def addStructuredText(self, label, text):
-#         level = self.tag_rank[label]
-#         self._close_stack(level)
-#         self._open_tag(label, text)
-
-#     def build(self, page):
-#         visited_tables = set()
-
-#         for tb, label in page.all_tbs.items():
-#             if isinstance(label, tuple) and label[0] == "table":
-#                 table_id = label[1]
-#                 if table_id not in visited_tables:
-#                     table_df = page.tabular_datas.tables.get(table_id)
-#                     if table_df is not None:
-#                         self.addTable(table_df)
-#                         visited_tables.add(table_id)
-
-#             elif label == "title":
-#                 self.addTitle(tb.tbox)
-
-#             elif label in self.tag_order:
-#                 text = tb.extract_text_from_tb().strip()
-#                 if text:
-#                     self.addStructuredText(label, text)
-
-#             elif label is None:
-#                 self.addText(tb.extract_text_from_tb().strip())
-
-#         self._close_stack(0)
-
-#     def get_html(self):
-#         self.html.append('</body>')
-#         self.html.append('</html>')
-#         return '\n'.join(self.html)
 

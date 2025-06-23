@@ -11,6 +11,7 @@ class Page:
         self.pg_num = pg.attrib["id"]
         self.all_tbs = {}
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num)
+        self.side_notes_datas ={}
     
 
     # --- func for getting page coordinates, height, width ---
@@ -46,15 +47,19 @@ class Page:
         if not hasattr(self, 'body_startX') or not hasattr(self, 'body_endX'):
             return  # Skip if body region not defined
         
-        pattern = re.compile(r'^\d+\s+of\s+\d+\.$') 
+        threshold = 0.01 * self.pg_width
+        # pattern = re.compile(r'^\d+\s+of\s+\d+\.$')
+        pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.\s*\d+\s+of\s+\d+\.)$')
         for tb in list(self.all_tbs.keys()):
-            if (tb.coords[2]< self.body_startX or tb.coords[0] > self.body_endX ) \
+            if (tb.coords[2]< self.body_startX-threshold or tb.coords[0] > self.body_endX+threshold ) \
                 and (self.all_tbs[tb] is None ) \
                 and tb.height < 0.25 * self.pg_height \
-                and tb.width < 0.25 * self.pg_width:
+                and tb.width < 0.25 * self.pg_width \
+                and tb.width > 0.04 * self.pg_width:
                 texts = tb.extract_text_from_tb()
                 if  texts.strip() and not pattern.match(texts.strip()):
                     self.all_tbs[tb]="side notes"
+                    tb.get_side_note_datas(self.side_notes_datas)
                 else:
                     del self.all_tbs[tb]
 
@@ -145,6 +150,7 @@ class Page:
         for tb,label in self.all_tbs.items():
             if label == "side notes":
                 print(tb.extract_text_from_tb())
+        print(self.side_notes_datas)
 
     def print_table_content(self):
         print("i'm from table contents")

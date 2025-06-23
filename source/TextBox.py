@@ -133,9 +133,36 @@ class TextBox:
                 if text.text and 'bbox' in text.attrib:
                     return float(text.attrib['bbox'].split(',')[0])
         return None
+    
 
+    def get_side_note_datas(self, side_note_datas):
+        current_sentence = []
+        sentence_start_coords = None
+        recording = False
 
+        for textline in self.tbox.findall('.//textline'):
+            line_texts = []
+            for text in textline.findall('.//text'):
+                if text.text:
+                    line_texts.append(text.text)
 
+            line = ''.join(line_texts).replace("\n", " ").strip()
+            if not line:
+                continue
 
+            if not recording:
+                sentence_start_coords = textline.attrib
+                recording = True
 
+            current_sentence.append(line)
 
+            if '.' in line:
+                sentence = ' '.join(current_sentence).strip()
+                coord_key = tuple(map(float,sentence_start_coords.get('bbox').split(",")))
+                if sentence not in set(side_note_datas.values()):
+                    side_note_datas[coord_key] = sentence
+
+                # Reset for next sentence
+                current_sentence = []
+                recording = False
+                sentence_start_coords = None

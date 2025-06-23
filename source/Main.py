@@ -200,9 +200,9 @@ class Main:
             for textbox in pg['headers']:
                 self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "header"
         
-        for pg in self.footers:
-            for textbox in pg['footers']:
-                self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "footer"
+        # for pg in self.footers:
+        #     for textbox in pg['footers']:
+        #         self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "footer"
 
         del self.sorted_footer_units
         del self.sorted_header_units
@@ -226,7 +226,7 @@ class Main:
 
 
 if __name__ == "__main__":
-    pdf_path = r'/home/barath-kumar/Documents/IKanoon/Parser-and-Converter/test/TestSample.pdf'  #  Replace with your PDF path
+    pdf_path = r'/home/barath-kumar/Downloads/209478.pdf'  #  Replace with your PDF path
     main = Main(pdf_path)
     main.parsePDF()
     main.buildHTML()
