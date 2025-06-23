@@ -125,6 +125,15 @@ class TextBox:
 
         # Return True if at least 25% of words are titlecase
         return (titlecase_count / valid_word_count) >= 0.25
+    
+
+    def get_first_char_x(self):
+        for textline in self.tbox.findall('.//textline'):
+            for text in textline.findall('.//text'):
+                if text.text and 'bbox' in text.attrib:
+                    return float(text.attrib['bbox'].split(',')[0])
+        return None
+
 
 
 

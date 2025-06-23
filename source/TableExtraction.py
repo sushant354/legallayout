@@ -14,4 +14,3 @@ class TableExtraction:
             bbox[idx] = tab._bbox
         
         return table,bbox
-        

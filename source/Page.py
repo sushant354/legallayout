@@ -22,7 +22,20 @@ class Page:
 
     # --- gather all textboxes of the page and store it in the list ---
     def process_textboxes(self,pg):
-        textBoxes = pg.findall(".//textbox")
+        def parse_bbox(textbox):
+            x0, y0, x1, y1 = map(float, textbox.attrib["bbox"].split(","))
+            return x0, y0, x1, y1
+        
+        def get_sorted_textboxes(tbs):
+            return sorted(tbs,
+        key=lambda tb: (
+            -float(parse_bbox(tb)[1]),  # y0: top to bottom (higher y lower)
+           float(parse_bbox(tb)[0]), #,   # x0: left to right
+            -float(parse_bbox(tb)[3]),  # y1: optional secondary vertical order
+            float(parse_bbox(tb)[2])    # x1: optional secondary horizontal order
+         )
+    )
+        textBoxes = get_sorted_textboxes(pg.findall(".//textbox"))
         for tb in textBoxes:
             tb_obj = TextBox(tb)
             if tb_obj.extract_text_from_tb().strip():
@@ -99,9 +112,9 @@ class Page:
             
 
     def print_section_para(self):
-        print("i'm from section para")
         for tb,label in self.all_tbs.items():
             if label in set(["section","para","subsection","subpara"]):
+                print("i'm from ",label)
                 print(tb.extract_text_from_tb())
     
     def print_all(self):
@@ -228,7 +241,7 @@ class Page:
                 self.all_tbs[tb] = "subsection"
                 continue
 
-            if self.all_tbs[tb] is None and para_re.match(texts.strip()):
+            if self.all_tbs[tb] is None and para_re.match(texts.strip()) and tb.get_first_char_x()<0.3*self.pg_width:
                 self.all_tbs[tb] = "para"
                 continue
 
@@ -236,9 +249,11 @@ class Page:
                 self.all_tbs[tb] = "subpara"
                 continue 
 
+
+
     # --- func to label the textboxes comes in table layout ---
     def label_table_tbs(self):
-        def bbox_satisfies(tb_box,table_box,tolerance = 2):
+        def bbox_satisfies(tb_box,table_box,tolerance = 5):
             x_min_table, y_min_table, x_max_table, y_max_table = table_box
             x_min_textbox, y_min_textbox, x_max_textbox, y_max_textbox = tb_box
 

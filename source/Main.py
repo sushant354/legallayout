@@ -2,12 +2,23 @@ import os
 from difflib import SequenceMatcher
 from ParserTool import ParserTool
 from Page import Page
+from HTMLBuilder import HTMLBuilder
 class Main:
     def __init__(self,pdfPath):
         self.pdf_path = pdfPath
         self.parserTool = ParserTool()
         self.total_pgs = 0
         self.all_pgs = {}
+        self.html_builder = HTMLBuilder()
+    
+    def buildHTML(self):
+        for page in self.all_pgs.values():
+            self.html_builder.build(page)
+        
+        html_content = self.html_builder.get_html()
+        self.write_html(html_content)
+
+
     
     # --- look for page header,footer,table,section,para of all pages ---
     def get_page_header_footer(self,pages):
@@ -24,6 +35,7 @@ class Main:
             page.label_table_tbs()
             page.get_section_para()
             self.contour_header_footer_of_page(page)
+
         self.process_footer_and_header()
         self.set_page_headers_footers()
 
@@ -42,8 +54,7 @@ class Main:
             # page.print_sidenotes()
             # page.print_titles()
             # page.print_section_para()
-            page.print_all()
-            
+            # page.print_all()
             
     # --- in each page do contour to detect possible header/footer content ---
     def contour_header_footer_of_page(self,pg):
@@ -207,9 +218,17 @@ class Main:
         pages = self.parserTool.get_pages_from_xml(xml_path)
         self.get_page_header_footer(pages)
         self.process_pages()
+    
+    def write_html(self,content):
+        with open("output1.html", "w", encoding="utf-8") as f:
+            f.write(content)
+        
 
 
 if __name__ == "__main__":
     pdf_path = r'/home/barath-kumar/Documents/IKanoon/Parser-and-Converter/test/TestSample.pdf'  #  Replace with your PDF path
     main = Main(pdf_path)
     main.parsePDF()
+    main.buildHTML()
+  
+    
