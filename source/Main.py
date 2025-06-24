@@ -226,7 +226,7 @@ class Main:
 
 
 if __name__ == "__main__":
-    pdf_path = r'/home/barath-kumar/Downloads/209478.pdf'  #  Replace with your PDF path
+    pdf_path = r'/home/barath-kumar/Documents/IKanoon/Parser-and-Converter/in-union-act-ministryofcivilaviation-2025-04-16-17-publication-document.pdf'  #  Replace with your PDF path
     main = Main(pdf_path)
     main.parsePDF()
     main.buildHTML()

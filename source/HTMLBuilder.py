@@ -4,6 +4,8 @@ import math
 class HTMLBuilder:
     
     def __init__(self):
+        self.pending_text = ""
+        self.pending_tag = None
         self.builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -61,9 +63,15 @@ class HTMLBuilder:
 <body>
 '''
 
+    def flushPrevious(self):
+      if self.pending_tag and self.pending_text:
+        self.pending_text += f"</{self.pending_tag}>\n"
+        self.builder += self.pending_text
+        self.pending_text =""
+        self.pending_tag = None
 
     def addTitle(self, tb,pg_width,pg_height):
-        
+        self.flushPrevious()
         if(tb.width > 0.58 * pg_width and tb.height > 0.15 * pg_height):
             self.builder += f"<p class=\"preamble\">{tb.extract_text_from_tb()}</p>\n"
         else:
@@ -79,11 +87,26 @@ class HTMLBuilder:
             self.builder += doc
     
     def addTable(self, table):
+        self.flushPrevious()
         self.builder += table.to_html(index=False, border=1)
         self.builder += "\n" 
 
     def addUnlabelled(self,text):
-        self.builder += f"<p>{text}</p>\n"
+        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        if not self.pending_tag and not self.pending_text and is_sentence_completed:
+          self.builder += f"<p>{text}</p>\n"
+          self.pending_tag = None
+          self.pending_text = ""
+        elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
+          self.pending_tag = "p"
+          self.pending_text = f"<p>{text}"
+        elif self.pending_text and is_sentence_completed:
+            self.pending_text += " "+text.strip() + f"</{self.pending_tag}>\n"
+            self.builder += self.pending_text
+            self.pending_tag = None
+            self.pending_text = ""
+        else:
+            self.pending_text += text.strip()
 
     def get_center(self,bbox):
       x0, y0, x1, y1 = bbox
@@ -125,7 +148,9 @@ class HTMLBuilder:
 
     
     def addSection(self,tb,side_note_datas,page_height):
+        self.flushPrevious()
         text = tb.extract_text_from_tb()
+        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
         subsection_re = re.compile(r'^\s*\(\d+\)\s*\S+', re.IGNORECASE) 
         side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
         if side_note_text:
@@ -135,22 +160,53 @@ class HTMLBuilder:
             short_title = side_note_text.strip()
             rest = match.group(2).strip()
             if not subsection_re.match(rest):
-                self.builder += f"<div class=\"section\">{prefix}{short_title}<br>{rest}</div>\n"
+                if is_sentence_completed:
+                  self.builder += f"<div class=\"section\">{prefix}{short_title}<br>{rest}</div>\n"
+                else:
+                    self.pending_text +=f"<div class=\"section\">{prefix}{short_title}<br>{rest}"
+                    self.pending_tag = "div"
             else:
                 self.builder += f"<div class=\"section\">{prefix}{short_title}</div>\n"
-                self.builder += f"<div class=\"subsection\">{rest}</div>\n"
+                if is_sentence_completed:
+                  self.builder += f"<div class=\"subsection\">{rest}</div>\n"
+                else:
+                    self.pending_text += f"<div class=\"subsection\">{rest}"
+                    self.pending_tag = "div"
                 
         else:
-          self.builder += f"<div class=\"section\">{text}</div>\n"
+          if is_sentence_completed:
+            self.builder += f"<div class=\"section\">{text}</div>\n"
+          else:
+            self.pending_text += f"<div class=\"section\">{text}"
+            self.pending_tag="div"
+              
 
     def addSubsection(self,text):
-        self.builder += f"<div class=\"subsection\">{text}</div>\n"
+        self.flushPrevious()
+        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        if is_sentence_completed:
+          self.builder += f"<div class=\"subsection\">{text}</div>\n"
+        else:
+          self.pending_text = f"<div class=\"subsection\">{text}"
+          self.pending_tag = "div"
     
     def addPara(self,text):
-        self.builder += f"<section class=\"para\">{text}</section>\n"
+        self.flushPrevious()
+        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        if is_sentence_completed:
+          self.builder += f"<section class=\"para\">{text}</section>\n"
+        else:
+           self.pending_text += f"<section class=\"para\">{text}"
+           self.pending_tag = "section"
     
     def addSubpara(self,text):
-        self.builder += f"<section class=\"subpara\">{text}</section>\n"
+        self.flushPrevious()
+        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        if is_sentence_completed:
+          self.builder += f"<section class=\"subpara\">{text}</section>\n"
+        else:
+           self.pending_text += f"<section class=\"subpara\">{text}"
+           self.pending_tag ="section"
 
     def build(self, page):
         visited_for_table = set()
@@ -184,6 +240,6 @@ class HTMLBuilder:
         return False
         
     def get_html(self):
+        self.flushPrevious()
         return self.builder + "\n</body>\n</html>"
-
 
