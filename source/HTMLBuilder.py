@@ -37,6 +37,10 @@ class HTMLBuilder:
     margin-left: 11%;
   }
 
+  .amendment {
+    display: block;
+    margin-left: 20%;
+  }
   p {
     white-space: pre-wrap;
   }
@@ -120,14 +124,14 @@ class HTMLBuilder:
       tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
       vertical_threshold = page_height * vertical_threshold_ratio
 
-      tb_top_right = (tb_x1, tb_y1)
+      # tb_top_right = (tb_x1, tb_y1)
 
       closest_key = None
       closest_text = None
 
       for sn_bbox, sn_text in side_note_datas.items():
           sn_x0, sn_y0, sn_x1, sn_y1 = sn_bbox
-          sn_top_right = (sn_x1, sn_y1)
+          # sn_top_right = (sn_x1, sn_y1)
 
           # Check if sidenote is to the immediate left or right
           is_left = sn_x1 <= tb_x0
@@ -207,6 +211,16 @@ class HTMLBuilder:
         else:
            self.pending_text += f"<section class=\"subpara\">{text}"
            self.pending_tag ="section"
+    
+    def addAmendment(self,text):
+        self.flushPrevious()
+        # self.builder  += f"<section class=\"amendment\">{text}</section>"
+        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        if is_sentence_completed:
+           self.builder  += f"<section class=\"amendment\">{text}</section>"
+        else:
+           self.pending_text += f"<section class=\"amendment\">{text}"
+           self.pending_tag = "section"
 
     def build(self, page):
         visited_for_table = set()
@@ -220,6 +234,8 @@ class HTMLBuilder:
                     if table_obj is not None:
                         self.addTable(table_obj)
                         visited_for_table.add(table_id)
+            elif isinstance(label,list) and label[0] == "amendment":
+               self.addAmendment(tb.extract_text_from_tb())
             elif label == "title":
                 self.addTitle(tb,page.pg_width,page.pg_height)
             elif label == "section":

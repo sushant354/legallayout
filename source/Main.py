@@ -3,6 +3,8 @@ from difflib import SequenceMatcher
 from ParserTool import ParserTool
 from Page import Page
 from HTMLBuilder import HTMLBuilder
+from Amendment import Amendment
+
 class Main:
     def __init__(self,pdfPath):
         self.pdf_path = pdfPath
@@ -10,6 +12,7 @@ class Main:
         self.total_pgs = 0
         self.all_pgs = {}
         self.html_builder = HTMLBuilder()
+        self.amendment = Amendment()
     
     def buildHTML(self):
         for page in self.all_pgs.values():
@@ -33,8 +36,8 @@ class Main:
             self.all_pgs[self.total_pgs]=page
             page.process_textboxes(pg)
             page.label_table_tbs()
-            page.get_section_para()
             self.contour_header_footer_of_page(page)
+            
 
         self.process_footer_and_header()
         self.set_page_headers_footers()
@@ -47,6 +50,8 @@ class Main:
             page.get_body_width_by_binning()
             is_single_column = page.is_single_column_page()
             page.get_side_notes()
+            self.amendment.check_for_amendments(page)
+            page.get_section_para()
             page.get_titles()
             # page.print_table_content()
             # page.print_headers()
@@ -55,6 +60,7 @@ class Main:
             # page.print_titles()
             # page.print_section_para()
             # page.print_all()
+            # page.print_amendment()
             
     # --- in each page do contour to detect possible header/footer content ---
     def contour_header_footer_of_page(self,pg):
@@ -226,7 +232,7 @@ class Main:
 
 
 if __name__ == "__main__":
-    pdf_path = r'/home/barath-kumar/Documents/IKanoon/Parser-and-Converter/in-union-act-ministryofcivilaviation-2025-04-16-17-publication-document.pdf'  #  Replace with your PDF path
+    pdf_path = r'/home/barath-kumar/Downloads/222070.pdf'  #  Replace with your PDF path
     main = Main(pdf_path)
     main.parsePDF()
     main.buildHTML()

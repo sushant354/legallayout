@@ -127,13 +127,12 @@ class TextBox:
         return (titlecase_count / valid_word_count) >= 0.25
     
 
-    def get_first_char_x(self):
+    def get_first_char_coordX0(self):
         for textline in self.tbox.findall('.//textline'):
             for text in textline.findall('.//text'):
                 if text.text and 'bbox' in text.attrib:
                     return float(text.attrib['bbox'].split(',')[0])
         return None
-    
 
     def get_side_note_datas(self, side_note_datas):
         current_sentence = []

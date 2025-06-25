@@ -159,6 +159,12 @@ class Page:
             if isinstance(label, tuple) and label[0] == "table":
                 print("From table:",label[1])
                 print(tb.extract_text_from_tb())
+    
+    def print_amendment(self):
+        print("i'm from amendment")
+        for tb,label in self.all_tbs.items():
+            if isinstance(label,list) and label[0] == "amendment":
+                print(tb.extract_text_from_tb())
 
     #  --- func to find the tbs which has more than 50% of page width ---
     def  get_width_ofTB_moreThan_Half_of_pg(self):
@@ -248,7 +254,7 @@ class Page:
                 self.all_tbs[tb] = "subsection"
                 continue
 
-            if self.all_tbs[tb] is None and para_re.match(texts.strip()) and tb.get_first_char_x()<0.3*self.pg_width:
+            if self.all_tbs[tb] is None and para_re.match(texts.strip()) and tb.get_first_char_coordX0()<0.3*self.pg_width:
                 self.all_tbs[tb] = "para"
                 continue
 
