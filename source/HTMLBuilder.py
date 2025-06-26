@@ -6,6 +6,7 @@ class HTMLBuilder:
     def __init__(self):
         self.pending_text = ""
         self.pending_tag = None
+        self.sentence_completion_punctuation = (('.', ';', ':', '—',' or'))
         self.builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -94,9 +95,10 @@ class HTMLBuilder:
         self.flushPrevious()
         self.builder += table.to_html(index=False, border=1)
         self.builder += "\n" 
+  
 
     def addUnlabelled(self,text):
-        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         if not self.pending_tag and not self.pending_text and is_sentence_completed:
           self.builder += f"<p>{text}</p>\n"
           self.pending_tag = None
@@ -154,49 +156,64 @@ class HTMLBuilder:
     def addSection(self,tb,side_note_datas,page_height):
         self.flushPrevious()
         text = tb.extract_text_from_tb()
-        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
-        subsection_re = re.compile(r'^\s*\(\d+\)\s*\S+', re.IGNORECASE) 
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
         if side_note_text:
           match = re.match(r'^(\d+\.\s*)(.*)', text.strip())
           if match:
             prefix = match.group(1)
             short_title = side_note_text.strip()
-            rest = match.group(2).strip()
-            if not subsection_re.match(rest):
+            rest_text = match.group(2).strip()
+            rest_text_type = self.findType(rest_text)
+            if rest_text_type is None:
                 if is_sentence_completed:
-                  self.builder += f"<div class=\"section\">{prefix}{short_title}<br>{rest}</div>\n"
+                  self.builder += f"<section class=\"section\">{prefix}{short_title}<br>{rest_text}</section>\n"
                 else:
-                    self.pending_text +=f"<div class=\"section\">{prefix}{short_title}<br>{rest}"
-                    self.pending_tag = "div"
+                    self.pending_text +=f"<section class=\"section\">{prefix}{short_title}<br>{rest_text}"
+                    self.pending_tag = "section"
             else:
-                self.builder += f"<div class=\"section\">{prefix}{short_title}</div>\n"
+                self.builder += f"<section class=\"section\">{prefix}{short_title}</section>\n"
                 if is_sentence_completed:
-                  self.builder += f"<div class=\"subsection\">{rest}</div>\n"
+                  self.builder += f"<section class=\"{rest_text_type}\">{rest_text}</section>\n"
                 else:
-                    self.pending_text += f"<div class=\"subsection\">{rest}"
-                    self.pending_tag = "div"
+                    self.pending_text += f"<section class=\"{rest_text_type}\">{rest_text}"
+                    self.pending_tag = "section"
                 
         else:
           if is_sentence_completed:
-            self.builder += f"<div class=\"section\">{text}</div>\n"
+            self.builder += f"<section class=\"section\">{text}</section>\n"
           else:
-            self.pending_text += f"<div class=\"section\">{text}"
-            self.pending_tag="div"
-              
+            self.pending_text += f"<section class=\"section\">{text}"
+            self.pending_tag="section"
+    
+    def findType(self,texts):
+      subsection_re = re.compile(r'^\s*\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)    # (1) Clause text
+      para_re = re.compile(r'^\s*\([a-z]+\)\s*\S+', re.IGNORECASE)       # (a) Clause text
+      subpara_re = re.compile(r'^\s*\([ivxlcdm]+\)\s*\S+', re.IGNORECASE) # (i) Clause text
+      
+      if  subsection_re.match(texts.strip()):
+        return "subsection"
+
+      if subpara_re.match(texts.strip()):
+        return "subpara"
+      
+      if para_re.match(texts.strip()):
+        return "para"
+      
+      return None
 
     def addSubsection(self,text):
         self.flushPrevious()
-        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         if is_sentence_completed:
-          self.builder += f"<div class=\"subsection\">{text}</div>\n"
+          self.builder += f"<section class=\"subsection\">{text}</section>\n"
         else:
-          self.pending_text = f"<div class=\"subsection\">{text}"
-          self.pending_tag = "div"
+          self.pending_text = f"<section class=\"subsection\">{text}"
+          self.pending_tag = "section"
     
     def addPara(self,text):
         self.flushPrevious()
-        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         if is_sentence_completed:
           self.builder += f"<section class=\"para\">{text}</section>\n"
         else:
@@ -205,7 +222,7 @@ class HTMLBuilder:
     
     def addSubpara(self,text):
         self.flushPrevious()
-        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         if is_sentence_completed:
           self.builder += f"<section class=\"subpara\">{text}</section>\n"
         else:
@@ -215,13 +232,29 @@ class HTMLBuilder:
     def addAmendment(self,text):
         self.flushPrevious()
         # self.builder  += f"<section class=\"amendment\">{text}</section>"
-        is_sentence_completed = text.strip()[-1] in (('.', ';', ':', '—'))
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         if is_sentence_completed:
            self.builder  += f"<section class=\"amendment\">{text}</section>"
         else:
            self.pending_text += f"<section class=\"amendment\">{text}"
            self.pending_tag = "section"
-
+    
+    # def add_title_from_amendment(self,tb,pg_width,pg_height):
+    #   self.flushPrevious()
+    #   if(tb.width > 0.58 * pg_width and tb.height > 0.15 * pg_height):
+    #     self.builder += f"<p class=\"preamble\">{tb.extract_text_from_tb()}</p>\n"
+    #   else:
+    #     doc = ''
+    #     for textline in tb.tbox.findall('.//textline'):
+    #         line_texts = []
+    #         for text in textline.findall('.//text'):
+    #             if text.text:
+    #                 line_texts.append(text.text)
+    #         line = ''.join(line_texts).replace("\n", " ").strip()
+    #         if line:
+    #             doc += f"<center><h4>{line}</h4></center>\n"
+    #     self.builder += doc
+       
     def build(self, page):
         visited_for_table = set()
 

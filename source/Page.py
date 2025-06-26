@@ -5,6 +5,7 @@ import numpy as np
 import re
 
 class Page:
+    coordX_for_para_subpara = None
     def __init__(self,pg,pdfPath):
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -77,25 +78,38 @@ class Page:
 
         tolerance = center_tolerance * self.body_width
 
-        for tb in self.all_tbs:
+        for tb in self.all_tbs.keys():
+            label = self.all_tbs.get(tb)
             # Skip known structural blocks
-            if self.all_tbs.get(tb) is not None:
+            if label not in (None,["amendment"]):
                 continue
 
             if  tb.is_titlecase():
-                self.all_tbs[tb] = "title"
+                if label == ["amendment"]:
+                    self.all_tbs[tb].append("title")
+                else:
+                    self.all_tbs[tb] = "title"
                 continue
 
             if  tb.textFont_is_bold():
-                self.all_tbs[tb] = "title"
+                if label == ["amendment"]:
+                    self.all_tbs[tb].append("title")
+                else:
+                    self.all_tbs[tb] = "title"
                 continue
             
             if  tb.is_uppercase():
-                self.all_tbs[tb] = "title"
+                if label == ["amendment"]:
+                    self.all_tbs[tb].append("title")
+                else:
+                    self.all_tbs[tb] = "title"
                 continue
 
             if tb.textFont_is_italic():
-                self.all_tbs[tb] = "title"
+                if label == ["amendment"]:
+                    self.all_tbs[tb].append("title")
+                else:
+                    self.all_tbs[tb] = "title"
                 continue
 
             # Centered within tolerance
@@ -111,8 +125,11 @@ class Page:
                 text = tb.extract_text_from_tb().strip()
                 if text and text.count(' ') < 10:  # Optional: skip full sentences
                     if not bad_end_re.search(text):
+                        if label == ["amendment"]:
+                            self.all_tbs[tb].append("title")
+                        else:
                         # print("text height,text width of box:",tb.height,tb.width)
-                        self.all_tbs[tb] = "title"
+                            self.all_tbs[tb] = "title"
                         continue
 
             
@@ -163,7 +180,8 @@ class Page:
     def print_amendment(self):
         print("i'm from amendment")
         for tb,label in self.all_tbs.items():
-            if isinstance(label,list) and label[0] == "amendment":
+            if isinstance(label,list) and label[0] == "amendment" and label[1]=="sentences":
+                print("i'm from amendment ",label[1])
                 print(tb.extract_text_from_tb())
 
     #  --- func to find the tbs which has more than 50% of page width ---
@@ -238,30 +256,71 @@ class Page:
     
     # --- func to find section, subsection, para, subpara ---
     def get_section_para(self):
-        section_re = re.compile(r'^\s*\d+\.\s*\S+', re.IGNORECASE)         # 1. Clause text
-        subsection_re = re.compile(r'^\s*\(\d+\)\s*\S+', re.IGNORECASE)    # (1) Clause text
+        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)         # 1. Clause text
+        subsection_re = re.compile(r'^\s*\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)    # (1) Clause text
         para_re = re.compile(r'^\s*\([a-z]+\)\s*\S+', re.IGNORECASE)       # (a) Clause text
         subpara_re = re.compile(r'^\s*\([ivxlcdm]+\)\s*\S+', re.IGNORECASE) # (i) Clause text
 
-        for tb in list(self.all_tbs.keys()):
-            texts  = tb.extract_text_from_tb()
 
-            if self.all_tbs[tb] is None and section_re.match(texts.strip()):
+        amendment_section_re = re.compile(r'^\s*[\'"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
+        amendment_subsection_re = re.compile(r'^\s*[\'"]?\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)
+        amendment_para_re = re.compile(r'^\s*[\'"]?\([a-z]+\)\s*\S+', re.IGNORECASE)
+        amendment_subpara_re = re.compile(r'^\s*[\'"]?\([ivxlcdm]+\)\s*\S+', re.IGNORECASE)
+
+
+
+        for tb in self.all_tbs.keys():
+            texts  = tb.extract_text_from_tb()
+            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            label = self.all_tbs[tb]
+            threshold = 0.03 * self.pg_width
+            if  label is None and section_re.match(texts.strip()):
+                Page.coordX_for_para_subpara = None
                 self.all_tbs[tb] = "section"
                 continue
 
-            if self.all_tbs[tb] is None and subsection_re.match(texts.strip()):
+            if  label is None and subsection_re.match(texts.strip()):
+                Page.coordX_for_para_subpara = None
                 self.all_tbs[tb] = "subsection"
                 continue
 
-            if self.all_tbs[tb] is None and para_re.match(texts.strip()) and tb.get_first_char_coordX0()<0.3*self.pg_width:
+            # if label is None and para_re.match(texts.strip()) and subpara_re.match(texts.strip()) :
+            #     closeness = abs(Page.coordX_for_para_subpara - tb.get_first_char_coordX0())
+            #     if closeness < threshold:
+            #         self.all_tbs[tb] = "para"
+            #     else:
+            #         self.all_tbs[tb] = "subpara"
+            #     Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+            #     continue
+        
+            if label is None and para_re.match(texts.strip()):
+                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
                 self.all_tbs[tb] = "para"
                 continue
 
-            if self.all_tbs[tb] is None and subpara_re.match(texts.strip()):
+            if label is None and subpara_re.match(texts.strip()):
+                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
                 self.all_tbs[tb] = "subpara"
                 continue 
+            
+            if label ==["amendment"] and amendment_section_re.match(texts.strip()):
+                self.all_tbs[tb].append("section")
+                continue
 
+            if label ==["amendment"] and amendment_subsection_re.match(texts.strip()):
+                self.all_tbs[tb].append("subsection")
+                continue
+
+            if label ==["amendment"] and amendment_para_re.match(texts.strip()):
+                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+                self.all_tbs[tb].append("para")
+                continue
+
+            if label == ["amendment"] and amendment_subpara_re.match(texts.strip()):
+                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+                self.all_tbs[tb].append("subpara")
+                continue
+            
 
 
     # --- func to label the textboxes comes in table layout ---
@@ -282,4 +341,8 @@ class Page:
             for tb in self.all_tbs.keys():
                 if self.all_tbs[tb] is None and bbox_satisfies(tb.coords,tab_bbox):
                     self.all_tbs[tb] = ("table",idx)
-                    
+    
+    def get_untitled_amendments(self):
+        for tb,label in self.all_tbs.items():
+            if isinstance(label,list) and label[0] == "amendment" and len(label)==1:
+                self.all_tbs[tb].append("sentences")

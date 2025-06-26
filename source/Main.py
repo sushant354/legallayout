@@ -53,6 +53,8 @@ class Main:
             self.amendment.check_for_amendments(page)
             page.get_section_para()
             page.get_titles()
+            if self.amendment.isAmendmentPDF:
+                page.get_untitled_amendments()
             # page.print_table_content()
             # page.print_headers()
             # page.print_footers()
@@ -60,7 +62,8 @@ class Main:
             # page.print_titles()
             # page.print_section_para()
             # page.print_all()
-            # page.print_amendment()
+            page.print_amendment()
+        Page.coordX_for_para_subpara = None
             
     # --- in each page do contour to detect possible header/footer content ---
     def contour_header_footer_of_page(self,pg):
@@ -232,7 +235,7 @@ class Main:
 
 
 if __name__ == "__main__":
-    pdf_path = r'/home/barath-kumar/Downloads/222070.pdf'  #  Replace with your PDF path
+    pdf_path = r'/home/barath-kumar/Documents/IKanoon/Parser-and-Converter/test/TestSample.pdf'  #  Replace with your PDF path
     main = Main(pdf_path)
     main.parsePDF()
     main.buildHTML()

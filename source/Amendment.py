@@ -25,12 +25,10 @@ class Amendment:
                     self.quote_stack.append(text[0])
                     self.isAmendmentPDF = True
                     page.all_tbs[tb] = ["amendment"]
-                    print(text)
                     
 
                 # Check for closing quote
                 elif self.quote_stack and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")):
-                    print(text)
                     self.quote_stack.pop()
                     page.all_tbs[tb] = ["amendment"]
                     
