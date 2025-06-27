@@ -1,11 +1,20 @@
 from TextBox import TextBox
 from TableExtraction import TableExtraction
+from CompareLevel import CompareLevel
 from sklearn.cluster import DBSCAN
 import numpy as np
 import re
 
+
+ARTICLE      = 4
+DECIMAL      = 3
+SMALLSTRING  = 2
+GENSTRING    = 1
+ROMAN        = 0
+
 class Page:
-    coordX_for_para_subpara = None
+    stack_for_para_subpara = []
+    # compareLevel = CompareLevel()
     def __init__(self,pg,pdfPath):
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -254,73 +263,266 @@ class Page:
 
         return round(self.body_endX - self.body_startX, 2)
     
-    # --- func to find section, subsection, para, subpara ---
-    def get_section_para(self):
-        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)         # 1. Clause text
-        subsection_re = re.compile(r'^\s*\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)    # (1) Clause text
-        para_re = re.compile(r'^\s*\([a-z]+\)\s*\S+', re.IGNORECASE)       # (a) Clause text
-        subpara_re = re.compile(r'^\s*\([ivxlcdm]+\)\s*\S+', re.IGNORECASE) # (i) Clause text
+    # # --- func to find section, subsection, para, subpara ---
+    # def get_section_para(self):
+    #     section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)         # 1. Clause text
+    #     subsection_re = re.compile(r'^\s*\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)    # (1) Clause text
+    #     para_re = re.compile(r'^\s*\([a-z]+\)\s*\S+', re.IGNORECASE)       # (a) Clause text
+    #     subpara_re = re.compile(r'^\s*\([ivxlcdm]+\)\s*\S+', re.IGNORECASE) # (i) Clause text
 
 
-        amendment_section_re = re.compile(r'^\s*[\'"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
-        amendment_subsection_re = re.compile(r'^\s*[\'"]?\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)
-        amendment_para_re = re.compile(r'^\s*[\'"]?\([a-z]+\)\s*\S+', re.IGNORECASE)
-        amendment_subpara_re = re.compile(r'^\s*[\'"]?\([ivxlcdm]+\)\s*\S+', re.IGNORECASE)
+    #     amendment_section_re = re.compile(r'^\s*[\'"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
+    #     amendment_subsection_re = re.compile(r'^\s*[\'"]?\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)
+    #     amendment_para_re = re.compile(r'^\s*[\'"]?\([a-z]+\)\s*\S+', re.IGNORECASE)
+    #     amendment_subpara_re = re.compile(r'^\s*[\'"]?\([ivxlcdm]+\)\s*\S+', re.IGNORECASE)
 
 
 
-        for tb in self.all_tbs.keys():
-            texts  = tb.extract_text_from_tb()
-            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
-            label = self.all_tbs[tb]
-            threshold = 0.03 * self.pg_width
-            if  label is None and section_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = None
-                self.all_tbs[tb] = "section"
-                continue
+    #     for tb in self.all_tbs.keys():
+    #         texts  = tb.extract_text_from_tb()
+    #         texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+    #         label = self.all_tbs[tb]
+    #         threshold = 0.03 * self.pg_width
+    #         if  label is None and section_re.match(texts.strip()):
+    #             Page.coordX_for_para_subpara = None
+    #             self.all_tbs[tb] = "section"
+    #             continue
 
-            if  label is None and subsection_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = None
-                self.all_tbs[tb] = "subsection"
-                continue
+    #         if  label is None and subsection_re.match(texts.strip()):
+    #             Page.coordX_for_para_subpara = None
+    #             self.all_tbs[tb] = "subsection"
+    #             continue
 
-            # if label is None and para_re.match(texts.strip()) and subpara_re.match(texts.strip()) :
-            #     closeness = abs(Page.coordX_for_para_subpara - tb.get_first_char_coordX0())
-            #     if closeness < threshold:
-            #         self.all_tbs[tb] = "para"
-            #     else:
-            #         self.all_tbs[tb] = "subpara"
-            #     Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-            #     continue
+    #         # if label is None and para_re.match(texts.strip()) and subpara_re.match(texts.strip()) :
+    #         #     closeness = abs(Page.coordX_for_para_subpara - tb.get_first_char_coordX0())
+    #         #     if closeness < threshold:
+    #         #         self.all_tbs[tb] = "para"
+    #         #     else:
+    #         #         self.all_tbs[tb] = "subpara"
+    #         #     Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+    #         #     continue
         
-            if label is None and para_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb] = "para"
-                continue
+    #         if label is None and para_re.match(texts.strip()):
+    #             Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+    #             self.all_tbs[tb] = "para"
+    #             continue
 
-            if label is None and subpara_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb] = "subpara"
-                continue 
+    #         if label is None and subpara_re.match(texts.strip()):
+    #             Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+    #             self.all_tbs[tb] = "subpara"
+    #             continue 
             
-            if label ==["amendment"] and amendment_section_re.match(texts.strip()):
-                self.all_tbs[tb].append("section")
-                continue
+    #         if label ==["amendment"] and amendment_section_re.match(texts.strip()):
+    #             self.all_tbs[tb].append("section")
+    #             continue
 
-            if label ==["amendment"] and amendment_subsection_re.match(texts.strip()):
-                self.all_tbs[tb].append("subsection")
-                continue
+    #         if label ==["amendment"] and amendment_subsection_re.match(texts.strip()):
+    #             self.all_tbs[tb].append("subsection")
+    #             continue
 
-            if label ==["amendment"] and amendment_para_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb].append("para")
-                continue
+    #         if label ==["amendment"] and amendment_para_re.match(texts.strip()):
+    #             Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+    #             self.all_tbs[tb].append("para")
+    #             continue
 
-            if label == ["amendment"] and amendment_subpara_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb].append("subpara")
-                continue
-            
+    #         if label == ["amendment"] and amendment_subpara_re.match(texts.strip()):
+    #             Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
+    #             self.all_tbs[tb].append("subpara")
+    #             continue
+
+    def roman_to_int(self,s):
+        roman_map ={'i': 1,
+        'v': 5,
+        'x': 10,
+        'l': 50,
+        'c': 100,
+        'd': 500,
+        'm': 1000}
+
+        if any(c not in roman_map for c in s):
+            return None
+        
+        total = 0
+        prev_value = 0
+        for char in reversed(s):
+            value = roman_map[char]
+            if value < prev_value:
+                total -= value
+            else:
+                total +=value
+                prev_value = value
+        return total
+
+
+    # def get_section_para(self,startPage,endPage):
+    #     hierarchy_type = ("section","subsection","para","subpara","subsubpara")
+    #     section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
+    #     type1_re = re.compile(r'^\s*\((?P<group>\d+[A-Z]*(?:-[A-Z]+)?)\)\s*\S+', re.IGNORECASE)
+    #     type2_re = re.compile(r'^\s*\((?P<group>[a-z]+)\)\s*\S+', re.IGNORECASE)
+    #     type3_re = re.compile(r'^\s*\((?P<group>[ivxlcdm]+)\)\s*\S+', re.IGNORECASE)
+
+    #     if int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
+    #         for tb,label in self.all_tbs.items():
+    #             texts = tb.extract_text_from_tb().strip()
+    #             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+    #             if label is None and section_re.match(texts):
+    #                 Page.stack_for_para_subpara=[]
+    #                 self.all_tbs[tb] = hierarchy_type[0]
+    #                 print("im from",self.all_tbs[tb],texts)
+    #                 check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+    #                 Page.stack_for_para_subpara.append((hierarchy_type[0],check_inside.group(1).strip(),tb.get_first_char_coordX0()))
+                    
+    #                 if check_inside:
+    #                     rest_text = check_inside.group(2).strip()
+    #                     match = (type1_re.match(rest_text) or type2_re.match(rest_text) or type3_re.match(rest_text))
+    #                     if Page.stack_for_para_subpara and match:
+    #                         group =match.group("group")
+    #                         recently_visited = Page.stack_for_para_subpara[-1]
+    #                         if recently_visited[0]=="section":
+    #                             classification = hierarchy_type[hierarchy_type.index(recently_visited[0])+1]
+    #                             self.all_tbs[tb] = classification
+    #                             print("im from",self.all_tbs[tb],texts)
+    #                             Page.stack_for_para_subpara.append((classification,group,tb.get_first_char_coordX0()))
+
+    #                 continue
+
+    #             match = (type1_re.match(texts) or type2_re.match(texts) or type3_re.match(texts))
+    #             if Page.stack_for_para_subpara and match :
+    #                 group =match.group("group")
+    #                 recently_visited = Page.stack_for_para_subpara[-1]
+    #                 if recently_visited[0]=="section":
+    #                     classification = hierarchy_type[hierarchy_type.index(recently_visited[0])+1] #subsection
+    #                     self.all_tbs[tb] = classification
+    #                     print("im from",self.all_tbs[tb],texts)
+    #                     Page.stack_for_para_subpara.append((classification,group,tb.get_first_char_coordX0()))
+    #                     continue
+    #                 prev_literal = recently_visited[1]
+    #                 curr_literal = group 
+    #                 Page.compareLevel.compare_literal(prev_literal,curr_literal)
+    #                 print("prev_literal",prev_literal,"curr_literal",curr_literal)
+
+
+    def get_section_para(self,startPage,endPage):
+        hierarchy_type = ("section","subsection","para","subpara","subsubpara")
+        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
+        group_re = re.compile(r'^\(([^\s\)]+)\)\s+\S+',re.IGNORECASE)
+
+        if int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
+            for tb,label in self.all_tbs.items():
+                texts = tb.extract_text_from_tb().strip()
+                texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+                if label is None and section_re.match(texts):
+                    section_number = section_re.match(texts).group().split('.')[0].strip()
+                    Page.compare_obj = CompareLevel(section_number, ARTICLE)
+                    Page.prev_value = section_number
+                    Page.prev_type = ARTICLE
+                    Page.curr_depth = 0
+                    self.all_tbs[tb] = hierarchy_type[0]
+                    print("im from",self.all_tbs[tb],texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    # Page.stack_for_para_subpara.append((hierarchy_type[0],section_number))
+                    
+                    if check_inside:
+                        rest_text = check_inside.group(2).strip()
+                        match = group_re.match(rest_text)
+                        if match:
+                            group =match.group(1).strip()
+                            valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth, Page.prev_value, group, Page.prev_type)
+                            Page.curr_depth = Page.curr_depth - compValue
+                            classification = hierarchy_type[min(Page.curr_depth, len(hierarchy_type) - 1)]
+                            self.all_tbs[tb] = classification
+                            print("I'm from", self.all_tbs[tb], texts)
+                            Page.prev_value = group
+                            Page.prev_type = valueType2
+                    continue
+
+                match = group_re.match(texts)
+                if label is None and hasattr(Page, "compare_obj") and  match :
+                    group =match.group(1).strip()
+                    valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth,Page.prev_value,group,Page.prev_type)
+                    Page.curr_depth = Page.curr_depth - compValue
+                    classification = hierarchy_type[min(Page.curr_depth, len(hierarchy_type) - 1)]
+                    self.all_tbs[tb] = classification
+                    print("i'm from ",self.all_tbs[tb],texts)
+                    Page.prev_value = group
+                    Page.prev_type = valueType2
+    # def get_section_para(self, startPage, endPage):
+
+    #     hierarchy_type = ["section", "subsection", "para", "subpara", "subsubpara"]
+    #     section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
+    #     group_re = re.compile(r'^\(*([^)]+)\)*\s+\S+')
+
+    #     if not hasattr(Page, "stack_for_para_subpara"):
+    #         Page.stack_for_para_subpara = []
+
+    #     if not hasattr(Page, "compareLevel"):
+    #         raise Exception("Page.compareLevel (CompareNumber object) is not initialized.")
+
+    #     if int(self.pg_num) < startPage or int(self.pg_num) > endPage:
+    #         return
+
+    #     for tb, label in self.all_tbs.items():
+    #         texts = tb.extract_text_from_tb().strip()
+    #         texts = texts.replace('“', '"').replace('”', '"')\
+    #                     .replace('‘‘', '"').replace('’’', '"')\
+    #                     .replace('‘', "'").replace('’', "'")
+
+    #         # --- Detect Section ---
+    #         if label is None and section_re.match(texts):
+    #             Page.stack_for_para_subpara = []
+    #             self.all_tbs[tb] = hierarchy_type[0]
+    #             print("I'm from", self.all_tbs[tb], texts)
+
+    #             check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+    #             if check_inside:
+    #                 section_num = check_inside.group(1).strip()
+    #                 Page.stack_for_para_subpara.append((hierarchy_type[0], section_num, tb.get_first_char_coordX0()))
+                    
+    #                 rest_text = check_inside.group(2).strip()
+    #                 match = group_re.match(rest_text)
+    #                 if match:
+    #                     group = match.group(1)
+    #                     classification = hierarchy_type[1]
+    #                     self.all_tbs[tb] = classification
+    #                     print("I'm from", self.all_tbs[tb], texts)
+    #                     Page.stack_for_para_subpara.append((classification, group, tb.get_first_char_coordX0()))
+    #             continue
+
+    #         # --- Detect Sub-Levels (subsection, para, etc.) ---
+    #         match = group_re.match(texts)
+    #         if Page.stack_for_para_subpara and match:
+    #             curr_literal = match.group(1)
+    #             prev_level, prev_literal, _ = Page.stack_for_para_subpara[-1]
+
+    #             # Compare current group with previous one using CompareNumber
+    #             valueType = Page.compareLevel.value_type(prev_literal)
+    #             valueType2, compValue = Page.compareLevel.comp_nums(
+    #                 depth=len(Page.stack_for_para_subpara) - 1,
+    #                 value1=prev_literal,
+    #                 value2=curr_literal,
+    #                 valueType1=valueType
+    #             )
+
+    #             # Determine new depth and type
+    #             if compValue == 0:
+    #                 curr_level_index = hierarchy_type.index(prev_level)
+    #             elif compValue < 0:
+    #                 curr_level_index = hierarchy_type.index(prev_level) + abs(compValue)
+    #             elif compValue > 0:
+    #                 # Go up in hierarchy
+    #                 for _ in range(compValue):
+    #                     Page.stack_for_para_subpara.pop()
+    #                 curr_level_index = hierarchy_type.index(Page.stack_for_para_subpara[-1][0]) if Page.stack_for_para_subpara else 0
+    #                 curr_level_index += 1
+
+    #             if curr_level_index >= len(hierarchy_type):
+    #                 curr_level_index = len(hierarchy_type) - 1
+
+    #             classification = hierarchy_type[curr_level_index]
+    #             self.all_tbs[tb] = classification
+    #             print("I'm from", self.all_tbs[tb], texts)
+
+    #             Page.stack_for_para_subpara.append((classification, curr_literal, tb.get_first_char_coordX0()))
 
 
     # --- func to label the textboxes comes in table layout ---

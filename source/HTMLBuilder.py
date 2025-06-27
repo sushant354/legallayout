@@ -159,7 +159,7 @@ class HTMLBuilder:
         is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
         if side_note_text:
-          match = re.match(r'^(\d+\.\s*)(.*)', text.strip())
+          match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
           if match:
             prefix = match.group(1)
             short_title = side_note_text.strip()
