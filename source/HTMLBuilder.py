@@ -1,6 +1,6 @@
 import re
 import math
-
+from collections import OrderedDict
 class HTMLBuilder:
     
     def __init__(self):
@@ -68,6 +68,7 @@ class HTMLBuilder:
 <body>
 '''
 
+    # --- func to flush previous textbox text --
     def flushPrevious(self):
       if self.pending_tag and self.pending_text:
         self.pending_text += f"</{self.pending_tag}>\n"
@@ -75,6 +76,7 @@ class HTMLBuilder:
         self.pending_text =""
         self.pending_tag = None
 
+    # --- func to add Title in the html ---
     def addTitle(self, tb,pg_width,pg_height):
         self.flushPrevious()
         if(tb.width > 0.58 * pg_width and tb.height > 0.15 * pg_height):
@@ -91,12 +93,13 @@ class HTMLBuilder:
                     doc += f"<center><h4>{line}</h4></center>\n"
             self.builder += doc
     
+    # --- func to add the table in the html ---
     def addTable(self, table):
         self.flushPrevious()
-        self.builder += table.to_html(index=False, border=1)
+        self.builder += table.to_html(index=False, border=1).replace("\\n"," ")
         self.builder += "\n" 
   
-
+    # --- func to add the unknown label of textbox in the html - classified as <p> tag ---
     def addUnlabelled(self,text):
         is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
         if not self.pending_tag and not self.pending_text and is_sentence_completed:
@@ -121,7 +124,7 @@ class HTMLBuilder:
     def euclidean_distance(self,c1, c2):
         return math.sqrt((c1[0] - c2[0])**2 + (c1[1] - c2[1])**2)
 
-
+    # --- func to fit the side notes to their corresponding sections ---
     def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.005):
       tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
       vertical_threshold = page_height * vertical_threshold_ratio
@@ -152,7 +155,7 @@ class HTMLBuilder:
 
       return closest_text
 
-    
+    # --- func to add the section labelled textbox in the html ---
     def addSection(self,tb,side_note_datas,page_height):
         self.flushPrevious()
         text = tb.extract_text_from_tb()
@@ -187,21 +190,12 @@ class HTMLBuilder:
             self.pending_tag="section"
     
     def findType(self,texts):
-      subsection_re = re.compile(r'^\s*\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)    # (1) Clause text
-      para_re = re.compile(r'^\s*\([a-z]+\)\s*\S+', re.IGNORECASE)       # (a) Clause text
-      subpara_re = re.compile(r'^\s*\([ivxlcdm]+\)\s*\S+', re.IGNORECASE) # (i) Clause text
-      
-      if  subsection_re.match(texts.strip()):
-        return "subsection"
-
-      if subpara_re.match(texts.strip()):
-        return "subpara"
-      
-      if para_re.match(texts.strip()):
-        return "para"
-      
+      group_re = re.compile(r'^\(([^\s\)]+)\)\s+\S+',re.IGNORECASE)
+      if group_re.match(texts.strip()):
+         return "subsection"
       return None
-
+    
+    # --- func to add the subsection labelled textbox in the html ---
     def addSubsection(self,text):
         self.flushPrevious()
         is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
@@ -211,6 +205,7 @@ class HTMLBuilder:
           self.pending_text = f"<section class=\"subsection\">{text}"
           self.pending_tag = "section"
     
+    # --- func to add the para labelled textbox in the html --- 
     def addPara(self,text):
         self.flushPrevious()
         is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
@@ -219,7 +214,8 @@ class HTMLBuilder:
         else:
            self.pending_text += f"<section class=\"para\">{text}"
            self.pending_tag = "section"
-    
+
+    # --- func to add the subpara labelled textbox in the html ---
     def addSubpara(self,text):
         self.flushPrevious()
         is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
@@ -229,6 +225,7 @@ class HTMLBuilder:
            self.pending_text += f"<section class=\"subpara\">{text}"
            self.pending_tag ="section"
     
+    # ---func to add the textbox labelled as amendments in the html ---
     def addAmendment(self,text):
         self.flushPrevious()
         # self.builder  += f"<section class=\"amendment\">{text}</section>"
@@ -254,9 +251,14 @@ class HTMLBuilder:
     #         if line:
     #             doc += f"<center><h4>{line}</h4></center>\n"
     #     self.builder += doc
-       
+    
+    # --- func to build the textbox  as html ---
     def build(self, page):
         visited_for_table = set()
+        # is_multi_column_page = page.is_multi_column_page
+        # print(is_multi_column_page)
+        # if is_multi_column_page:
+        #    page.all_tbs = self.get_orderBy_textboxes(page)
 
         for tb, label in page.all_tbs.items():
             if isinstance(label, tuple) and label[0] == "table":
@@ -287,6 +289,31 @@ class HTMLBuilder:
         if  tb.width < 0.04 * pg_width:
             return True
         return False
+    
+    def get_orderBy_textboxes(self,page):
+      column_gap = 0.04 * page.pg_width
+      items = list(page.all_tbs.items())
+      items.sort(key=lambda pair:pair[0].coords[0])
+
+      columns = []
+      current = []
+      prev_x0 =None
+
+      for tb, label in items:
+        if prev_x0 is None or (tb.coords[0]-prev_x0) < column_gap:
+           current.append((tb,label))
+        else:
+           columns.append(current)
+           current=[(tb,label)]
+        prev_x0 = tb.coords[0]
+      if current:
+         columns.append(current)
+
+      for col in columns:
+         col.sort(key=lambda  pair: -pair[0].coords[3])
+
+      flat = [pair for col in columns for pair in col]
+      return OrderedDict(flat)           
         
     def get_html(self):
         self.flushPrevious()
