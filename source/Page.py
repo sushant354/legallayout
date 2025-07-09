@@ -1,11 +1,20 @@
 from TextBox import TextBox
 from TableExtraction import TableExtraction
+from CompareLevel import CompareLevel
 from sklearn.cluster import DBSCAN
 import numpy as np
 import re
 
+
+ARTICLE      = 4
+DECIMAL      = 3
+SMALLSTRING  = 2
+GENSTRING    = 1
+ROMAN        = 0
+
 class Page:
-    coordX_for_para_subpara = None
+    # stack_for_para_subpara = []
+    # # compareLevel = CompareLevel()
     def __init__(self,pg,pdfPath):
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -188,7 +197,7 @@ class Page:
     def  get_width_ofTB_moreThan_Half_of_pg(self):
         self.fiftyPercent_moreWidth_tbs = []
         for tb in self.all_tbs.keys():
-            if round(tb.width,2) >= 0.5 * self.pg_width :
+            if round(tb.width,2) >= 0.4 * self.pg_width :
                 self.fiftyPercent_moreWidth_tbs.append(tb)
 
     # --- func to find the page is single column or not ---
@@ -242,11 +251,20 @@ class Page:
         
     # --- func to find body width if fiftyPercent_moreWidth_tbs not exists ---
     def get_body_width(self):
+        # body_candidates = [
+        # tb for tb in self.all_tbs.keys()
+        # if self.all_tbs.get(tb) != "header"
+        # and tb.coords[0] > 0.125 * self.pg_width
+        # and tb.coords[2] < 0.875 * self.pg_width
+        # ]
+        
+        # self.body_startX = min(tb.coords[0] for tb in body_candidates)
+        # self.body_endX = max(tb.coords[2] for tb in body_candidates)
+
+        # return round(self.body_endX - self.body_startX, 2)
         body_candidates = [
         tb for tb in self.all_tbs.keys()
-        if self.all_tbs.get(tb) != "header"
-        and tb.coords[0] > 0.125 * self.pg_width
-        and tb.coords[2] < 0.875 * self.pg_width
+        if self.all_tbs[tb] is None
         ]
         
         self.body_startX = min(tb.coords[0] for tb in body_candidates)
@@ -255,74 +273,48 @@ class Page:
         return round(self.body_endX - self.body_startX, 2)
     
     # --- func to find section, subsection, para, subpara ---
-    def get_section_para(self):
-        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)         # 1. Clause text
-        subsection_re = re.compile(r'^\s*\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)    # (1) Clause text
-        para_re = re.compile(r'^\s*\([a-z]+\)\s*\S+', re.IGNORECASE)       # (a) Clause text
-        subpara_re = re.compile(r'^\s*\([ivxlcdm]+\)\s*\S+', re.IGNORECASE) # (i) Clause text
+    def get_section_para(self,startPage,endPage):
+        hierarchy_type = ("section","subsection","para","subpara","subsubpara")
+        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
+        group_re = re.compile(r'^\(([^\s\)]+)\)\s+\S+',re.IGNORECASE)
 
+        if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
+            for tb,label in self.all_tbs.items():
+                texts = tb.extract_text_from_tb().strip()
+                texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+                if label is None and section_re.match(texts):
+                    section_number = section_re.match(texts).group().split('.')[0].strip()
+                    Page.compare_obj = CompareLevel(section_number, ARTICLE)
+                    Page.prev_value = section_number
+                    Page.prev_type = ARTICLE
+                    Page.curr_depth = 0
+                    self.all_tbs[tb] = hierarchy_type[0]
+                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    
+                    if check_inside:
+                        rest_text = check_inside.group(2).strip()
+                        match = group_re.match(rest_text)
+                        if match:
+                            group =match.group(1).strip()
+                            valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth, Page.prev_value, group, Page.prev_type)
+                            Page.curr_depth = Page.curr_depth - compValue
+                            Page.prev_value = group
+                            Page.prev_type = valueType2
+                    continue
 
-        amendment_section_re = re.compile(r'^\s*[\'"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
-        amendment_subsection_re = re.compile(r'^\s*[\'"]?\(\d+[A-Z]*(?:-[A-Z]+)?\)\s*\S+', re.IGNORECASE)
-        amendment_para_re = re.compile(r'^\s*[\'"]?\([a-z]+\)\s*\S+', re.IGNORECASE)
-        amendment_subpara_re = re.compile(r'^\s*[\'"]?\([ivxlcdm]+\)\s*\S+', re.IGNORECASE)
-
-
-
-        for tb in self.all_tbs.keys():
-            texts  = tb.extract_text_from_tb()
-            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
-            label = self.all_tbs[tb]
-            threshold = 0.03 * self.pg_width
-            if  label is None and section_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = None
-                self.all_tbs[tb] = "section"
-                continue
-
-            if  label is None and subsection_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = None
-                self.all_tbs[tb] = "subsection"
-                continue
-
-            # if label is None and para_re.match(texts.strip()) and subpara_re.match(texts.strip()) :
-            #     closeness = abs(Page.coordX_for_para_subpara - tb.get_first_char_coordX0())
-            #     if closeness < threshold:
-            #         self.all_tbs[tb] = "para"
-            #     else:
-            #         self.all_tbs[tb] = "subpara"
-            #     Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-            #     continue
-        
-            if label is None and para_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb] = "para"
-                continue
-
-            if label is None and subpara_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb] = "subpara"
-                continue 
-            
-            if label ==["amendment"] and amendment_section_re.match(texts.strip()):
-                self.all_tbs[tb].append("section")
-                continue
-
-            if label ==["amendment"] and amendment_subsection_re.match(texts.strip()):
-                self.all_tbs[tb].append("subsection")
-                continue
-
-            if label ==["amendment"] and amendment_para_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb].append("para")
-                continue
-
-            if label == ["amendment"] and amendment_subpara_re.match(texts.strip()):
-                Page.coordX_for_para_subpara = tb.get_first_char_coordX0()
-                self.all_tbs[tb].append("subpara")
-                continue
-            
-
-
+                match = group_re.match(texts)
+                if label is None and hasattr(Page, "compare_obj") and  match :
+                    group =match.group(1).strip()
+                    valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth,Page.prev_value,group,Page.prev_type)
+                    Page.curr_depth = Page.curr_depth - compValue
+                    if Page.curr_depth >= len(hierarchy_type)-1:
+                                continue
+                    else:
+                        classification = hierarchy_type[Page.curr_depth]
+                        self.all_tbs[tb] = classification
+                        Page.prev_value = group
+                        Page.prev_type = valueType2
+    
     # --- func to label the textboxes comes in table layout ---
     def label_table_tbs(self):
         def bbox_satisfies(tb_box,table_box,tolerance = 5):
@@ -341,8 +333,3 @@ class Page:
             for tb in self.all_tbs.keys():
                 if self.all_tbs[tb] is None and bbox_satisfies(tb.coords,tab_bbox):
                     self.all_tbs[tb] = ("table",idx)
-    
-    def get_untitled_amendments(self):
-        for tb,label in self.all_tbs.items():
-            if isinstance(label,list) and label[0] == "amendment" and len(label)==1:
-                self.all_tbs[tb].append("sentences")

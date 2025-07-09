@@ -2,14 +2,15 @@ class Amendment:
     def __init__(self):
         self.isAmendmentPDF = False
         self.quote_stack = []
-
-    def check_for_amendments(self, page):
+    
+    # --- func to classify the textbox if it is detected with sign of amendments properties ---
+    def check_for_amendments(self, page,startPage,endPage):
         for tb in page.all_tbs.keys():
             text = tb.extract_text_from_tb().strip()
             text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             label = page.all_tbs[tb]
 
-            if label is None:
+            if label is None and startPage is not None and endPage is not None and int(page.pg_num) >=startPage and int(page.pg_num)<=endPage:
                 doubleQuote_count = text.count('"')
                 singleQuote_count = text.count("'") 
 

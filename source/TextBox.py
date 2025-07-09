@@ -126,14 +126,15 @@ class TextBox:
         # Return True if at least 25% of words are titlecase
         return (titlecase_count / valid_word_count) >= 0.25
     
-
+    # --- func to get the first char coords of the textbox ---
     def get_first_char_coordX0(self):
         for textline in self.tbox.findall('.//textline'):
             for text in textline.findall('.//text'):
                 if text.text and 'bbox' in text.attrib:
                     return float(text.attrib['bbox'].split(',')[0])
         return None
-
+  
+    # --- func to get the cleaned side note datas ---
     def get_side_note_datas(self, side_note_datas):
         current_sentence = []
         sentence_start_coords = None

@@ -1,4 +1,5 @@
 import os
+import argparse
 from difflib import SequenceMatcher
 from ParserTool import ParserTool
 from Page import Page
@@ -6,14 +7,17 @@ from HTMLBuilder import HTMLBuilder
 from Amendment import Amendment
 
 class Main:
-    def __init__(self,pdfPath):
+    def __init__(self,pdfPath,start,end):
         self.pdf_path = pdfPath
+        self.section_start_page = start
+        self.section_end_page = end
         self.parserTool = ParserTool()
         self.total_pgs = 0
         self.all_pgs = {}
         self.html_builder = HTMLBuilder()
         self.amendment = Amendment()
     
+    # --- func to build HTML after text classification ---
     def buildHTML(self):
         for page in self.all_pgs.values():
             self.html_builder.build(page)
@@ -23,7 +27,7 @@ class Main:
 
 
     
-    # --- look for page header,footer,table,section,para of all pages ---
+    # --- look for page header,footer,tables of all pages ---
     def get_page_header_footer(self,pages):
         self.sorted_footer_units = []
         self.sorted_header_units = []
@@ -42,19 +46,22 @@ class Main:
         self.process_footer_and_header()
         self.set_page_headers_footers()
 
-    # --- classify the page texboxes sidenotes , titles(headings) ---
+    # --- classify the page texboxes sidenotes, section, para, titles(headings) ---
     def process_pages(self):
         for page in self.all_pgs.values():
             print("pg_num:",page.pg_num)
+            
             page.get_width_ofTB_moreThan_Half_of_pg()
             page.get_body_width_by_binning()
-            is_single_column = page.is_single_column_page()
+            # page.is_single_column_page = page.is_single_column_page()
             page.get_side_notes()
-            self.amendment.check_for_amendments(page)
-            page.get_section_para()
+            # page.is_multi_column_page = page.is_multi_column_page()
+            # print(page.is_multi_column_page)
+            page.is_single_column_page = page.is_single_column_page()
+            # print(page.is_single_column_page)
+            self.amendment.check_for_amendments(page,self.section_start_page,self.section_end_page)
+            page.get_section_para(self.section_start_page,self.section_end_page)
             page.get_titles()
-            if self.amendment.isAmendmentPDF:
-                page.get_untitled_amendments()
             # page.print_table_content()
             # page.print_headers()
             # page.print_footers()
@@ -62,8 +69,8 @@ class Main:
             # page.print_titles()
             # page.print_section_para()
             # page.print_all()
-            page.print_amendment()
-        Page.coordX_for_para_subpara = None
+            # page.print_amendment()
+        
             
     # --- in each page do contour to detect possible header/footer content ---
     def contour_header_footer_of_page(self,pg):
@@ -228,15 +235,30 @@ class Main:
         self.get_page_header_footer(pages)
         self.process_pages()
     
+    # --- func for writing the html content to the desired output file ---
     def write_html(self,content):
         with open("output1.html", "w", encoding="utf-8") as f:
             f.write(content)
         
-
+    # --- func to define argument parser required for the tool ---
+    def get_arg_parser():
+        parser = argparse.ArgumentParser(description="To automate pdf Parse and Convert to structured", add_help=True)
+        parser.add_argument('-i','--input-filePath',dest='input_file_path',action='store',\
+                            required=True,help='mention input file path')
+        parser.add_argument('-s','--section-startPage',dest='section_start_page', action='store',\
+                            type=int,required=False,help='mention section start page if exists')
+        parser.add_argument('-e','--section-endPage',dest='section_end_page', action='store',\
+                            type=int,required=False,help='mention section end page if exists')
+        return parser
 
 if __name__ == "__main__":
-    pdf_path = r'/home/barath-kumar/Documents/IKanoon/Parser-and-Converter/test/TestSample.pdf'  #  Replace with your PDF path
-    main = Main(pdf_path)
+    pdf_path = r'/home/barath-kumar/Downloads/222070.pdf'  #  Replace with your PDF path
+    parser = Main.get_arg_parser()
+    args = parser.parse_args()
+    pdf_path = args.input_file_path
+    start = args.section_start_page
+    end = args.section_end_page
+    main = Main(pdf_path,start,end)
     main.parsePDF()
     main.buildHTML()
   
