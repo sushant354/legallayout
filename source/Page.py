@@ -4,7 +4,6 @@ from CompareLevel import CompareLevel
 from sklearn.cluster import DBSCAN
 import numpy as np
 import re
-from scipy.signal import find_peaks
 
 
 ARTICLE      = 4
@@ -273,33 +272,6 @@ class Page:
 
         return round(self.body_endX - self.body_startX, 2)
     
-    # --- func to find whether the page is single or multi column ---
-    # def is_multi_column_page(self):
-    #     # body_candidates = [
-    #     # tb for tb in self.all_tbs.keys()
-    #     # if self.all_tbs.get(tb) != "header"
-    #     # and tb.coords[0] > 0.125 * self.pg_width
-    #     # and tb.coords[2] < 0.875 * self.pg_width
-    #     # ]
-
-    #     # # Check if any textbox spans most of the page width
-    #     # max_tb_width = max(tb.coords[2] - tb.coords[0] for tb in body_candidates)
-    #     # wide_box_ratio = max_tb_width / self.body_width
-    #     # print(wide_box_ratio)
-    #     # # Multi-column only if wide boxes don't dominate
-    #     # is_multi = wide_box_ratio < 0.5
-    #     # return is_multi
-
-    #     body_candidates = [tb for tb in self.all_tbs
-    #                        if self.all_tbs[tb] is None]
-    #     # Check if any textbox spans most of the page width
-    #     max_tb_width = max(tb.coords[2] - tb.coords[0] for tb in body_candidates)
-    #     wide_box_ratio = max_tb_width / self.body_width
-    #     print(wide_box_ratio)
-    #     # Multi-column only if wide boxes don't dominate
-    #     is_multi = wide_box_ratio < 0.5
-    #     return is_multi
-    
     # --- func to find section, subsection, para, subpara ---
     def get_section_para(self,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
@@ -361,37 +333,3 @@ class Page:
             for tb in self.all_tbs.keys():
                 if self.all_tbs[tb] is None and bbox_satisfies(tb.coords,tab_bbox):
                     self.all_tbs[tb] = ("table",idx)
-    
-    # --- func to label the amendments which is not fall under section,para... ---
-    def get_untitled_amendments(self):
-        for tb,label in self.all_tbs.items():
-            if isinstance(label,list) and label[0] == "amendment" and len(label)==1:
-                self.all_tbs[tb].append("sentences")
-
-    # def is_multi_column_page(self) -> bool:
-    #     x_centres = np.array([
-    #         (tb.coords[0] + tb.coords[2]) * 0.5
-    #         for tb, val in self.all_tbs.items()
-    #         if val is None
-    #     ], dtype=np.float32)
-
-    #     if x_centres.size < 4:
-    #         return False
-
-    #     x_norm = np.sort(x_centres / self.pg_width)
-    #     gaps = x_norm[1:] - x_norm[:-1]
-    #     max_gap = gaps.max()
-    #     median_gap = np.median(gaps)
-    #     gap_ratio = max_gap / median_gap if median_gap > 0 else 0
-
-    #     mid_idx = gaps.argmax()
-    #     gutter_pos = (x_norm[mid_idx] + x_norm[mid_idx + 1]) * 0.5
-    #     left_count = mid_idx + 1
-    #     right_count = x_norm.size - left_count
-
-    #     return (
-    #         0.38 <= gutter_pos <= 0.62 and      # center gutter
-    #         max_gap >= 0.04 and                 # at least 4% of page width
-    #         gap_ratio >= 3.0 and                # unusually large gap
-    #         1/4.0 < (left_count / right_count) < 4.0  # balanced left/right
-    #     )

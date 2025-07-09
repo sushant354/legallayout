@@ -58,12 +58,10 @@ class Main:
             # page.is_multi_column_page = page.is_multi_column_page()
             # print(page.is_multi_column_page)
             page.is_single_column_page = page.is_single_column_page()
-            print(page.is_single_column_page)
+            # print(page.is_single_column_page)
             self.amendment.check_for_amendments(page,self.section_start_page,self.section_end_page)
             page.get_section_para(self.section_start_page,self.section_end_page)
             page.get_titles()
-            if self.amendment.isAmendmentPDF:
-                page.get_untitled_amendments()
             # page.print_table_content()
             # page.print_headers()
             # page.print_footers()
