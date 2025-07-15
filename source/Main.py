@@ -1,6 +1,8 @@
 import os
 import argparse
 from difflib import SequenceMatcher
+from collections import defaultdict
+import re
 from ParserTool import ParserTool
 from Page import Page
 from HTMLBuilder import HTMLBuilder
@@ -50,14 +52,12 @@ class Main:
     def process_pages(self):
         for page in self.all_pgs.values():
             print("pg_num:",page.pg_num)
-            
+            # page.print_tbs()
             page.get_width_ofTB_moreThan_Half_of_pg()
             page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
-            page.get_side_notes()
-            # page.is_multi_column_page = page.is_multi_column_page()
-            # print(page.is_multi_column_page)
-            page.is_single_column_page = page.is_single_column_page()
+            page.get_side_notes(self.section_start_page,self.section_end_page)
+            # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             self.amendment.check_for_amendments(page,self.section_start_page,self.section_end_page)
             page.get_section_para(self.section_start_page,self.section_end_page)
@@ -70,7 +70,7 @@ class Main:
             # page.print_section_para()
             # page.print_all()
             # page.print_amendment()
-        
+            # page.print_tbs()
             
     # --- in each page do contour to detect possible header/footer content ---
     def contour_header_footer_of_page(self,pg):
@@ -209,6 +209,7 @@ class Main:
                 'page': int(el['page']),
                 'headers': [{'para': unit['para'], 'tb': unit['tb']} for unit in el.get('header_units', [])]
                 })
+
 
     # --- once detected set the header and footer of the page, apply to their page object ---
     def set_page_headers_footers(self):

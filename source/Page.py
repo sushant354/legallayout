@@ -2,6 +2,8 @@ from TextBox import TextBox
 from TableExtraction import TableExtraction
 from CompareLevel import CompareLevel
 from sklearn.cluster import DBSCAN
+from sklearn.cluster import KMeans
+from collections import OrderedDict
 import numpy as np
 import re
 
@@ -13,8 +15,6 @@ GENSTRING    = 1
 ROMAN        = 0
 
 class Page:
-    # stack_for_para_subpara = []
-    # # compareLevel = CompareLevel()
     def __init__(self,pg,pdfPath):
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -53,26 +53,26 @@ class Page:
                 self.all_tbs[tb_obj] = None
 
     # --- func for gathering the sidenotes textboxes ---
-    def get_side_notes(self):
-        if not hasattr(self, 'body_startX') or not hasattr(self, 'body_endX'):
-            return  # Skip if body region not defined
-        
-        # pattern = re.compile(r'^\d+\s+of\s+\d+\.$')
-        pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.\s*\d+\s+of\s+\d+\.)$')
-        for tb in list(self.all_tbs.keys()):
-            if (tb.coords[2]< self.body_startX or tb.coords[0] > self.body_endX ) \
-                and (self.all_tbs[tb] is None ) \
-                and tb.height < 0.25 * self.pg_height \
-                and tb.width < 0.25 * self.pg_width \
-                and tb.width > 0.04 * self.pg_width:
-                texts = tb.extract_text_from_tb()
-                if  texts.strip() and not pattern.match(texts.strip()):
-                    if not texts.strip().endswith("."):
-                        continue 
-                    self.all_tbs[tb]="side notes"
-                    tb.get_side_note_datas(self.side_notes_datas)
-                else:
-                    del self.all_tbs[tb]
+    def get_side_notes(self,startPage,endPage):
+        if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
+            if not hasattr(self, 'body_startX') or not hasattr(self, 'body_endX'):
+                return  # Skip if body region not defined
+            
+            pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.\s*\d+\s+of\s+\d+\.)$')
+            for tb in list(self.all_tbs.keys()):
+                if (tb.coords[2]< self.body_startX or tb.coords[0] > self.body_endX ) \
+                    and (self.all_tbs[tb] is None ) \
+                    and tb.height < 0.25 * self.pg_height \
+                    and tb.width < 0.25 * self.pg_width \
+                    and tb.width > 0.04 * self.pg_width:
+                    texts = tb.extract_text_from_tb()
+                    if  texts.strip() and not pattern.match(texts.strip()):
+                        if not texts.strip().endswith("."):
+                            continue 
+                        self.all_tbs[tb]="side notes"
+                        tb.get_side_note_datas(self.side_notes_datas)
+                    else:
+                        del self.all_tbs[tb]
 
     # -- func for getting the title boxes --- 
     def get_titles(self):
@@ -152,12 +152,14 @@ class Page:
     def print_all(self):
         for tb,label in self.all_tbs.items():
             print("i'm from ",label,": ",tb.extract_text_from_tb())
+    def print_tbs(self):
+        for tb in self.all_tbs.keys():
+            print(tb.extract_text_from_tb())
 
     def print_titles(self):
         print("i'm from headings")
         for tb,label in self.all_tbs.items():
             if label == "title":
-                # print("i'm from ",label[1])
                 print(tb.extract_text_from_tb())
         
     def print_headers(self):
@@ -197,17 +199,24 @@ class Page:
     def  get_width_ofTB_moreThan_Half_of_pg(self):
         self.fiftyPercent_moreWidth_tbs = []
         for tb in self.all_tbs.keys():
-            if round(tb.width,2) >= 0.4 * self.pg_width :
+            if round(tb.width,2) >= 0.5 * self.pg_width :
                 self.fiftyPercent_moreWidth_tbs.append(tb)
 
-    # --- func to find the page is single column or not ---
-    def is_single_column_page(self):
-            sum_height_of_tbs = round(sum([tb.height for tb in self.fiftyPercent_moreWidth_tbs]),2)
-            if sum_height_of_tbs > 0.4 * self.pg_height:
-                return True 
-            else:
-                return False
-    
+    # # --- func to find the page is single column or not ---
+    # def is_single_column_page(self):
+    #         # sum_height_of_tbs = round(sum([tb.height for tb in self.fiftyPercent_moreWidth_tbs]),2)
+    #         # if sum_height_of_tbs > 0.4 * self.pg_height:
+    #         #     return True 
+    #         # else:
+    #         #     return False
+    #         # print(self.pg_width)
+    #         # print(self.body_width)
+    #         sum_height_of_tbs = round(sum([tb.height for tb in self.all_tbs.keys() if tb.width > 0.5*self.body_width]))
+    #         if sum_height_of_tbs > 0.08 * self.pg_height:
+    #             return True
+    #         else:
+    #             return False
+
     # --- cluster the textboxes which make max_height span --- 
     def cluster_coord_with_max_height_span(self, textboxes, eps=8, min_samples=2):
         if not textboxes:
@@ -251,20 +260,11 @@ class Page:
         
     # --- func to find body width if fiftyPercent_moreWidth_tbs not exists ---
     def get_body_width(self):
-        # body_candidates = [
-        # tb for tb in self.all_tbs.keys()
-        # if self.all_tbs.get(tb) != "header"
-        # and tb.coords[0] > 0.125 * self.pg_width
-        # and tb.coords[2] < 0.875 * self.pg_width
-        # ]
-        
-        # self.body_startX = min(tb.coords[0] for tb in body_candidates)
-        # self.body_endX = max(tb.coords[2] for tb in body_candidates)
-
-        # return round(self.body_endX - self.body_startX, 2)
         body_candidates = [
         tb for tb in self.all_tbs.keys()
-        if self.all_tbs[tb] is None
+        if self.all_tbs.get(tb) != "header"
+        and tb.coords[0] > 0.125 * self.pg_width
+        and tb.coords[2] < 0.875 * self.pg_width
         ]
         
         self.body_startX = min(tb.coords[0] for tb in body_candidates)
@@ -272,17 +272,17 @@ class Page:
 
         return round(self.body_endX - self.body_startX, 2)
     
-    # --- func to find section, subsection, para, subpara ---
+    #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
-        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S+', re.IGNORECASE)
-        group_re = re.compile(r'^\(([^\s\)]+)\)\s+\S+',re.IGNORECASE)
+        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S*', re.IGNORECASE)
+        group_re = re.compile(r'^\(([^\s\)]+)\)\s*\S*',re.IGNORECASE)
 
         if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
             for tb,label in self.all_tbs.items():
                 texts = tb.extract_text_from_tb().strip()
                 texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
-                if label is None and section_re.match(texts):
+                if  not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
                     section_number = section_re.match(texts).group().split('.')[0].strip()
                     Page.compare_obj = CompareLevel(section_number, ARTICLE)
                     Page.prev_value = section_number
@@ -303,7 +303,7 @@ class Page:
                     continue
 
                 match = group_re.match(texts)
-                if label is None and hasattr(Page, "compare_obj") and  match :
+                if not isinstance(label,list) and hasattr(Page, "compare_obj") and  match : # does not consider amendments label
                     group =match.group(1).strip()
                     valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth,Page.prev_value,group,Page.prev_type)
                     Page.curr_depth = Page.curr_depth - compValue
