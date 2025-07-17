@@ -1,5 +1,5 @@
 import re
-
+import logging
 
 
 ARTICLE      = 4
@@ -10,29 +10,35 @@ ROMAN        = 0
 
 class CompareLevel:
     def __init__(self, val, depthType):
+        self.logger = logging.getLogger(__name__)
         self.depthTypes = [depthType, -1, -1, -1, -1,-1]
         self.valnum     = [val, None, None, None, None,None]   
         self.nextvals =  self.get_next_vals()
 
     def get_next_vals(self):
         nextvals = {}
-        nextvals[DECIMAL] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10',\
-                             '11', '12', '13', '14', '15', '16', '17', '18', '19', '20']
-        nextvals[ROMAN]   = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x',\
-                             'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx']
-        nextvals[SMALLSTRING]  = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',\
-                                  'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
-        nextvals[GENSTRING] = []
-        for valueType in list(nextvals.keys()):
-            i = 0
-            x = {}
-            for a in nextvals[valueType]:
-                x[a] = i
-                i+= 1
-            nextvals[valueType] = x
+
+        try:
+            nextvals[DECIMAL] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10',\
+                                '11', '12', '13', '14', '15', '16', '17', '18', '19', '20']
+            nextvals[ROMAN]   = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x',\
+                                'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx']
+            nextvals[SMALLSTRING]  = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',\
+                                    'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
+            nextvals[GENSTRING] = []
+            for valueType in list(nextvals.keys()):
+                i = 0
+                x = {}
+                for a in nextvals[valueType]:
+                    x[a] = i
+                    i+= 1
+                nextvals[valueType] = x
+        except Exception as e:
+            self.logger.error(f"Failed in get_next_vals: {e}")
         return nextvals
 
     def is_next_val(self, nextval, value1, value2):
+        self.logger.debug(f"Comparing: {value1} -> {value2} in nextval[{type}]")
         if value1 in nextval and value2 in nextval and nextval[value2] == nextval[value1] + 1:
             return True
         else:
@@ -41,14 +47,20 @@ class CompareLevel:
     def is_roman(self, number):
         #check if a number is a roman numeral
         #reg = '^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$'
+        self.logger.debug(f"Checking if value is Roman: {number}")
+
         if number in ['iia', 'iib', 'iic', 'iid', 'iiia', 'iiib', 'iva', 'va', 'vb', 'vc', 'vd', 'via', 'viia']:
             return True
 
         reg = '^(X|IX|IV|V?I{0,3})$'
-        tmp = str(number)
-        if re.search(reg, tmp.upper()):
-            return True
-        else:
+        try:
+            tmp = str(number)
+            if re.search(reg, tmp.upper()):
+                return True
+            else:
+                return False
+        except Exception as e:
+            self.logger.warning(f"Failed Roman check on {number}: {e}")
             return False
 
     def is_decimal(self, value):
@@ -58,16 +70,20 @@ class CompareLevel:
             return False
     
     def value_type(self, value):
-        isDecimal  = self.is_decimal(value)
-        if isDecimal == True:
-            return DECIMAL 
-        isRoman = self.is_roman(value)
-        if isRoman == True:
-            return ROMAN 
-        elif re.match('[a-z]+$', value) != None:
-            return SMALLSTRING
-        else:
-            return GENSTRING 
+        try:
+            isDecimal  = self.is_decimal(value)
+            if isDecimal == True:
+                return DECIMAL 
+            isRoman = self.is_roman(value)
+            if isRoman == True:
+                return ROMAN 
+            elif re.match('[a-z]+$', value) != None:
+                return SMALLSTRING
+            else:
+                return GENSTRING
+        except Exception as e:
+            self.logger.error(f"Failed to determine value type for {value}: {e}")
+            return GENSTRING  # Fallback 
     
     # compares two section numbers and returns 
     # 0 if value1 and value2 are at the same level
@@ -77,6 +93,7 @@ class CompareLevel:
     #          (a,2) = 1
     #          (a,b) = 0 
     def comp_special_nums(self, value1, value2):
+        self.logger.debug(f"Checking special comparison: {value1} vs {value2}")
         if value1 == 'i' and value2 == 'j':
             retval = (SMALLSTRING, 0) 
         elif value2 == 'i' and (value1 == 'h' or value1 == 'hh' or value1 == 'ha'):
@@ -101,6 +118,8 @@ class CompareLevel:
     def comp_nums(self, depth, value1, value2, valueType1):
         #print 'value1: %s type:%d value2: %s type: %d' % (value1, valueType1, value2, valueType2)
         # handle the special case of i
+
+        self.logger.debug(f"Comparing at depth {depth}: {value1} ({valueType1}) vs {value2}")
         valueType2 = self.value_type(value2)
         if valueType1 == ARTICLE:
             compval = -1
@@ -123,8 +142,11 @@ class CompareLevel:
         self.valnum    [depth - compval] = value2
         self.depthTypes[depth - compval] = valueType2
         return (valueType2, compval)
+        
 
     def prev_level_match(self, value, valueType, depth):
+        self.logger.debug(f"Searching previous match for: {value} of type {valueType} at depth {depth}")
+
         matches = []
         for i in range(0, depth):
             if valueType == self.depthTypes[i]:
