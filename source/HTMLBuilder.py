@@ -2,11 +2,13 @@ import re
 import math
 from collections import OrderedDict
 import numpy as np
+import logging
 from sklearn.cluster import DBSCAN
 
 class HTMLBuilder:
     
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self.pending_text = ""
         self.pending_tag = None
         self.sentence_completion_punctuation = ('.', ';', ':', '—')
@@ -33,12 +35,12 @@ class HTMLBuilder:
     margin-left: 5%;
   }
 
-  .para {
+  .paragraph {
     display: block;
     margin-left: 8%;
   }
 
-  .subpara {
+  .subparagraph {
     display: block;
     margin-left: 11%;
   }
@@ -75,75 +77,87 @@ class HTMLBuilder:
 
     # --- func to flush previous textbox text --
     def flushPrevious(self):
-      if self.pending_tag and self.pending_text:
-        self.pending_text += f"</{self.pending_tag}>\n"
-        self.builder += self.pending_text
-        self.pending_text =""
-        self.pending_tag = None
+      try:
+        if self.pending_tag and self.pending_text:
+          self.pending_text += f"</{self.pending_tag}>\n"
+          self.builder += self.pending_text
+          self.pending_text =""
+          self.pending_tag = None
+      except Exception as e:
+          self.logger.exception("Error while flushing previous content - [%s] in html: %s",self.pending_text,e)
 
     # --- func to add Title in the html ---
     def addTitle(self, tb,pg_width,pg_height):
-        if not self.stack_for_section:
-            self.flushPrevious()
-        else:
-            # Close everything up to and including the last "section"
-            while self.stack_for_section:
-                tag = self.stack_for_section.pop()
-                self.builder += "</section>\n"
-                if tag == 0:
-                    break
-        if(tb.width > 0.58 * pg_width and tb.height > 0.15 * pg_height):
-            self.builder += f"<p class=\"preamble\">{tb.extract_text_from_tb()}</p>\n"
-        else:
-            doc = ''
-            for textline in tb.tbox.findall('.//textline'):
-                line_texts = []
-                for text in textline.findall('.//text'):
-                    if text.text:
-                        line_texts.append(text.text)
-                line = ''.join(line_texts).replace("\n", " ").strip()
-                if line:
-                    doc += f"<center><h4>{line}</h4></center>\n"
-            self.builder += doc
+        try:
+          if not self.stack_for_section:
+              self.flushPrevious()
+          else:
+              # Close everything up to and including the last "section"
+              while self.stack_for_section:
+                  tag = self.stack_for_section.pop()
+                  self.builder += "</section>\n"
+                  if tag == 0:
+                      break
+          if(tb.width > 0.58 * pg_width and tb.height > 0.15 * pg_height):
+              self.builder += f"<p class=\"preamble\">{tb.extract_text_from_tb()}</p>\n"
+          else:
+              doc = ''
+              for textline in tb.tbox.findall('.//textline'):
+                  line_texts = []
+                  for text in textline.findall('.//text'):
+                      if text.text:
+                          line_texts.append(text.text)
+                  line = ''.join(line_texts).replace("\n", " ").strip()
+                  if line:
+                      doc += f"<center><h4>{line}</h4></center>\n"
+              self.builder += doc
+        except Exception as e:
+          self.logger.exception("Error while adding title - [%s] in html: %s",tb.extract_text_from_tb(),e)
     
     # --- func to add the table in the html ---
     def addTable(self, table):
-        if not self.stack_for_section:
-            self.flushPrevious()
-        else:
-            # Close everything up to and including the last "section"
-            while self.stack_for_section:
-                tag = self.stack_for_section.pop()
-                self.builder += "</section>\n"
-                if tag == 0:
-                    break
-        self.builder += table.to_html(index=False, border=1).replace("\\n"," ")
-        self.builder += "\n" 
+        try:
+          if not self.stack_for_section:
+              self.flushPrevious()
+          # else:
+          #     # Close everything up to and including the last "section"
+          #     while self.stack_for_section:
+          #         tag = self.stack_for_section.pop()
+          #         self.builder += "</section>\n"
+          #         if tag == 0:
+          #             break
+          self.builder += table.to_html(index=False, border=1).replace("\\n"," ")
+          self.builder += "\n" 
+        except Exception as e:
+            self.logger.exception("Error while adding table in html - %s .\nTable preview\n",e, table.head().to_string(index=False))
   
     # --- func to add the unknown label of textbox in the html - classified as <p> tag ---
     def addUnlabelled(self,text):
-      if self.stack_for_section:
-        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-        if is_sentence_completed:
-          self.builder += text+"<br>"
-        else:
-          self.builder += text
-      else:
+      try:
+        if self.stack_for_section:
           is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-          if not self.pending_tag and not self.pending_text and is_sentence_completed:
-            self.builder += f"<p>{text}</p>\n"
-            self.pending_tag = None
-            self.pending_text = ""
-          elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
-            self.pending_tag = "p"
-            self.pending_text = f"<p>{text}"
-          elif self.pending_text and is_sentence_completed:
-              self.pending_text += " "+text.strip() + f"</{self.pending_tag}>\n"
-              self.builder += self.pending_text
+          if is_sentence_completed:
+            self.builder += text+"<br>"
+          else:
+            self.builder += text
+        else:
+            is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
+            if not self.pending_tag and not self.pending_text and is_sentence_completed:
+              self.builder += f"<p>{text}</p>\n"
               self.pending_tag = None
               self.pending_text = ""
-          else:
-              self.pending_text += text.strip()
+            elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
+              self.pending_tag = "p"
+              self.pending_text = f"<p>{text}"
+            elif self.pending_text and is_sentence_completed:
+                self.pending_text += " "+text.strip() + f"</{self.pending_tag}>\n"
+                self.builder += self.pending_text
+                self.pending_tag = None
+                self.pending_text = ""
+            else:
+                self.pending_text += text.strip()
+      except Exception as e:
+        self.logger.exception("Error while adding unlabelled text [%s] : %s",text, e)
 
     def get_center(self,bbox):
       x0, y0, x1, y1 = bbox
@@ -154,99 +168,117 @@ class HTMLBuilder:
 
     # --- func to fit the side notes to their corresponding sections ---
     def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.005):
-      tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
-      vertical_threshold = page_height * vertical_threshold_ratio
+      try:
+        tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
+        vertical_threshold = page_height * vertical_threshold_ratio
 
-      closest_key = None
-      closest_text = None
+        self.logger.debug("Target TB BBox: %s", tb_bbox)
+        self.logger.debug("Vertical threshold: %.4f", vertical_threshold)
 
-      for sn_bbox, sn_text in side_note_datas.items():
-          sn_x0, sn_y0, sn_x1, sn_y1 = sn_bbox
-    
-          # Check if sidenote is to the immediate left or right
-          is_left = sn_x1 <= tb_x0
-          is_right = sn_x0 >= tb_x1
-          if not (is_left or is_right):
-              continue
+        closest_key = None
+        closest_text = None
 
-          # Compare Y positions of top-right corners (you said y1 is top)
-          if abs(sn_y1 - tb_y1) <= vertical_threshold:
-              closest_key = sn_bbox
-              closest_text = sn_text
-              break  # found one match, stop
+        for sn_bbox, sn_text in side_note_datas.items():
+            sn_x0, sn_y0, sn_x1, sn_y1 = sn_bbox
+      
+            # Check if sidenote is to the immediate left or right
+            is_left = sn_x1 <= tb_x0
+            is_right = sn_x0 >= tb_x1
+            if not (is_left or is_right):
+                continue
 
-      if closest_key:
-          del side_note_datas[closest_key]
+            # Compare Y positions of top-right corners (you said y1 is top)
+            if abs(sn_y1 - tb_y1) <= vertical_threshold:
+                closest_key = sn_bbox
+                closest_text = sn_text
+                self.logger.debug("Matched side note: %s", closest_text)
+                break  # found one match, stop
 
-      return closest_text
+        if closest_key:
+            del side_note_datas[closest_key]
+            self.logger.debug("Removing matched side note BBox from the side note datas: %s", closest_key)
+
+        return closest_text
+      
+      except Exception as e:
+        self.logger.exception("Error finding closest side note for TB BBox %s: %s", tb_bbox, e)
+        return None
 
     # --- func to add the section labelled textbox in the html ---
     def addSection(self,tb,side_note_datas,page_height,hierarchy_index):
-        if not self.stack_for_section:
-            self.flushPrevious()
-        else:
-            # Close everything up to and including the last "section"
-            while self.stack_for_section:
-                tag = self.stack_for_section.pop()
-                self.builder += "</section>\n"
-                if tag == hierarchy_index:
-                    break
+        try:
+          if not self.stack_for_section:
+              self.flushPrevious()
+          else:
+              # Close everything up to and including the last "section"
+              while self.stack_for_section:
+                  tag = self.stack_for_section.pop()
+                  self.builder += "</section>\n"
+                  if tag == hierarchy_index:
+                      break
 
-        self.pending_text = ""
-        self.pending_tag = None
-        text = tb.extract_text_from_tb()
-        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-        side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
-        if side_note_text:
-          match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
-          if match:
-            prefix = match.group(1)
-            short_title = side_note_text.strip()
-            rest_text = match.group(2).strip()
-            rest_text_type = self.findType(rest_text)
-            if rest_text_type is None:
-                if is_sentence_completed:
-                  self.builder += f"<section class=\"section\">{prefix}{short_title}<br>{rest_text}<br>\n"
-                  self.stack_for_section.append(hierarchy_index)
-                else:
-                    self.builder +=f"<section class=\"section\">{prefix}{short_title}<br>{rest_text}\n"
+          self.pending_text = ""
+          self.pending_tag = None
+          text = tb.extract_text_from_tb()
+          is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
+          side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
+          self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
+          if side_note_text:
+            match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+            if match:
+              prefix = match.group(1)
+              short_title = side_note_text.strip()
+              rest_text = match.group(2).strip()
+              rest_text_type = self.findType(rest_text)
+              if rest_text_type is None:
+                  if is_sentence_completed:
+                    self.builder += f"<section class=\"section\">{prefix}{short_title}<br>{rest_text}<br>\n"
                     self.stack_for_section.append(hierarchy_index)
-            else:
-                self.builder += f"<section class=\"section\">{prefix}{short_title}\n"
-                self.stack_for_section.append(hierarchy_index)
-                if is_sentence_completed:
-                  self.builder += f"<section class=\"{rest_text_type}\">{rest_text}<br>\n"
-                  self.stack_for_section.append(hierarchy_index+1)
-                else:
-                    self.builder+= f"<section class=\"{rest_text_type}\">{rest_text}\n"
-                    self.stack_for_section.append(hierarchy_index+1)
-                
-        else:
-          match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
-          if match:
-            prefix = match.group(1)
-            short_title = side_note_text.strip()
-            rest_text = match.group(2).strip()
-            rest_text_type = self.findType(rest_text)
-            if rest_text_type is None:
-                if is_sentence_completed:
-                  self.builder += f"<section class=\"section\">{prefix}<br>{rest_text}<br>\n"
+                  else:
+                      self.builder +=f"<section class=\"section\">{prefix}{short_title}<br>{rest_text}\n"
+                      self.stack_for_section.append(hierarchy_index)
+              else:
+                  self.builder += f"<section class=\"section\">{prefix}{short_title}\n"
                   self.stack_for_section.append(hierarchy_index)
-                else:
-                    self.builder +=f"<section class=\"section\">{prefix}<br>{rest_text}\n"
-                    self.stack_for_section.append(hierarchy_index)
-            else:
-                self.builder += f"<section class=\"section\">{prefix}\n"
-                self.stack_for_section.append(hierarchy_index)
-                if is_sentence_completed:
-                  self.builder += f"<section class=\"{rest_text_type}\">{rest_text}<br>\n"
-                  self.stack_for_section.append(hierarchy_index+1)
-                else:
-                    self.builder += f"<section class=\"{rest_text_type}\">{rest_text}\n"
+                  if is_sentence_completed:
+                    self.builder += f"<section class=\"{rest_text_type}\">{rest_text}<br>\n"
                     self.stack_for_section.append(hierarchy_index+1)
+                  else:
+                      self.builder+= f"<section class=\"{rest_text_type}\">{rest_text}\n"
+                      self.stack_for_section.append(hierarchy_index+1)
+                  
+          else:
+            match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+            if match:
+              prefix = match.group(1)
+              rest_text = match.group(2).strip()
+              rest_text_type = self.findType(rest_text)
+              if rest_text_type is None:
+                  if is_sentence_completed:
+                    self.builder += f"<section class=\"section\">{prefix}<br>{rest_text}<br>\n"
+                    self.stack_for_section.append(hierarchy_index)
+                  else:
+                      self.builder +=f"<section class=\"section\">{prefix}<br>{rest_text}\n"
+                      self.stack_for_section.append(hierarchy_index)
+              else:
+                  self.builder += f"<section class=\"section\">{prefix}\n"
+                  self.stack_for_section.append(hierarchy_index)
+                  if is_sentence_completed:
+                    self.builder += f"<section class=\"{rest_text_type}\">{rest_text}<br>\n"
+                    self.stack_for_section.append(hierarchy_index+1)
+                  else:
+                      self.builder += f"<section class=\"{rest_text_type}\">{rest_text}\n"
+                      self.stack_for_section.append(hierarchy_index+1)
+          self.logger.debug("Opened section at hierarchy level: %d",hierarchy_index)
+        except Exception as e:
+          self.logger.exception("Error while adding section [%s]: %s",tb.extract_text_from_tb(), e)
+
+
     
     def findType(self,texts):
-      group_re = re.compile(r'^\(([^\s\)]+)\)\s*\S*',re.IGNORECASE)
+      # group_re = re.compile(r'^\(([^\s\)]+)\)\s*\S*',re.IGNORECASE)
+      group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE)
+
       if group_re.match(texts.strip()):
          return "subsection"
       return None
@@ -254,119 +286,159 @@ class HTMLBuilder:
     
     # --- func to add the subsection labelled textbox in the html ---
     def addSubsection(self,text,hierarchy_index):
-        while self.stack_for_section:
-          if self.stack_for_section[-1]>=hierarchy_index:
-            self.builder += "</section>"
-            self.stack_for_section.pop()
+        try:
+          while self.stack_for_section:
+            if self.stack_for_section[-1]>=hierarchy_index:
+              self.builder += "</section>"
+              popped_index = self.stack_for_section.pop()
+              self.logger.debug("Closed section at hierarchy level: %d", popped_index)
+            else:
+              break
+          
+          is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
+          if is_sentence_completed:
+            self.builder += f"<section class=\"subsection\">{text}<br>\n"
+            self.stack_for_section.append(hierarchy_index)
           else:
-            break
+            self.builder += f"<section class=\"subsection\">{text}"
+            self.stack_for_section.append(hierarchy_index)
         
-        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-        if is_sentence_completed:
-          self.builder += f"<section class=\"subsection\">{text}<br>\n"
-          self.stack_for_section.append(hierarchy_index)
-        else:
-          self.builder += f"<section class=\"subsection\">{text}"
-          self.stack_for_section.append(hierarchy_index)
+          self.logger.debug("Opened section at hierarchy level: %d",hierarchy_index)
+        except Exception as e:
+          self.logger.exception("Error while adding subsection [%s]: %s",text, e)
+
     
     # --- func to add the para labelled textbox in the html --- 
     def addPara(self,text,hierarchy_index):
-        while self.stack_for_section:
-          if self.stack_for_section[-1] >= hierarchy_index:
-            self.builder += "</section>"
-            self.stack_for_section.pop()
-          else:
-             break
+        try:
+          while self.stack_for_section:
+            if self.stack_for_section[-1] >= hierarchy_index:
+              self.builder += "</section>"
+              popped_index = self.stack_for_section.pop()
+              self.logger.debug("Closed section at hierarchy level: %d", popped_index)
+            else:
+              break
 
-        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-        if is_sentence_completed:
-          self.builder += f"<section class=\"paragraph\">{text}<br>\n"
-          self.stack_for_section.append(hierarchy_index)
-        else:
-           self.builder += f"<section class=\"paragraph\">{text}"
-           self.stack_for_section.append(hierarchy_index)
+          is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
+          if is_sentence_completed:
+            self.builder += f"<section class=\"paragraph\">{text}<br>\n"
+            self.stack_for_section.append(hierarchy_index)
+          else:
+            self.builder += f"<section class=\"paragraph\">{text}"
+            self.stack_for_section.append(hierarchy_index)
+            self.logger.debug("Opened section at hierarchy level: %d", hierarchy_index)
+        except Exception as e:
+          self.logger.exception("Error while adding para [%s]: %s",text,e)
+
 
     # --- func to add the subpara labelled textbox in the html ---
     def addSubpara(self,text,hierarchy_index):
-        while self.stack_for_section:
-          if self.stack_for_section[-1] >= hierarchy_index:
-            self.builder += "</section>"
-            self.stack_for_section.pop()
-          else:
-             break
+        try:
+          while self.stack_for_section:
+            if self.stack_for_section[-1] >= hierarchy_index:
+              self.builder += "</section>"
+              popped_index = self.stack_for_section.pop()
+              self.logger.debug("Closed section at hierarchy level: %d", popped_index)
+            else:
+              break
 
-        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-        if is_sentence_completed:
-          self.builder += f"<section class=\"subparagraph\">{text}<br>\n"
-          self.stack_for_section.append(hierarchy_index)
-        else:
-           self.builder += f"<section class=\"subparagraph\">{text}"
-           self.stack_for_section.append(hierarchy_index)
+          is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
+          if is_sentence_completed:
+            self.builder += f"<section class=\"subparagraph\">{text}<br>\n"
+            self.stack_for_section.append(hierarchy_index)
+          else:
+            self.builder += f"<section class=\"subparagraph\">{text}"
+            self.stack_for_section.append(hierarchy_index)
+          self.logger.debug("Opened Section at hierarchy level : %d",hierarchy_index)
+        
+        except Exception as e:
+          self.logger.exception("Error while adding subpara [%s]: %s",text,e)
+        
     
     # ---func to add the textbox labelled as amendments in the html ---
     def addAmendment(self,label,tb,side_notes,pg_height):
+        
         text = tb.extract_text_from_tb()
-        if len(label) >1 :
-           if label[1]=="title":
-              self.builder += f"<p class=\"amendment\">{text}</p>\n"
-        else:
-          is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)         
-          if not self.pending_tag and not self.pending_text and is_sentence_completed:
-            if self.is_section(text):
-              self.add_amendment_section(tb,side_notes,pg_height)
-            else:
-              self.builder += f"<p class=\"amendment\">{text}</p>\n"
-              self.pending_tag = None
-              self.pending_text = ""
-          elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
-            if self.is_section(text):
-              self.add_amendment_section(tb,side_notes,pg_height)
-            else:
-              self.pending_tag = "p"
-              self.pending_text = f"<p class=\"amendment\">{text}"
-          elif self.pending_text and is_sentence_completed:
-              self.pending_text += " "+text.strip() + f"</{self.pending_tag}>\n"
-              self.builder += self.pending_text
-              self.pending_tag = None
-              self.pending_text = ""
+        try:
+          if len(label) >1 :
+            if label[1]=="title":
+                self.logger.debug("The text [%s] is a title block of Amendments.",text)
+                self.builder += f"<p class=\"amendment\">{text}</p>\n"
           else:
-              self.pending_text += text.strip()
+            is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)         
+            if not self.pending_tag and not self.pending_text and is_sentence_completed:
+              if self.is_section(text):
+                self.logger.debug("Text detected as section; delegating to add_amendment_section.")
+                self.add_amendment_section(tb,side_notes,pg_height)    
+              else:
+                self.builder += f"<p class=\"amendment\">{text}</p>\n"
+                self.pending_tag = None
+                self.pending_text = ""
+            elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
+              if self.is_section(text):
+                self.logger.debug("Unfinished section-like text; delegating to add_amendment_section.")
+                self.add_amendment_section(tb,side_notes,pg_height)
+              else:
+                self.pending_tag = "p"
+                self.pending_text = f"<p class=\"amendment\">{text}"
+            elif self.pending_text and is_sentence_completed:
+                self.pending_text += " "+text.strip() + f"</{self.pending_tag}>\n"
+                self.builder += self.pending_text
+                self.logger.debug("Completed pending amendment: %s", self.pending_text.strip())
+                self.pending_tag = None
+                self.pending_text = ""
+            else:
+                self.pending_text += text.strip()
+                self.logger.debug("Continuing pending amendment: %s", self.pending_text)
+        except Exception as e:
+          self.logger.exception("Error while adding amendment [%s]: %s", text, e)
     
     def add_amendment_section(self,tb,side_note_datas,page_height):
       self.flushPrevious()
       text = tb.extract_text_from_tb()
-      is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-      side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
-      if side_note_text:
-        match = re.match(r'^(\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
-        if match:
-          prefix = match.group(1)
-          short_title = side_note_text.strip()
-          rest_text = match.group(2).strip()
-          rest_text_type = self.findType(rest_text)
-          if rest_text_type is None:
-              if is_sentence_completed:
-                self.builder += f"<p class=\"amendment\">{prefix}{short_title}<br>{rest_text}</p>\n"
-              else:
-                  self.pending_text +=f"<p class=\"amendment\">{prefix}{short_title}<br>{rest_text}"
-                  self.pending_tag = "p"
+      try:
+        is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
+        side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
+        self.logger.debug("Side note matched for the amendments [%s]: %s",text, side_note_text)
+        if side_note_text:
+          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+          if match:
+            prefix = match.group(1)
+            short_title = side_note_text.strip()
+            rest_text = match.group(2).strip()
+            rest_text_type = self.findType(rest_text)
+            self.logger.debug("Match groups — Prefix: '%s', Short Title: '%s', Remain Text: '%s', Remain Text Type: %s",
+                                  prefix, short_title, rest_text, rest_text_type)
+            if rest_text_type is None:
+                if is_sentence_completed:
+                  self.builder += f"<p class=\"amendment\">{prefix}{short_title}<br>{rest_text}</p>\n"
+                else:
+                    self.pending_text +=f"<p class=\"amendment\">{prefix}{short_title}<br>{rest_text}"
+                    self.pending_tag = "p"
+            else:
+                self.builder += f"<p class=\"amendment\">{prefix}{short_title}</p>\n"
+                if is_sentence_completed:
+                  self.builder += f"<p class=\"amendment\">{rest_text}</p>\n"
+                else:
+                    self.pending_text += f"<p class=\"amendment\">{rest_text}"
+                    self.pending_tag = "p"
           else:
-              self.builder += f"<p class=\"amendment\">{prefix}{short_title}</p>\n"
-              if is_sentence_completed:
-                self.builder += f"<p class=\"amendment\">{rest_text}</p>\n"
-              else:
-                  self.pending_text += f"<p class=\"amendment\">{rest_text}"
-                  self.pending_tag = "p"
-              
-      else:
-        if is_sentence_completed:
-          self.builder += f"<p class=\"amendment\">{text}</p>\n"
+            if is_sentence_completed:
+              self.builder += f"<p class=\"amendment\">{text}</p>\n"
+            else:
+              self.pending_text += f"<p class=\"amendment\">{text}"
+              self.pending_tag="p"        
         else:
-          self.pending_text += f"<p class=\"amendment\">{text}"
-          self.pending_tag="p"
+          if is_sentence_completed:
+            self.builder += f"<p class=\"amendment\">{text}</p>\n"
+          else:
+            self.pending_text += f"<p class=\"amendment\">{text}"
+            self.pending_tag="p"
+      except Exception as e:
+        self.logger.exception("Error in add_amendment_section [%s]: %s",text, e)
        
     def is_section(self,texts):
-      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*\S*', re.IGNORECASE)
+      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
       texts = texts.strip()
       texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
       if section_re.match(texts):
@@ -405,6 +477,7 @@ class HTMLBuilder:
 
     def is_pg_num(self,tb,pg_width):
         if  tb.width < 0.04 * pg_width:
+            self.logger.debug("The unlabelled textbox [%s] is classified as pg_num",tb.extract_text_from_tb())
             return True
         return False
     
