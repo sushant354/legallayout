@@ -1,13 +1,4 @@
 # Ignore Python cache
 __pycache__/
+cache_xml/
 *.py[cod]
-
-bis.pdf
-bis.xml
-naturalgas.pdf
-naturalgas.xml
-boilers act.pdf
-boilers act.xml
-in-union-act-ministryofcivilaviation-2025-04-16-17-publication-document.pdf
-in-union-act-ministryofcivilaviation-2025-04-16-17-publication-document.xml
-TextBuilder.py

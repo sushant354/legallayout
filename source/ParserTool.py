@@ -5,18 +5,17 @@ import logging
 class ParserTool:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    def convert_to_xml(self,pdf_path, base_name_of_file):
-        output_xml_path = f"{base_name_of_file}.xml"
+    def convert_to_xml(self,pdf_path, xml_path):
         cmd = [
             "pdf2txt.py",
             "-A",
             "-t", "xml",
-            "-o", output_xml_path,
+            "-o", xml_path,
             pdf_path
         ]
         try:
             subprocess.run(cmd, check=True)
-            self.logger.info(f"[✔] Parse completed: {output_xml_path}")
+            self.logger.info(f"[✔] Parse completed: {xml_path}")
         except subprocess.CalledProcessError as e:
             self.logger.error(f"[✖] Parse failed: {e}")
     

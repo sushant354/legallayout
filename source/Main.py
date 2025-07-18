@@ -1,6 +1,7 @@
 import os
 import argparse
 from difflib import SequenceMatcher
+from pathlib import Path
 from collections import defaultdict
 import re
 import codecs
@@ -11,9 +12,10 @@ from HTMLBuilder import HTMLBuilder
 from Amendment import Amendment
 
 class Main:
-    def __init__(self,pdfPath,start,end,is_amendment_pdf):
+    def __init__(self,pdfPath,start,end,is_amendment_pdf,output_dir):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
+        self.output_dir = output_dir
         self.section_start_page = start
         self.section_end_page = end
         self.parserTool = ParserTool()
@@ -306,23 +308,31 @@ class Main:
         except Exception as e:
             self.logger.exception("Failed during set_page_headers_footers: %s", e)
 
-        
+    
+    def get_path_cache_xml(self):
+        current_file = Path(__file__).resolve()       
+        source_dir = current_file.parent.parent              
+        cache_xml_dir = source_dir / "cache_xml"      
+        cache_xml_dir.mkdir(parents=True, exist_ok=True)  
+        return cache_xml_dir
+
     # --- parse pdf using pdfminer to convert to XML ---       
     def parsePDF(self):
         try:
             base_name_of_file = os.path.splitext(os.path.basename(self.pdf_path))[0]
             self.logger.info("Starting PDF parsing for: %s", self.pdf_path)
-
+            cache_xml_path = self.get_path_cache_xml()
+            self.xml_path =  cache_xml_path / f"{base_name_of_file}.xml"
             self.logger.debug("Converting PDF to XML...")
-            self.parserTool.convert_to_xml(self.pdf_path,base_name_of_file)
+            self.parserTool.convert_to_xml(self.pdf_path,self.xml_path)
 
-            xml_path = f"{base_name_of_file}.xml"
-            if not os.path.exists(xml_path):
-                self.logger.error("XML file was not created: %s", xml_path)
+            
+            if not os.path.exists(self.xml_path):
+                self.logger.error("XML file was not created: %s", self.xml_path)
                 return
 
-            self.logger.debug("Parsing pages from XML: %s", xml_path)
-            pages = self.parserTool.get_pages_from_xml(xml_path)
+            self.logger.debug("Parsing pages from XML: %s", self.xml_path)
+            pages = self.parserTool.get_pages_from_xml(self.xml_path)
             self.logger.debug("Extracting header and footer info...")
             self.get_page_header_footer(pages)
             self.logger.debug("Processing content from pages...")
@@ -334,14 +344,39 @@ class Main:
 
     
     # --- func for writing the html content to the desired output file ---
-    def write_html(self,content):
+    def write_html(self, content):
+        filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".html"
         try:
-            output_path = "output3.html"
-            with open(output_path, "w", encoding="utf-8") as f:
+            output_dir = Path(self.output_dir)
+
+            # Check if the directory exists
+            if not output_dir.exists():
+                output_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"Created directory: {output_dir.resolve()}")
+            else:
+                self.logger.info(f"Directory already exists: {output_dir.resolve()}")
+
+            # Write the HTML content to the specified file
+            output_path = output_dir / filename
+            with output_path.open("w", encoding="utf-8") as f:
                 f.write(content)
+
             self.logger.info("HTML written successfully to %s", output_path)
+
         except Exception as e:
-            self.logger.exception("Failed to write HTML to file: %s", e)
+            self.logger.exception("Failed to write HTML content: %s", e)
+    
+    def clear_cache(self):
+        if not os.path.exists(self.xml_path):
+            self.logger.warning("XML file was not created or already deleted: %s", self.xml_path)
+        else:
+            try:
+                os.remove(self.xml_path)
+                self.logger.info("Successfully removed XML file: %s", self.xml_path)
+            except OSError as e:
+                self.logger.error("Error deleting XML file %s: %s", self.xml_path, e)
+
+
         
 # --- func to define argument parser required for the tool ---
 def get_arg_parser():
@@ -359,12 +394,15 @@ def get_arg_parser():
                         help='log level(error|warning|info|debug)')
     parser.add_argument('-g', '--logfile', dest='logfile', action='store',\
                         required = False, default = None, help='log file')
-    parser.add_argument('-o','--output-directory',dest = "output-dir")
+    parser.add_argument('-o','--output-directory',dest = "output_dir",action="store",\
+                        required=True,help = "Directory to store output file")
+    parser.add_argument('-x','--keep-xml',dest="keep_xml",action = "store_true",\
+                        required = False, default = False, help = "saves the intermediate xml in cache_xml folder")
     return parser
 
 
 
-logformat   = '%(asctime)s: %(name)s: %(levelname)s %(message)s'
+logformat = '%(asctime)s: %(name)s: [%(funcName)s:%(lineno)d] %(levelname)s  %(message)s'
 dateformat  = '%Y-%m-%d %H:%M:%S'
 
 def initialize_file_logging(loglevel, filepath):
@@ -408,8 +446,11 @@ if __name__ == "__main__":
     logger.debug(f"Mentioned section end page-{end}")
     is_amendment_pdf = args.is_amendment_pdf
     logger.debug(f"Is the pdf contains amendments - {"Yes" if is_amendment_pdf else "No"}")
-    main = Main(pdf_path,start,end,is_amendment_pdf)
+    output_dir = args.output_dir
+    main = Main(pdf_path,start,end,is_amendment_pdf,output_dir)
     main.parsePDF()
     main.buildHTML()
+    if not args.keep_xml:
+        main.clear_cache()
   
     
