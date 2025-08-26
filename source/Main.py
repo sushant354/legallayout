@@ -6,6 +6,7 @@ from collections import defaultdict
 import re
 import codecs
 import logging
+import shutil
 from ParserTool import ParserTool
 from Page import Page
 from HTMLBuilder import HTMLBuilder
@@ -47,6 +48,18 @@ class Main:
         self.headers = []
         self.footers = []
         for pg in pages:
+            pdf_dir = self.get_path_cache_pdf()
+            if not pdf_path.lower().endswith(".pdf"):
+                
+                base_name = os.path.basename(pdf_path) + ".pdf"
+                new_pdf_path = os.path.join(pdf_dir, base_name)
+
+                
+                shutil.copy(pdf_path, new_pdf_path)
+
+                self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
+                self.pdf_path = new_pdf_path
+
             page = Page(pg,self.pdf_path)
             self.total_pgs +=1
             self.all_pgs[self.total_pgs]=page
@@ -376,6 +389,27 @@ class Main:
             except OSError as e:
                 self.logger.error("Error deleting XML file %s: %s", self.xml_path, e)
 
+    def get_path_cache_pdf(self):
+        current_file = Path(__file__).resolve()       
+        source_dir = current_file.parent.parent              
+        cache_xml_dir = source_dir / "cache_pdf"      
+        cache_xml_dir.mkdir(parents=True, exist_ok=True)  
+        return cache_xml_dir
+
+    def clear_cache_pdf(self):
+        cache_dir = self.get_path_cache_pdf()
+        if not os.path.exists(self.pdf_path):
+            self.logger.warning("File was not created or already deleted: %s", self.pdf_path)
+        else:
+            if os.path.commonpath([os.path.abspath(self.pdf_path), os.path.abspath(cache_dir)]) == os.path.abspath(cache_dir):
+                try:
+                    os.remove(self.pdf_path)
+                    print("i am here")
+                    self.logger.info("Successfully removed cached_pdf: %s", self.pdf_path)
+                except OSError as e:
+                    self.logger.error("Error deleting cached file %s: %s", self.pdf_path, e)
+            else:
+                self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
 
         
 # --- func to define argument parser required for the tool ---
@@ -450,6 +484,7 @@ if __name__ == "__main__":
     main = Main(pdf_path,start,end,is_amendment_pdf,output_dir)
     main.parsePDF()
     main.buildHTML()
+    main.clear_cache_pdf()
     if not args.keep_xml:
         main.clear_cache()
   
