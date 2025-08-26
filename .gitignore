@@ -1,4 +1,5 @@
 # Ignore Python cache
 __pycache__/
 cache_xml/
+cache_pdf/
 *.py[cod]
