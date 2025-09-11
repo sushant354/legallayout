@@ -15,6 +15,14 @@ SMALLSTRING  = 2
 GENSTRING    = 1
 ROMAN        = 0
 
+class SectionState:
+    def __init__(self):
+        self.compare_obj = None
+        self.prev_value = None
+        self.prev_type = None
+        self.curr_depth = 0
+
+
 class Page:
     def __init__(self,pg,pdfPath):
         self.logger = logging.getLogger(__name__)
@@ -110,7 +118,7 @@ class Page:
             self.logger.exception("Failed in get_side_notes for page %s: %s", self.pg_num, e)
 
     # -- func for getting the title boxes --- 
-    def get_titles(self):
+    def get_titles(self, pdf_type):
         center_tolerance = 0.07          # Allow more deviation (6% of body width)
         max_width_ratio = 0.75          # Titles can be narrower in multi-column layouts
         min_width_ratio = 0.1
@@ -130,8 +138,8 @@ class Page:
                 # Skip known structural blocks
                 if label not in (None,["amendment"]):
                     continue
-
-                if  tb.is_titlecase():
+                
+                if  tb.is_titlecase(pdf_type):
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
@@ -139,7 +147,7 @@ class Page:
                     self.logger.debug(f"Title detected by font style - titlecase: '{text}' on page {self.pg_num}")
                     continue
 
-                if  tb.textFont_is_bold():
+                if  tb.textFont_is_bold(pdf_type):
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
@@ -147,7 +155,7 @@ class Page:
                     self.logger.debug(f"Title detected by font style - bold: '{text}' on page {self.pg_num}")
                     continue
                 
-                if  tb.is_uppercase():
+                if  tb.is_uppercase(pdf_type):
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
@@ -155,13 +163,13 @@ class Page:
                     self.logger.debug(f"Title detected by font style - upper case: '{text}' on page {self.pg_num}")
                     continue
 
-                if tb.textFont_is_italic():
-                    if label == ["amendment"]:
-                        self.all_tbs[tb].append("title")
-                    else:
-                        self.all_tbs[tb] = "title"
-                    self.logger.debug(f"Title detected by font style -  italic: '{text}' on page {self.pg_num}")
-                    continue
+                if tb.textFont_is_italic(pdf_type):
+                        if label == ["amendment"]:
+                            self.all_tbs[tb].append("title")
+                        else:
+                            self.all_tbs[tb] = "title"
+                        self.logger.debug(f"Title detected by font style -  italic: '{text}' on page {self.pg_num}")
+                        continue
 
                 # Centered within tolerance
                 tb_cx = (tb.coords[0] + tb.coords[2]) / 2
@@ -328,7 +336,7 @@ class Page:
         return round(self.body_endX - self.body_startX, 2)
     
     #--- func to find section, subsection, para, subpara ---
-    def get_section_para(self,startPage,endPage):
+    def get_section_para(self,sectionState,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
         section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
         # group_re = re.compile(r'^\(([^\s\)]+)\)\s*\S*',re.IGNORECASE)
@@ -346,10 +354,10 @@ class Page:
                 try:
                     if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
                         section_number = section_re.match(texts).group().split('.')[0].strip()
-                        Page.compare_obj = CompareLevel(section_number, ARTICLE)
-                        Page.prev_value = section_number
-                        Page.prev_type = ARTICLE
-                        Page.curr_depth = 0
+                        sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
+                        sectionState.prev_value = section_number
+                        sectionState.prev_type = ARTICLE
+                        sectionState.curr_depth = 0
                         self.all_tbs[tb] = hierarchy_type[0]
                         self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
                         check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
@@ -359,32 +367,31 @@ class Page:
                             match = group_re.match(rest_text)
                             if match:
                                 group =match.group(1).strip()
-                                valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth, Page.prev_value, group, Page.prev_type)
-                                Page.curr_depth = Page.curr_depth - compValue
-                                Page.prev_value = group
-                                Page.prev_type = valueType2
+                                valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth, sectionState.prev_value, group, sectionState.prev_type)
+                                sectionState.curr_depth = sectionState.curr_depth - compValue
+                                sectionState.prev_value = group
+                                sectionState.prev_type = valueType2
                                 self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
                         continue
 
                     match = group_re.match(texts)
                     # print(label)
-                    if not isinstance(label,list) and hasattr(Page, "compare_obj") and  match : # does not consider amendments label
+                    if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
                         group =match.group(1).strip()
-                        valueType2, compValue = Page.compare_obj.comp_nums(Page.curr_depth,Page.prev_value,group,Page.prev_type)
-                        Page.curr_depth = Page.curr_depth - compValue
-                        if Page.curr_depth >= len(hierarchy_type)-1:
+                        valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
+                        sectionState.curr_depth = sectionState.curr_depth - compValue
+                        if sectionState.curr_depth >= len(hierarchy_type)-1:
                                     continue
                         else:
-                            classification = hierarchy_type[Page.curr_depth]
+                            classification = hierarchy_type[sectionState.curr_depth]
                             self.all_tbs[tb] = classification
-                            Page.prev_value = group
-                            Page.prev_type = valueType2
+                            sectionState.prev_value = group
+                            sectionState.prev_type = valueType2
                             self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
                 
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
                     continue
-
     
     # --- func to label the textboxes comes in table layout ---
     def label_table_tbs(self):
@@ -402,9 +409,9 @@ class Page:
             except Exception as e:
                 self.logger.warning(f"Error comparing bounding boxes: {tb_box} vs {table_box} -- {e}")
                 return False
-
-                        
         
+
+
         for idx,tab_bbox in self.tabular_datas.table_bbox.items():
             for tb in self.all_tbs.keys():
                 try:
@@ -413,3 +420,64 @@ class Page:
                     self.logger.debug(f"Page {self.pg_num}: Labelled textbox within table {idx}")
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to label textbox '{tb}' for table {idx} -- {e}")
+    
+    # def get_blockquote(self, bq_obj):
+        
+    #     for tb,label in self.all_tbs.items():
+    #         if label is not None:
+    #             continue
+    #         text = tb.extract_text_from_tb().strip()
+    #         label = bq_obj.get_sections(text, tb.coords)
+    #         # print(label, text)
+
+    def get_bulletins(self, sectionState):
+        hierarchy_type = ("level1","level2","level3","level4","level5")
+        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
+        group_re = re.compile(r'^\s*(\(?([a-zA-Z]+|\d+(?:\.\d+)*)\)?[\.\)]{1})')
+
+        for tb,label in self.all_tbs.items():
+            texts = tb.extract_text_from_tb().strip()
+            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            try:
+                if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
+                    section_number = section_re.match(texts).group().split('.')[0].strip()
+                    sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
+                    sectionState.prev_value = section_number
+                    sectionState.prev_type = ARTICLE
+                    sectionState.curr_depth = 0
+                    self.all_tbs[tb] = hierarchy_type[0]
+                    # print(texts)
+                    self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
+                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    
+                    if check_inside:
+                        rest_text = check_inside.group(2).strip()
+                        match = group_re.match(rest_text)
+                        if match:
+                            group =match.group(1).strip()
+                            valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth, sectionState.prev_value, group, sectionState.prev_type)
+                            sectionState.curr_depth = sectionState.curr_depth - compValue
+                            sectionState.prev_value = group
+                            sectionState.prev_type = valueType2
+                            self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
+                    continue
+
+                match = group_re.match(texts)
+                # print(label)
+                if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
+                    group =match.group(1).strip()
+                    valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
+                    sectionState.curr_depth = sectionState.curr_depth - compValue
+                    if sectionState.curr_depth >= len(hierarchy_type)-1:
+                                continue
+                    else:
+                        classification = hierarchy_type[sectionState.curr_depth]
+                        self.all_tbs[tb] = classification
+                        print(texts, classification)
+                        sectionState.prev_value = group
+                        sectionState.prev_type = valueType2
+                        self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
+            
+            except Exception as e:
+                self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
+                continue

@@ -34,7 +34,7 @@ class TextBox:
 
     
     # --- func to detect the textbox having texts font in bold for heading/title detection ---
-    def textFont_is_bold(self):
+    def textFont_is_bold(self, pdf_type = None):
         bold_font_re = re.compile(r'bold', re.IGNORECASE)
         no_of_chars = 0
         no_of_bold_chars = 0
@@ -51,14 +51,20 @@ class TextBox:
             if no_of_chars == 0:
                 return False  # Avoid division by zero
             
-            return (no_of_bold_chars / no_of_chars) > 0.1
+            if pdf_type == 'sebi':
+                return (no_of_bold_chars / no_of_chars) > 0.50
+            elif pdf_type == 'acts':
+                return (no_of_bold_chars / no_of_chars) > 0.1
+            else:
+                return (no_of_bold_chars / no_of_chars) > 0.75
+            
         except Exception as e:
             self.logger.error(f"Error detecting is_bold text in textbox [{self.extract_text_from_tb()}]: {e}")
             return False
 
 
     # --- func to detect the textbox having texts font in italic for heading/title detection ---
-    def textFont_is_italic(self):
+    def textFont_is_italic(self, pdf_type = None):
         italic_font_re = re.compile(r'italic', re.IGNORECASE)
         no_of_chars = 0
         no_of_italic_chars = 0
@@ -74,14 +80,19 @@ class TextBox:
             if no_of_chars == 0:
                 return False  # Avoid division by zero
 
-            return (no_of_italic_chars / no_of_chars) > 0.1
+            if pdf_type == 'sebi':
+                return False
+            elif pdf_type == 'acts':
+                return (no_of_italic_chars / no_of_chars) > 0.1
+            else:
+                return (no_of_italic_chars / no_of_chars) > 0.75
         except Exception as e:
             self.logger.error(f"Error detecting is_italic text in textbox [{self.extract_text_from_tb()}]: {e}")
             return False
 
         
     # --- func to detect the textbox having texts font in Upper Case for heading/title detection ---
-    def is_uppercase(self):
+    def is_uppercase(self, pdf_type = None):
         total_letters = 0
         total_uppercase = 0
         try:
@@ -97,7 +108,12 @@ class TextBox:
             if total_letters == 0:
                 return False  # Avoid division by zero
 
-            return (total_uppercase / total_letters) >= 0.25  # 60% or more letters are uppercase
+            if pdf_type == 'sebi':
+                return (total_uppercase / total_letters) >= 0.50
+            elif pdf_type == 'acts':
+                return (total_uppercase / total_letters) >= 0.25  
+            else:
+                return (total_uppercase / total_letters) >= 0.75 
 
         except Exception as e:
             self.logger.error(f"Error detecting is_uppercase text in textbox [{self.extract_text_from_tb()}]: {e}")
@@ -105,7 +121,7 @@ class TextBox:
 
     
     # --- func to detect the textbox having texts font in Title Case for heading/title detection ---
-    def is_titlecase(self):
+    def is_titlecase(self, pdf_type = None):
         words = []
         try:
             for textline in self.tbox.findall(".//textline"):
@@ -147,7 +163,12 @@ class TextBox:
                 return False
 
             # Return True if at least 25% of words are titlecase
-            return (titlecase_count / valid_word_count) >= 0.25
+            if pdf_type == 'sebi':
+                return (titlecase_count / valid_word_count) >= 0.50
+            elif pdf_type == 'sebi':
+                return (titlecase_count / valid_word_count) >= 0.25
+            else:
+                return (titlecase_count / valid_word_count) >= 0.75
         
         except Exception as e:
             self.logger.error(f"Error detecting is_titlecase text in textbox [{self.extract_text_from_tb()}]: {e}")
