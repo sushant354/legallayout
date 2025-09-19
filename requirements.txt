@@ -4,3 +4,5 @@ matplotlib
 camelot-py[cv]
 pandas
 numpy
+beautifulsoup4
+lxml

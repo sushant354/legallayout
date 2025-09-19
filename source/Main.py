@@ -110,11 +110,10 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
-            page.get_bulletins(self.section_state)
-            self.amendment.check_for_blockquotes(page)
             page.get_titles(pdf_type)
+            self.amendment.check_for_blockquotes(page)
+            page.get_bulletins(self.section_state)
             
-
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
@@ -123,10 +122,9 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
-            if self.is_amendment_pdf:
-                self.amendment.check_for_amendments(page,self.section_start_page,self.section_end_page)
             page.get_titles(pdf_type)
-    
+            page.get_bulletins(self.section_state)
+
     def print_labels(self, pdf_type):
         #for page in self.all_pgs.values():
             # page.print_table_content()
@@ -375,8 +373,8 @@ class Main:
     def is_pdf_file(self, path):
         try:
             with open(path, "rb") as f:
-                header = f.read(5)  # first 5 bytes
-                return header == b"%PDF-"
+                header = f.read(1024)  # read first 1KB, enough for header
+                return b"%PDF-" in header
         except Exception:
             return False
 

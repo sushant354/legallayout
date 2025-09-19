@@ -1,6 +1,7 @@
 from TextBox import TextBox
 from TableExtraction import TableExtraction
-from CompareLevel import CompareLevel
+from CompareLevel import CompareLevel, CompareLevelSebi
+from NormalizeText import NormalizeText
 from sklearn.cluster import DBSCAN
 from sklearn.cluster import KMeans
 from collections import OrderedDict
@@ -125,7 +126,7 @@ class Page:
         max_tb_height_ratio = 0.3      # Slightly taller allowed for multiline headings
         min_tb_height_ratio = 0.01       # Avoid tiny noise lines
         bad_end_re = re.compile(r'[\.\,\;\:\?\-]\s*$') 
-
+        bad_end_re_sebi = re.compile(r'[\?\.]\s*$') 
         body_cx = (self.body_startX + self.body_endX) / 2
 
         tolerance = center_tolerance * self.body_width
@@ -143,6 +144,8 @@ class Page:
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
+                        # if pdf_type == 'sebi':# and bad_end_re_sebi.search(text):
+                        #     continue
                         self.all_tbs[tb] = "title"
                     self.logger.debug(f"Title detected by font style - titlecase: '{text}' on page {self.pg_num}")
                     continue
@@ -151,6 +154,8 @@ class Page:
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
+                        # if pdf_type == 'sebi': #and bad_end_re_sebi.search(text):
+                        #     continue
                         self.all_tbs[tb] = "title"
                     self.logger.debug(f"Title detected by font style - bold: '{text}' on page {self.pg_num}")
                     continue
@@ -159,11 +164,16 @@ class Page:
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
+                        # if pdf_type == 'sebi': # and bad_end_re_sebi.search(text):
+                        #     continue
                         self.all_tbs[tb] = "title"
                     self.logger.debug(f"Title detected by font style - upper case: '{text}' on page {self.pg_num}")
                     continue
 
                 if tb.textFont_is_italic(pdf_type):
+                        if pdf_type == 'sebi':
+                            self.all_tbs[tb] = ('italic', 'blockquote')
+                            continue
                         if label == ["amendment"]:
                             self.all_tbs[tb].append("title")
                         else:
@@ -420,33 +430,68 @@ class Page:
                     self.logger.debug(f"Page {self.pg_num}: Labelled textbox within table {idx}")
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to label textbox '{tb}' for table {idx} -- {e}")
-    
-    # def get_blockquote(self, bq_obj):
-        
-    #     for tb,label in self.all_tbs.items():
-    #         if label is not None:
-    #             continue
-    #         text = tb.extract_text_from_tb().strip()
-    #         label = bq_obj.get_sections(text, tb.coords)
-    #         # print(label, text)
 
     def get_bulletins(self, sectionState):
+        normalize_text = NormalizeText().normalize_text
         hierarchy_type = ("level1","level2","level3","level4","level5")
-        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
-        group_re = re.compile(r'^\s*(\(?([a-zA-Z]+|\d+(?:\.\d+)*)\)?[\.\)]{1})')
+        #original
+        # section_re = re.compile(r'^\s*\d+[A-Z]*\s*\.\s+.*$', re.IGNORECASE)
+        # group_re = re.compile(r'^\s*((?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|(?:[IVXLCDM]+\)|\([IVXLCDM]+\))|(?:\(?\d+(?:\.\d+)*\)?[.\)]))', re.IGNORECASE)
+        
+        
+        # section_re = re.compile(r'^(?!\s*[1-9]\d{0,2}[./-][1-9]\d{0,2}[./-]\d{2,4})\s*[1-9]\d{0,2}[A-Z]*\s*\.\s*(.*)?$', re.IGNORECASE)
+        # group_re = re.compile(
+        #         r'^\s*((?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|'                  # a), b), A)
+        #         r'(?:[IVXLCDM]+\)|\([IVXLCDM]+\))|'                               # i), ii), (iv)
+        #         r'(?!(?:[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){1,3}[./-]\d{2,4}))'       # negative lookahead for dates
+        #         r'\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])',              # numeric groups up to 4 levels, no leading zeros
+        #         re.IGNORECASE
+        #     )
+        # section_re = re.compile(
+        #     r'^\s*[1-9]\d{0,2}[A-Z]?\.(?!\))\s+.*$', 
+        #     re.IGNORECASE
+        # )
 
+
+        # group_re = re.compile(
+        #     r'^\s*('
+        #         r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|'        # a, aa, aaa or (a), (aa), (aaa)
+        #         r'(?:[IVXLCDM]{1,3}\)|\([IVXLCDM]{1,3}\))|'      # roman numerals max 3 chars like iii, iv
+        #         r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,2}\)?[.\)])' # numeric: 1, 1.1, 1.1.1 max 3 levels, no leading zeros
+        #     r')',
+        #     re.IGNORECASE
+        # )
+
+        # section_re = re.compile(
+        #     r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))\s+.*$',
+        #     re.IGNORECASE
+        # )
+        section_re = re.compile(
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            re.IGNORECASE
+        )
+
+        group_re = re.compile(
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*('
+                r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|'         # a), aa), (a), etc.
+                r'(?:[IVXLCDM]{1,3}\)|\([IVXLCDM]{1,3}\))|'       # i), ii), (iv), etc.
+                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # 1, 1.1, 1.1.1, 1.1.1.1 (max 4 levels, no leading zeros)
+            r')',
+            re.IGNORECASE
+        )
         for tb,label in self.all_tbs.items():
+            if label is not None:
+                continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
                 if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
                     section_number = section_re.match(texts).group().split('.')[0].strip()
-                    sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
+                    sectionState.compare_obj = CompareLevelSebi(section_number, ARTICLE)
                     sectionState.prev_value = section_number
                     sectionState.prev_type = ARTICLE
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
-                    # print(texts)
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
                     check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
                     
@@ -463,7 +508,7 @@ class Page:
                     continue
 
                 match = group_re.match(texts)
-                # print(label)
+
                 if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
                     group =match.group(1).strip()
                     valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
@@ -473,7 +518,6 @@ class Page:
                     else:
                         classification = hierarchy_type[sectionState.curr_depth]
                         self.all_tbs[tb] = classification
-                        print(texts, classification)
                         sectionState.prev_value = group
                         sectionState.prev_type = valueType2
                         self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
