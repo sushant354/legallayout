@@ -1,0 +1,8 @@
+filename,pdf_type,is_amendment,start_page,end_page
+amendment.pdf,acts,true,,
+act1.pdf,acts,false,,
+boilers_act.pdf,acts,false,,
+sebi1.pdf,sebi,false,,
+sebi2.pdf,sebi,false,,
+sebi3.pdf,sebi,false,,
+calcutta.pdf,,false,,
