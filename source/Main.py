@@ -60,13 +60,13 @@ class Main:
         self.footers = []
         for pg in pages:
             pdf_dir = self.get_path_cache_pdf()
-            if not pdf_path.lower().endswith(".pdf"):
+            if not self.pdf_path.lower().endswith(".pdf"):
                 
-                base_name = os.path.basename(pdf_path) + ".pdf"
+                base_name = os.path.basename(self.pdf_path) + ".pdf"
                 new_pdf_path = os.path.join(pdf_dir, base_name)
 
                 
-                shutil.copy(pdf_path, new_pdf_path)
+                shutil.copy(self.pdf_path, new_pdf_path)
 
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
@@ -372,12 +372,12 @@ class Main:
     # --- parse pdf using pdfminer to convert to XML ---       
     def parsePDF(self, pdf_type):
         try:
-            if not os.path.exists(pdf_path):
-                self.logger.error(f"[✖] Input file not found: {pdf_path}")
+            if not os.path.exists(self.pdf_path):
+                self.logger.error(f"[✖] Input file not found: {self.pdf_path}")
                 return False
         
-            if not self.is_pdf_file(pdf_path):
-                self.logger.error(f"[✖] Input is not a valid PDF file: {pdf_path}")
+            if not self.is_pdf_file(self.pdf_path):
+                self.logger.error(f"[✖] Input is not a valid PDF file: {self.pdf_path}")
                 return False
             
             base_name_of_file = os.path.splitext(os.path.basename(self.pdf_path))[0]

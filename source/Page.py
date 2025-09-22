@@ -435,15 +435,20 @@ class Page:
             r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
-
-        group_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*('
-                r'(?:[A-Za-z]{1,3}[.)]|\([A-Za-z]{1,3}\))|'        # a. a) (a)
-                r'(?:[IVXLCDM]{1,3}[.)]|\([IVXLCDM]{1,3}\))|'      # I. I) (I)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.)])' # 1. 1) 1.1.
-            r')',
-            re.IGNORECASE
-        )
+        group_re = re.compile( r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*(' 
+            r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|' # a), aa), (a), etc. 
+            r'(?:[IVXLCDM]{1,3}\)|\([IVXLCDM]{1,3}\))|' # i), ii), (iv), etc. 
+            r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # 1, 1.1, 1.1.1, 1.1.1.1 (max 4 levels, no leading zeros) 
+            r')', 
+            re.IGNORECASE )
+        # group_re = re.compile(
+        #     r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*('
+        #         r'(?:[A-Za-z]{1,3}[.)]|\([A-Za-z]{1,3}\))|'        # a. a) (a)
+        #         r'(?:[IVXLCDM]{1,3}[.)]|\([IVXLCDM]{1,3}\))|'      # I. I) (I)
+        #         r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.)])' # 1. 1) 1.1.
+        #     r')',
+        #     re.IGNORECASE
+        # )
         for tb,label in self.all_tbs.items():
             if label is not None:
                 if label != 'title':
