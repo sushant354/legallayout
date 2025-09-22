@@ -6,9 +6,10 @@ import logging
 import pandas as pd
 from difflib import SequenceMatcher
 from sklearn.cluster import DBSCAN
-from SentenceEndDetector import LegalSentenceDetector
 from bs4 import BeautifulSoup
-from NormalizeText import NormalizeText
+
+from .SentenceEndDetector import LegalSentenceDetector
+from .NormalizeText import NormalizeText
 
 class HTMLBuilder:
     

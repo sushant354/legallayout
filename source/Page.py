@@ -1,7 +1,3 @@
-from TextBox import TextBox
-from TableExtraction import TableExtraction
-from CompareLevel import CompareLevel, CompareLevelSebi
-from NormalizeText import NormalizeText
 from sklearn.cluster import DBSCAN
 from sklearn.cluster import KMeans
 from collections import OrderedDict
@@ -9,6 +5,10 @@ import numpy as np
 import re
 import logging
 
+from .TextBox import TextBox
+from .TableExtraction import TableExtraction
+from .CompareLevel import CompareLevel, CompareLevelSebi
+from .NormalizeText import NormalizeText
 
 ARTICLE      = 4
 DECIMAL      = 3

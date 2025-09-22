@@ -7,10 +7,10 @@ import re
 import codecs
 import logging
 import shutil
-from ParserTool import ParserTool
-from Page import Page, SectionState
-from HTMLBuilder import HTMLBuilder
-from Amendment import Amendment
+from .ParserTool import ParserTool
+from .Page import Page, SectionState
+from .HTMLBuilder import HTMLBuilder
+from .Amendment import Amendment
 # from BqLayout import BqLayout
 
 class Main:
