@@ -34,7 +34,7 @@ class TextBox:
 
     
     # --- func to detect the textbox having texts font in bold for heading/title detection ---
-    def textFont_is_bold(self):
+    def textFont_is_bold(self, pdf_type = None):
         bold_font_re = re.compile(r'bold', re.IGNORECASE)
         no_of_chars = 0
         no_of_bold_chars = 0
@@ -51,14 +51,20 @@ class TextBox:
             if no_of_chars == 0:
                 return False  # Avoid division by zero
             
-            return (no_of_bold_chars / no_of_chars) > 0.1
+            if pdf_type == 'sebi':
+                return (no_of_bold_chars / no_of_chars) > 0.50
+            elif pdf_type == 'acts':
+                return (no_of_bold_chars / no_of_chars) > 0.1
+            else:
+                return (no_of_bold_chars / no_of_chars) > 0.75
+            
         except Exception as e:
             self.logger.error(f"Error detecting is_bold text in textbox [{self.extract_text_from_tb()}]: {e}")
             return False
 
 
     # --- func to detect the textbox having texts font in italic for heading/title detection ---
-    def textFont_is_italic(self):
+    def textFont_is_italic(self, pdf_type = None):
         italic_font_re = re.compile(r'italic', re.IGNORECASE)
         no_of_chars = 0
         no_of_italic_chars = 0
@@ -74,14 +80,19 @@ class TextBox:
             if no_of_chars == 0:
                 return False  # Avoid division by zero
 
-            return (no_of_italic_chars / no_of_chars) > 0.1
+            if pdf_type == 'sebi':
+                return (no_of_italic_chars / no_of_chars) > 0.7
+            elif pdf_type == 'acts':
+                return (no_of_italic_chars / no_of_chars) > 0.1
+            else:
+                return (no_of_italic_chars / no_of_chars) > 0.75
         except Exception as e:
             self.logger.error(f"Error detecting is_italic text in textbox [{self.extract_text_from_tb()}]: {e}")
             return False
 
         
     # --- func to detect the textbox having texts font in Upper Case for heading/title detection ---
-    def is_uppercase(self):
+    def is_uppercase(self, pdf_type = None):
         total_letters = 0
         total_uppercase = 0
         try:
@@ -97,7 +108,12 @@ class TextBox:
             if total_letters == 0:
                 return False  # Avoid division by zero
 
-            return (total_uppercase / total_letters) >= 0.25  # 60% or more letters are uppercase
+            if pdf_type == 'sebi':
+                return (total_uppercase / total_letters) >= 0.70
+            elif pdf_type == 'acts':
+                return (total_uppercase / total_letters) >= 0.25  
+            else:
+                return (total_uppercase / total_letters) >= 0.75 
 
         except Exception as e:
             self.logger.error(f"Error detecting is_uppercase text in textbox [{self.extract_text_from_tb()}]: {e}")
@@ -105,7 +121,7 @@ class TextBox:
 
     
     # --- func to detect the textbox having texts font in Title Case for heading/title detection ---
-    def is_titlecase(self):
+    def is_titlecase(self, pdf_type = None):
         words = []
         try:
             for textline in self.tbox.findall(".//textline"):
@@ -147,7 +163,12 @@ class TextBox:
                 return False
 
             # Return True if at least 25% of words are titlecase
-            return (titlecase_count / valid_word_count) >= 0.25
+            if pdf_type == 'sebi':
+                return (titlecase_count / valid_word_count) >= 0.70
+            elif pdf_type == 'acts':
+                return (titlecase_count / valid_word_count) >= 0.25
+            else:
+                return (titlecase_count / valid_word_count) >= 0.75
         
         except Exception as e:
             self.logger.error(f"Error detecting is_titlecase text in textbox [{self.extract_text_from_tb()}]: {e}")
@@ -206,3 +227,57 @@ class TextBox:
                     sentence_start_coords = None
         except Exception as e:
             self.logger.error("Error in get_side_note_datas: %s", str(e))
+
+    
+
+    def get_first_char_coords(self):
+        """
+        Get full coordinates (x0, y0, x1, y1) of the first character in the textbox.
+        Returns None if not found.
+        """
+        try:
+            for textline in self.tbox.findall('.//textline'):
+                for text in textline.findall('.//text'):
+                    if text.text and 'bbox' in text.attrib:
+                        parts = text.attrib['bbox'].split(',')
+                        if len(parts) == 4:
+                            try:
+                                coords = tuple(map(float, parts))
+                                return coords
+                            except ValueError:
+                                self.logger.warning("Non-numeric bbox attribute: '%s'", text.attrib['bbox'])
+                        else:
+                            self.logger.warning("Malformed bbox attribute: '%s'", text.attrib['bbox'])
+            self.logger.debug("No valid bbox found for first character in textbox: %s", self.extract_text_from_tb())
+            return None
+        except Exception as e:
+            self.logger.error("Error in get_first_char_coords: %s", str(e))
+            return None
+
+
+    def get_last_char_coords(self):
+        """
+        Get full coordinates (x0, y0, x1, y1) of the last character in the textbox.
+        Returns None if not found.
+        """
+        try:
+            last_coords = None
+            for textline in self.tbox.findall('.//textline'):
+                for text in textline.findall('.//text'):
+                    if text.text and 'bbox' in text.attrib:
+                        parts = text.attrib['bbox'].split(',')
+                        if len(parts) == 4:
+                            try:
+                                coords = tuple(map(float, parts))
+                                last_coords = coords  # keep overwriting → last char at end
+                            except ValueError:
+                                self.logger.warning("Non-numeric bbox attribute: '%s'", text.attrib['bbox'])
+                        else:
+                            self.logger.warning("Malformed bbox attribute: '%s'", text.attrib['bbox'])
+            if last_coords is None:
+                self.logger.debug("No valid bbox found for last character in textbox: %s", self.extract_text_from_tb())
+            return last_coords
+        except Exception as e:
+            self.logger.error("Error in get_last_char_coords: %s", str(e))
+            return None
+

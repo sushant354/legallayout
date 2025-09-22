@@ -8,12 +8,13 @@ import codecs
 import logging
 import shutil
 from ParserTool import ParserTool
-from Page import Page
+from Page import Page, SectionState
 from HTMLBuilder import HTMLBuilder
 from Amendment import Amendment
+# from BqLayout import BqLayout
 
 class Main:
-    def __init__(self,pdfPath,start,end,is_amendment_pdf,output_dir):
+    def __init__(self,pdfPath,start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.output_dir = output_dir
@@ -22,17 +23,27 @@ class Main:
         self.parserTool = ParserTool()
         self.total_pgs = 0
         self.all_pgs = {}
-        self.html_builder = HTMLBuilder()
+        self.html_builder = self.get_htmlBuilder(pdf_type)
         self.is_amendment_pdf = is_amendment_pdf
-
-        if self.is_amendment_pdf:
-            self.amendment = Amendment()
+        self.amendment = Amendment()
+        self.section_state = SectionState()
     
+    def get_htmlBuilder(self, pdf_type):
+        if pdf_type == 'sebi':
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
+            return HTMLBuilder(sentence_completion_punctutation, pdf_type)
+        elif pdf_type == 'acts':
+            sentence_completion_punctutation = ('.', ';', ':', '—')
+            return HTMLBuilder(sentence_completion_punctutation, pdf_type)
+        else:
+            sentence_completion_punctutation = ('.', ':')
+            return HTMLBuilder(sentence_completion_punctutation, pdf_type)
+        
     # --- func to build HTML after text classification ---
-    def buildHTML(self):
+    def buildHTML(self, section_page_end):
         for page in self.all_pgs.values():
             self.logger.info(f"HTML build starts for page num-{page.pg_num}")
-            self.html_builder.build(page)
+            self.html_builder.build(page, section_page_end)
         
         self.logger.debug("Fetching Full HTML content")
         html_content = self.html_builder.get_html()
@@ -72,7 +83,7 @@ class Main:
         self.set_page_headers_footers()
 
     # --- classify the page texboxes sidenotes, section, para, titles(headings) ---
-    def process_pages(self):
+    def process_pages_acts(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.print_tbs()
@@ -83,9 +94,38 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             if self.is_amendment_pdf:
-                self.amendment.check_for_amendments(page,self.section_start_page,self.section_end_page)
-            page.get_section_para(self.section_start_page,self.section_end_page)
-            page.get_titles()
+                self.amendment.check_for_amendment_acts(page,self.section_start_page,self.section_end_page)
+
+            page.get_section_para(self.section_state, self.section_start_page,self.section_end_page)
+            page.get_titles(pdf_type)
+
+    
+    def process_pages_sebi(self, pdf_type):
+        for page in self.all_pgs.values():
+            self.logger.info(f"Processing page num-{page.pg_num}")
+            page.get_width_ofTB_moreThan_Half_of_pg()
+            page.get_body_width_by_binning()
+            # page.is_single_column_page = page.is_single_column_page()
+            # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
+            # print(page.is_single_column_page)
+            page.get_titles(pdf_type)
+            self.amendment.check_for_blockquotes(page)
+            page.get_bulletins(self.section_state)
+            # page.print_levels()
+            
+    def process_pages(self, pdf_type):
+        for page in self.all_pgs.values():
+            self.logger.info(f"Processing page num-{page.pg_num}")
+            page.get_width_ofTB_moreThan_Half_of_pg()
+            page.get_body_width_by_binning()
+            # page.is_single_column_page = page.is_single_column_page()
+            # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
+            # print(page.is_single_column_page)
+            page.get_titles(pdf_type)
+            page.get_bulletins(self.section_state)
+
+    def print_labels(self, pdf_type):
+        #for page in self.all_pgs.values():
             # page.print_table_content()
             # page.print_headers()
             # page.print_footers()
@@ -94,8 +134,9 @@ class Main:
             # page.print_section_para()
             # page.print_all()
             # page.print_amendment()
-            # page.print_tbs()
-            
+            # # page.print_tbs()
+            # self.bq_layout.print_sections()
+        pass
     # --- in each page do contour to detect possible header/footer content ---
     def contour_header_footer_of_page(self,pg):
         try:
@@ -111,7 +152,7 @@ class Main:
                 except Exception as e:
                     self.logger.warning("Error extracting text or coordinates from textbox on page %d: %s", pg.pg_num, e)
             if not units:
-                self.logger.info("No units detected for header/footer detection on page %d", pg.pg_num)
+                self.logger.info("No units detected for header/footer detection on page %s", pg.pg_num)
                 return
             
             most_bottom_unit = sorted(units, key= lambda d: d['y0'], reverse=False)
@@ -275,14 +316,6 @@ class Main:
 
     # --- once detected set the header and footer of the page, apply to their page object ---
     def set_page_headers_footers(self):
-        # for pg in self.headers:
-        #     for textbox in pg['headers']:
-        #         self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "header"
-        
-        # for pg in self.footers:
-        #     for textbox in pg['footers']:
-        #         self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "footer"
-
         try:
             for pg in self.headers:
                 page_num = int(pg['page'])
@@ -320,7 +353,6 @@ class Main:
                     self.logger.debug("Attribute %s not found for deletion.", attr)
         except Exception as e:
             self.logger.exception("Failed during set_page_headers_footers: %s", e)
-
     
     def get_path_cache_xml(self):
         current_file = Path(__file__).resolve()       
@@ -328,10 +360,26 @@ class Main:
         cache_xml_dir = source_dir / "cache_xml"      
         cache_xml_dir.mkdir(parents=True, exist_ok=True)  
         return cache_xml_dir
+    
+    def is_pdf_file(self, path):
+        try:
+            with open(path, "rb") as f:
+                header = f.read(1024)  # read first 1KB, enough for header
+                return b"%PDF-" in header
+        except Exception:
+            return False
 
     # --- parse pdf using pdfminer to convert to XML ---       
-    def parsePDF(self):
+    def parsePDF(self, pdf_type):
         try:
+            if not os.path.exists(pdf_path):
+                self.logger.error(f"[✖] Input file not found: {pdf_path}")
+                return False
+        
+            if not self.is_pdf_file(pdf_path):
+                self.logger.error(f"[✖] Input is not a valid PDF file: {pdf_path}")
+                return False
+            
             base_name_of_file = os.path.splitext(os.path.basename(self.pdf_path))[0]
             self.logger.info("Starting PDF parsing for: %s", self.pdf_path)
             cache_xml_path = self.get_path_cache_xml()
@@ -342,22 +390,33 @@ class Main:
             
             if not os.path.exists(self.xml_path):
                 self.logger.error("XML file was not created: %s", self.xml_path)
-                return
+                return False
 
             self.logger.debug("Parsing pages from XML: %s", self.xml_path)
             pages = self.parserTool.get_pages_from_xml(self.xml_path)
             self.logger.debug("Extracting header and footer info...")
             self.get_page_header_footer(pages)
             self.logger.debug("Processing content from pages...")
-            self.process_pages()
+            if pdf_type == 'acts':
+                self.process_pages_acts(pdf_type)
+            elif pdf_type == 'sebi':
+                self.process_pages_sebi(pdf_type)
+            else:
+                self.process_pages(pdf_type)
+            self.print_labels(pdf_type)
             self.logger.info("Finished Processing of pages for: %s", self.pdf_path)
+            return True
         except Exception as e:
             self.logger.exception("Exception occurred while parsing PDF: %s", e)
+            return False
 
 
     
     # --- func for writing the html content to the desired output file ---
     def write_html(self, content):
+        if not content:
+            self.logger.warning('HTML content not available to save')
+            return
         filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".html"
         try:
             output_dir = Path(self.output_dir)
@@ -380,14 +439,19 @@ class Main:
             self.logger.exception("Failed to write HTML content: %s", e)
     
     def clear_cache(self):
+        if not hasattr(self, "xml_path") or not self.xml_path:
+            self.logger.warning("No xml_path attribute set for this instance")
+            return
         if not os.path.exists(self.xml_path):
             self.logger.warning("XML file was not created or already deleted: %s", self.xml_path)
-        else:
-            try:
-                os.remove(self.xml_path)
-                self.logger.info("Successfully removed XML file: %s", self.xml_path)
-            except OSError as e:
-                self.logger.error("Error deleting XML file %s: %s", self.xml_path, e)
+            return
+
+        try:
+            os.remove(self.xml_path)
+            self.logger.info("Successfully removed XML file: %s", self.xml_path)
+        except OSError as e:
+            self.logger.error("Error deleting XML file %s: %s", self.xml_path, e)
+
 
     def get_path_cache_pdf(self):
         current_file = Path(__file__).resolve()       
@@ -404,7 +468,6 @@ class Main:
             if os.path.commonpath([os.path.abspath(self.pdf_path), os.path.abspath(cache_dir)]) == os.path.abspath(cache_dir):
                 try:
                     os.remove(self.pdf_path)
-                    print("i am here")
                     self.logger.info("Successfully removed cached_pdf: %s", self.pdf_path)
                 except OSError as e:
                     self.logger.error("Error deleting cached file %s: %s", self.pdf_path, e)
@@ -432,6 +495,8 @@ def get_arg_parser():
                         required=True,help = "Directory to store output file")
     parser.add_argument('-x','--keep-xml',dest="keep_xml",action = "store_true",\
                         required = False, default = False, help = "saves the intermediate xml in cache_xml folder")
+    parser.add_argument('-t','--type', dest= 'pdf_type', action = 'store', \
+                        required = False, help= 'which helps to process and convert html type = (sebi | acts)' )
     return parser
 
 
@@ -481,9 +546,10 @@ if __name__ == "__main__":
     is_amendment_pdf = args.is_amendment_pdf
     logger.debug(f"Is the pdf contains amendments - {"Yes" if is_amendment_pdf else "No"}")
     output_dir = args.output_dir
-    main = Main(pdf_path,start,end,is_amendment_pdf,output_dir)
-    main.parsePDF()
-    main.buildHTML()
+    main = Main(pdf_path,start,end,is_amendment_pdf,output_dir, args.pdf_type)
+    is_success = main.parsePDF(args.pdf_type)
+    if is_success:
+        main.buildHTML(end)
     main.clear_cache_pdf()
     if not args.keep_xml:
         main.clear_cache()
