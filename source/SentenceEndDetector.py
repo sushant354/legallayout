@@ -53,12 +53,11 @@ class LegalSentenceDetector:
       
       same_line_status = self.is_on_same_line(text_tb, next_text_tb)
       if same_line_status:
-          
           return False 
+      
       if not same_line_status and self.indent_check(text_tb, next_text_tb, pg_width):
-          
           return True
-          
+    
       if not text:
           return False
 
@@ -66,22 +65,8 @@ class LegalSentenceDetector:
       if not s:
           return False
       
-      if self.check_lastcharoftext_firstcharofnexttext(s, next_text):
-        return True
-
       if re.fullmatch(r'\d+(?:\.\d+)*\.', s):
         return False
-      # 0. PURE BULLET OR LIST MARKER (standalone line like "10.", "(a)", "(i)")
-      # pure_bullet_patterns = [
-      #     re.compile(r'^\d+\.$'),              # "10."
-      #     re.compile(r'^\(\d+\)$'),            # "(10)"
-      #     re.compile(r'^\d+\)$'),              # "10)"
-      #     re.compile(r'^[a-z]\.$', re.I),      # "a."
-      #     re.compile(r'^\([a-z]\)$', re.I),    # "(a)"
-      #     re.compile(r'^[ivxlcdm]+\.$', re.I), # "ii."
-      #     re.compile(r'^\([ivxlcdm]+\)$', re.I),
-      # ]
-
       pure_bullet_patterns = [
           re.compile(r'^\(?\d+[A-Z]?\)?[.)]?$'),   # (1), 1A., 2)
           re.compile(r'^\(?[ivxlcdm]+\)?[.)]?$' , re.I), # (iv), ii.
@@ -90,13 +75,6 @@ class LegalSentenceDetector:
       for pattern in pure_bullet_patterns:
           if pattern.fullmatch(s):
               return False
-          
-    #   if re.match(r'^(?:[A-Z]\.){1,3}$', s) and next_text:
-    #     next_clean = next_text.strip()
-    #     if re.match(r'^[A-Z][a-z]+', next_clean):
-    #         return False
-    #     if re.match(r'^\d+(\.\d+)*\.$', s):
-    #         return False
         
       # Continuation punctuation (:-, ---, ...)
       continuation_punct = [":-", "---", "...", '—'] #'".','."',"'.",".'"]
@@ -111,7 +89,6 @@ class LegalSentenceDetector:
               if re.match(r'^\(?[a-z0-9ivxlcdm]+\)', nxt_clean, re.I):  # bullet-like
                   return True
           return False if at_page_end else True
-      
       
 
       # 1. SENTENCE-ENDING PUNCTUATION CHECK
@@ -274,42 +251,7 @@ class LegalSentenceDetector:
       # 🔧 Patch 2: At page end → don’t force False
       return True
 
-
-
-    # def is_on_same_line(self, text_tb, next_text_tb):
-    #     # Get last char of current textbox
-    #     last_char = getattr(text_tb, "get_last_char_coords", lambda: None)()
-    #     # Get first char of next textbox
-    #     next_first_char = getattr(next_text_tb, "get_first_char_coords", lambda: None)()
-
-    #     # Fallback to full bbox if char-level not available
-    #     box1 = last_char or getattr(text_tb, "coords", None)
-    #     box2 = next_first_char or getattr(next_text_tb, "coords", None)
-
-    #     if not box1 or not box2:
-    #         return False  # cannot decide → treat as different line
-
-    #     # Normalize bboxes
-    #     x0a, y0a, x1a, y1a = self._normalize_bbox(box1)
-    #     x0b, y0b, x1b, y1b = self._normalize_bbox(box2)
-
-    #     # Heights
-    #     h1 = max(1.0, y1a - y0a)
-    #     h2 = max(1.0, y1b - y0b)
-
-    #     # Vertical overlap ratio
-    #     vertical_overlap = min(y1a, y1b) - max(y0a, y0b)
-    #     min_height = min(h1, h2)
-
-    #     if vertical_overlap / min_height < (1 - self.same_line_tolerance):
-    #         return False  # not enough vertical overlap → different line
-
-    #     # Horizontal ordering check: next char should start after current ends
-    #     if x0b < x1a - 1:  # allow small tolerance
-    #         return False
-
-    #     return True
-    def is_on_same_line(self, text_tb, next_text_tb) -> bool:
+    def is_on_same_line(self, text_tb, next_text_tb):
             """
             Decide whether two textboxes are on the same line.
             Uses last char of text_tb and first char of next_text_tb if available,
@@ -359,7 +301,7 @@ class LegalSentenceDetector:
 
             return True
 
-    def _normalize_bbox(self, box: BBox) -> BBox:
+    def _normalize_bbox(self, box: BBox):
         """
         Normalize a bounding box to the form (x0, y0, x1, y1)
         where:
@@ -378,79 +320,6 @@ class LegalSentenceDetector:
         x0, y0, x1, y1 = box
         return (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
     
-    #original
-    # def indent_check(self, text_tb, next_text_tb, pg_width):
-    #         # Get char-level boxes
-    #         last_char = getattr(text_tb, "get_last_char_coords", lambda: None)()
-    #         next_first_char = getattr(next_text_tb, "get_first_char_coords", lambda: None)()
-
-    #         # Fallback to full bbox
-    #         box1 = last_char or getattr(text_tb, "coords", None) or getattr(text_tb, "bbox", None)
-    #         box2 = next_first_char or getattr(next_text_tb, "coords", None) or getattr(next_text_tb, "bbox", None)
-
-    #         if not box1 or not box2:
-    #             return False
-
-    #         x0a, y0a, x1a, y1a = self._normalize_bbox(box1)
-    #         x0b, y0b, x1b, y1b = self._normalize_bbox(box2)
-
-    #         # Check right margin gap of first textbox
-    #         right_gap_a = pg_width - x1a
-    #         if right_gap_a> 0.3 * pg_width:
-    #             return True
-            
-    #         # left_gap_a = x0a
-    #         # if left_gap_a > 0.4 * pg_width:
-    #         #     return True
-            
-    #         # right_gap_b = pg_width - x1b
-    #         # if right_gap_b> 0.3 * pg_width:
-    #         #     return True
-    #         # Check left margin gap of second textbox
-    #         left_gap_b = x0b
-    #         if left_gap_b > 0.3 * pg_width:
-    #             return True
-
-    #         return False
-    
-    # def indent_check(self, text_tb, next_text_tb, pg_width: float) -> bool:
-    #         """
-    #         Detects indent or ragged alignment by checking distance from leftmost (0)
-    #         or rightmost (pg_width) margins.
-
-    #         Criteria:
-    #         - If either textbox starts > left_threshold * pg_width from left margin
-    #         - OR ends < (1 - right_threshold) * pg_width from right margin
-    #         """
-
-    #         # Configurable thresholds
-    #         left_threshold = 0.4   # 40% inward from left margin
-    #         right_threshold = 0.3  # 30% inward from right margin
-
-    #         # Get char-level or bbox
-    #         last_char = getattr(text_tb, "get_last_char_coords", lambda: None)()
-    #         next_first_char = getattr(next_text_tb, "get_first_char_coords", lambda: None)()
-    #         box1 = last_char or getattr(text_tb, "coords", None) or getattr(text_tb, "bbox", None)
-    #         box2 = next_first_char or getattr(next_text_tb, "coords", None) or getattr(next_text_tb, "bbox", None)
-
-    #         if not box1 or not box2:
-    #             return False
-
-    #         x0a, y0a, x1a, y1a = self._normalize_bbox(box1)
-    #         x0b, y0b, x1b, y1b = self._normalize_bbox(box2)
-
-    #         # Distances from page edges
-    #         left_a, right_a = x0a, pg_width - x1a
-    #         left_b, right_b = x0b, pg_width - x1b
-
-    #         # Check thresholds
-    #         if left_a > left_threshold * pg_width or right_a > right_threshold * pg_width:
-    #             return True
-    #         if left_b > left_threshold * pg_width or right_b > right_threshold * pg_width:
-    #             return True
-
-    #         return False
-
     def check_lastcharoftext_firstcharofnexttext(self, s, next_text):
         if not next_text:
             return False

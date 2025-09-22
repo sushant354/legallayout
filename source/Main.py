@@ -27,8 +27,6 @@ class Main:
         self.is_amendment_pdf = is_amendment_pdf
         self.amendment = Amendment()
         self.section_state = SectionState()
-        # if pdf_type == 'sebi':
-        #     self.bq_layout = BqLayout()
     
     def get_htmlBuilder(self, pdf_type):
         if pdf_type == 'sebi':
@@ -113,6 +111,7 @@ class Main:
             page.get_titles(pdf_type)
             self.amendment.check_for_blockquotes(page)
             page.get_bulletins(self.section_state)
+            # page.print_levels()
             
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
@@ -317,14 +316,6 @@ class Main:
 
     # --- once detected set the header and footer of the page, apply to their page object ---
     def set_page_headers_footers(self):
-        # for pg in self.headers:
-        #     for textbox in pg['headers']:
-        #         self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "header"
-        
-        # for pg in self.footers:
-        #     for textbox in pg['footers']:
-        #         self.all_pgs[int(pg['page'])].all_tbs[(textbox['tb'])] = "footer"
-
         try:
             for pg in self.headers:
                 page_num = int(pg['page'])

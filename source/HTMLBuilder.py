@@ -27,7 +27,8 @@ class HTMLBuilder:
         self.normalize_text = NormalizeText().normalize_text
         self.min_word_threshold_tableRows = 2
         self.table_terminators = {".", "?", "!"} #";", ":",
-        self.builder = '''<!DOCTYPE HTML>
+        self.builder = ""
+        self.main_builder = '''<!DOCTYPE HTML>
 <html>
 <head>
 <meta charset="UTF-8" />
@@ -166,12 +167,13 @@ class HTMLBuilder:
         try:
           text = tb.extract_text_from_tb().strip()
           sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))$', re.IGNORECASE)
-          
+
           if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
-             return
-                   
+            return
+                  
           if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
-                 return
+                return
+          
           if not self.stack_for_section:
               self.flushPrevious()
           else:
@@ -180,25 +182,14 @@ class HTMLBuilder:
                   tag = self.stack_for_section.pop()
                   self.builder += "</section>\n"
                   # if tag == 0:
-                  #     break
+                  #     break 
+           
           if not self.stack_for_level:
               self.flushPrevious()
           else:
               if text and sebi_level_close_re.match(text):
                   self.close_levels()
               elif self.stack_for_level and next_label == 'level1':
-                  # while len(self.stack_for_level) >= 2:
-                  #       if self.stack_for_level[-1] == self.stack_for_level[-2]:
-                  #           self.stack_for_level.pop()
-                  #           self.builder += "</li>\n"
-                  #       else:
-                  #           self.stack_for_level.pop()
-                  #           self.builder += "</li>\n</ul>\n"
-                  #       tag = self.stack_for_level.pop()
-                  #       if tag == 0:
-                  #             self.builder += "</section>\n"
-                  #       else:
-                  #             self.builder += "</li>\n</ul>\n"
                   while self.stack_for_level:
                           if len(self.stack_for_level) >= 2:
                             if self.stack_for_level[-1] == self.stack_for_level[-2]:
@@ -391,28 +382,6 @@ class HTMLBuilder:
         self.logger.exception("Error finding closest side note for TB BBox %s: %s", tb_bbox, e)
         return None
       
-    # def get_last_token(self, html):
-    #     # Try lxml first, fallback to built-in parser
-    #     try:
-    #         soup = BeautifulSoup(html, "lxml")
-    #     except Exception:
-    #         soup = BeautifulSoup(html, "html.parser")
-
-    #     # Find the last tag in the parsed tree
-    #     last_tag = None
-    #     for tag in soup.find_all(True):
-    #         last_tag = tag
-
-    #     # If last tag is still "open" in the input HTML, keep it
-    #     last_open_tag = last_tag.name if last_tag and not str(html).strip().endswith(f"</{last_tag.name}>") else None
-
-    #     # Extract last text token
-    #     text_only = soup.get_text().strip()
-    #     tokens = text_only.split()
-    #     last_token = tokens[-1] if tokens else ""
-
-    #     return  last_token, last_open_tag
-
     def get_last_token(self, html):
         """
         Extract the last token and the last unclosed tag from an HTML string.
@@ -448,13 +417,15 @@ class HTMLBuilder:
         return None, None
 
       
-    def addLevel(self, text, hierarchy_index):
+    def addLevel(self, text, hierarchy_index, next_text,tb, next_text_tb, pg_height,pg_width,  at_page_end):
           try:
               
-              # last_token = self.get_last_token(self.builder)
-              # if last_token and (not last_token.endswith(('.','?'))):
-              #     self.builder += text
-              #     return
+              # if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+              #       return
+                   
+              # if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+              #       return
+                  
               if not self.stack_for_level:
                   self.flushPrevious()
               else:
@@ -508,60 +479,6 @@ class HTMLBuilder:
           except Exception as e:
               self.logger.exception("Error while adding section [%s]: %s", text, e)
               
-    # def addLevel(self, text, hierarchy_index):
-    #     try:
-    #         # If stack empty, start fresh
-    #         if not self.stack_for_level:
-    #             self.flushPrevious()
-    #         # elif self.stack_for_level:
-    #         #     last_token = self.get_last_token(self.builder)
-    #         #     is_sentence_completed = last_token.strip().endswith(self.sentence_completion_punctuation)
-    #         #     if last_token and (not is_sentence_completed):
-    #         #         print(last_token, text)
-    #         #         self.builder += text
-    #         #         return
-    #         else:
-    #             # If a new paragraph starts, close everything before it
-    #             if hierarchy_index == 0:
-    #                 while self.stack_for_level:
-    #                     tag = self.stack_for_level.pop()
-    #                     if tag == 0:
-    #                         self.builder += "</section>\n"
-    #                     else:
-    #                         self.builder += "</li>\n</ul>\n"
-
-    #             else:
-    #                 # Pop until we are at the right depth
-    #                 while self.stack_for_level and self.stack_for_level[-1] > hierarchy_index:
-    #                     tag = self.stack_for_level.pop()
-    #                     if tag == 0:
-    #                         self.builder += "</section>\n"
-    #                     else:
-    #                         self.builder += "</li>\n</ul>\n"
-
-    #                 # If same level, close previous <li>
-    #                 if self.stack_for_level and self.stack_for_level[-1] == hierarchy_index and hierarchy_index != 0:
-    #                     self.builder += "</li>\n"
-
-    #         # Open new tag depending on level
-    #         if hierarchy_index == 0:
-    #             # Paragraph level always opens fresh
-    #             self.builder += f"<section>{text}"
-    #         else:
-    #             # If going deeper than parent, open a new <ul>
-    #             if not self.stack_for_level or self.stack_for_level[-1] < hierarchy_index:
-    #                 self.builder += "<ul>\n"
-    #             self.builder += f"<li>{text}"
-
-    #         # Push this level onto stack
-    #         self.stack_for_level.append(hierarchy_index)
-
-    #         self.logger.debug("Opened section at hierarchy level: %d", hierarchy_index)
-
-    #     except Exception as e:
-    #         self.logger.exception("Error while adding section [%s]: %s", text, e)
-    
-
 
     # --- func to add the section labelled textbox in the html ---
     def addSection(self,tb,side_note_datas,page_height,hierarchy_index):
@@ -994,13 +911,7 @@ class HTMLBuilder:
             elif label == 'blockquote':
                 self.addBlockQuote(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
             elif label == 'level1' or label == 'level2' or label == 'level3' or label == 'level4':
-                self.addLevel(self.normalize_text(tb.extract_text_from_tb()), self.level_hierarchy.index(label))
-            # elif label == 'level2':
-            #     self.addLevel2(tb.extract_text_from_tb(), self.level_hierarchy.index(label))
-            # elif label == 'level3':
-            #     self.addLevel3(tb.extract_text_from_tb(), self.level_hierarchy.index(label))
-            # elif label == 'level4':
-            #     self.addLevel4(tb.extract_text_from_tb(), self.level_hierarchy.index(label))
+                self.addLevel(self.normalize_text(tb.extract_text_from_tb()), self.level_hierarchy.index(label), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
             elif label is None:
                 if not self.is_pg_num(tb,page.pg_width):
                   self.addUnlabelled(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
@@ -1061,11 +972,14 @@ class HTMLBuilder:
       flat = [pair for col in columns for pair in col]
       return OrderedDict(flat)           
     
-
+    def close_html(self):
+       html = self.main_builder + self.builder + "\n</body>\n</html>"
+       return html
+    
     def get_html(self):
         self.flushPrevious()
         self.flushTables()
-        return self.builder + "\n</body>\n</html>"
+        return self.close_html()
     
     def is_sequential(self, text1, text2):
         """Check if two strings represent sequential numbers."""
@@ -1267,317 +1181,3 @@ class HTMLBuilder:
         if self.pending_table is not None and len(self.pending_table) <= 2:
             self.addTable(self.pending_table[0])
             self.pending_table = None
-    
-    # def is_real_sentence_end(self, text, next_text, at_page_end, text_coords, next_text_coords, pg_height, pg_width):
-    #   """
-    #   Detects the end of sentences in legal documents, accounting for legal text complexities.
-    #   Handles:
-    #   - Legal abbreviations (Dr., Ld. Adv., Sec., Co., Ltd., SCC, Exh.)
-    #   - Citations and references (ILR 1951 480, (2004) 4 SCC 2036, 2012 SCC online Del 4864)
-    #   - Numbered/bulleted lists ((1), 1., (a), i., 10.)
-    #   - Section/subsection references (2., 2.1., Sec. 33, Exh. 101.)
-    #   - Internal tokens and acronyms (SEBI., RBI., 1.23)
-    #   - Lookahead context checks
-    #   - Page boundary handling (don’t force close paragraph at page end)
-    #   """
-    #   # if self.check_line_preserve(text, next_text, at_page_end, text_coords, next_text_coords, pg_height, pg_width):
-    #   #    return True
-      
-    #   if not text:
-    #       return False
-
-    #   s = text.strip()
-    #   if not s:
-    #       return False
-
-    #   # 0. PURE BULLET OR LIST MARKER (standalone line like "10.", "(a)", "(i)")
-    #   # pure_bullet_patterns = [
-    #   #     re.compile(r'^\d+\.$'),              # "10."
-    #   #     re.compile(r'^\(\d+\)$'),            # "(10)"
-    #   #     re.compile(r'^\d+\)$'),              # "10)"
-    #   #     re.compile(r'^[a-z]\.$', re.I),      # "a."
-    #   #     re.compile(r'^\([a-z]\)$', re.I),    # "(a)"
-    #   #     re.compile(r'^[ivxlcdm]+\.$', re.I), # "ii."
-    #   #     re.compile(r'^\([ivxlcdm]+\)$', re.I),
-    #   # ]
-
-    #   pure_bullet_patterns = [
-    #       re.compile(r'^\(?\d+[A-Z]?\)?[.)]?$'),   # (1), 1A., 2)
-    #       re.compile(r'^\(?[ivxlcdm]+\)?[.)]?$' , re.I), # (iv), ii.
-    #       re.compile(r'^\(?[a-z]\)?[.)]?$' , re.I),      # (a), b.
-    #   ]
-    #   for pattern in pure_bullet_patterns:
-    #       if pattern.fullmatch(s):
-    #           return False
-    #   if re.match(r'^\d+(\.\d+)*\.$', s):
-    #       return False
-    #   # Continuation punctuation (:-, ---, ...)
-    #   continuation_punct = [":-", "---", "...", '—']
-    #   for cp in continuation_punct:
-    #       if s.endswith(cp):
-    #           return False if at_page_end else True
-
-    #   # Special colon handling
-    #   if s.endswith(':'):
-    #       if next_text:
-    #           nxt_clean = next_text.strip()
-    #           if re.match(r'^\(?[a-z0-9ivxlcdm]+\)', nxt_clean, re.I):  # bullet-like
-    #               return True
-    #       return False if at_page_end else True
-
-    #   # 1. SENTENCE-ENDING PUNCTUATION CHECK
-    #   sentence_end_pattern = re.compile(r'.*[.?!:;]\s*$')
-    #   if not sentence_end_pattern.match(s):
-    #       return False
-
-    #   last_token_match = re.search(r'(\S+?)([.?!:;]+)\s*$', s)
-    #   if not last_token_match:
-    #       return False if at_page_end else True
-
-    #   last_token = last_token_match.group(1)
-    #   trailing_punct = last_token_match.group(2)
-
-    #   # 2. LIST-LIKE END TOKENS
-    #   list_boundary_patterns = [
-    #       re.compile(r'^\(\s*\d+\s*\)$'),
-    #       re.compile(r'^\(\s*[a-z]\s*\)$', re.I),
-    #       re.compile(r'^\(\s*[ivxlcdm]+\s*\)$', re.I),
-    #       re.compile(r'^\d+\.$'),
-    #       re.compile(r'^[a-z]\.$', re.I),
-    #       re.compile(r'^[ivxlcdm]+\.$', re.I),
-    #   ]
-    #   clean_token = re.sub(r'[^\w\(\)]', '', last_token).lower()
-    #   for pattern in list_boundary_patterns:
-    #       if pattern.match(last_token.strip()) or pattern.match(clean_token):
-    #           return False
-
-    #   # 3. LEGAL CITATIONS
-    #   citation_patterns = [
-    #       re.compile(r'\b(ILR|SCC|SCR|AIR|CrLJ|DLT|Mad|Cal|Bom|All|Ker|Guj|MP|Raj)\s+\d{4}\s+\d+\b'),
-    #       re.compile(r'\(\d{4}\)\s+\d+\s+(SCC|SCR|AIR|CrLJ|DLT|Mad|Cal|Bom|All|Ker|Guj|MP|Raj)\s+\d+'),
-    #       re.compile(r'\d{4}\s+(SCC|SCR|AIR|CrLJ|DLT|Mad|Cal|Bom|All|Ker|Guj|MP|Raj)\s+online\s+\w+\s+\d+'),
-    #       re.compile(r'\[\d{4}\]\s+\d+\s+\w+\s+\d+'),
-    #       re.compile(r'\d{4}\s+\(\d+\)\s+\w+\s+\d+'),
-    #       re.compile(r'Vol\.\s*\d+.*p\.\s*\d+', re.I),
-    #       re.compile(r'pp\.\s*\d+[-–]\d+', re.I),
-    #   ]
-    #   for pattern in citation_patterns:
-    #       if pattern.search(s):
-    #           if next_text and next_text.strip():
-    #               nxt_clean = next_text.strip()
-    #               if nxt_clean[0].islower():
-    #                   return False
-    #               else:
-    #                   return True
-    #           return False   
-
-    #   # 4. DECIMALS & ACRONYMS
-    #   if re.match(r'^\d+\.\d+$', last_token):
-    #       return False
-    #   if re.match(r'^[A-Z]+(\.[A-Z]+)+\.?$', last_token, re.I):
-    #       return False
-    #   if re.match(r'^(SEBI|RBI|CBDT|ITAT|NCLT|NCLAT|CBI|ED|FIU|MCA|ROC|DIN|PAN|TAN|GST|CGST|SGST|IGST|UTI|LIC|SBI|HDFC|ICICI|AXIS)\.$', last_token, re.I):
-    #       return False
-
-    #   # 5. SECTION/EXHIBIT REFERENCES
-    #   section_patterns = [
-    #       re.compile(r'^(Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\.\s*\d+$', re.I),
-    #       re.compile(r'^\d+\.$'),
-    #       re.compile(r'^\d+\.\d+\.$'),
-    #       re.compile(r'^\d+\.\d+\.\d+\.$'),
-    #       re.compile(r'^(Sec|Section|Art|Article|Rule)\s+\d+\.$', re.I),
-    #       re.compile(r'^(Exh|Exhibit|Ex)\.?\s*\d+[A-Za-z]*\.?$', re.I),
-    #   ]
-    #   for pattern in section_patterns:
-    #       if pattern.match(last_token.strip()):
-    #           return False
-
-    #   # 6. LEGAL ABBREVIATIONS
-    #   clean_token_for_abbr = re.sub(r'[^\w]', '', last_token).lower()
-    #   abbr_variants = [
-    #       clean_token_for_abbr + '.',
-    #       last_token.lower(),
-    #       clean_token_for_abbr,
-    #       last_token.lower().rstrip('.')
-    #   ]
-    #   for abbr in abbr_variants:
-    #       if abbr in self._abbr_clean:
-    #           return False
-
-    #   extended_legal_abbrevs = {
-    #       'ld.', 'learned', 'adv.', 'advocate', 'sr.', 'senior', 'jr.', 'junior',
-    #       'retd.', 'retired', 'addl.', 'additional', 'asstt.', 'assistant',
-    #       'govt.', 'government', 'dept.', 'department', 'min.', 'ministry',
-    #       'commr.', 'commissioner', 'collr.', 'collector', 'dist.', 'district',
-    #       'tehsildar', 'sdo', 'bdo', 'ceo', 'cfo', 'cmd', 'md', 'gm', 'dgm',
-    #       'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'ors', 'ors.'
-    #   }
-    #   for abbr_variant in abbr_variants:
-    #       if abbr_variant in extended_legal_abbrevs:
-    #           return False
-
-    #   # 7. LOOKAHEAD CHECK
-    #   if next_text is not None:
-    #       nxt = next_text.strip()
-    #       if nxt:
-    #           nxt_clean = re.sub('^[\'"\\u00AB\\u00BB\\[\\(\\{\\s]+', '', nxt)
-    #           if nxt_clean:
-    #               if re.search(r'[.?!:;][\'"”’)]*$', s) and re.match(r'^[\'"“”‘’]', nxt):
-    #                   return True
-
-    #               # Rule 1: punctuation + uppercase → True
-    #               if trailing_punct and nxt_clean and nxt_clean[0].isupper():
-    #                   return True
-
-    #               # 🔧 NEW Rule: punctuation + bullet → True
-    #               if trailing_punct  and re.match(r'^\(?[a-z0-9ivxlcdm]+\)', nxt_clean, re.I):
-    #                   return True
-
-    #               # Rule 2: punctuation + next bullet form → True
-    #               bullet_start_patterns = [
-    #                   re.compile(r'^\d+\.$'),
-    #                   re.compile(r'^\(\d+\)$'),
-    #                   re.compile(r'^\d+\)$'),
-    #                   re.compile(r'^[a-z]\.$', re.I),
-    #                   re.compile(r'^\([a-z]\)$', re.I),
-    #                   re.compile(r'^[ivxlcdm]+\.$', re.I),
-    #                   re.compile(r'^\([ivxlcdm]+\)$', re.I),
-    #                   re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE),
-    #                   re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE),
-    #                   re.compile(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', re.IGNORECASE)
-    #               ]
-    #               if trailing_punct:
-    #                   for pattern in bullet_start_patterns:
-    #                       if pattern.match(nxt_clean):
-    #                           return True
-
-    #               # If next is a pure bullet
-    #               for pattern in pure_bullet_patterns:
-    #                   if pattern.match(nxt_clean.split()[0]):
-    #                       return True
-
-    #               # Section headings
-    #               section_start_patterns = [
-    #                   re.compile(r'^\d+\s*\(\d+\)'),
-    #                   re.compile(r'^(Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\s+\d+', re.I),
-    #                   re.compile(r'^\d+\.\s+[A-Z]'),
-    #                   re.compile(r'^\d+\.\d+\s'),
-    #               ]
-    #               for pattern in section_start_patterns:
-    #                   if pattern.match(nxt_clean):
-    #                       return True
-
-    #               # Continuations (don’t split)
-    #               continuation_patterns = [
-    #                   re.compile(r'^\d+'),
-    #                   re.compile(r'^[ivxlcdmIVXLCDM]+[.)\]\}]'),
-    #                   re.compile(r'^\([a-z0-9ivxlcdm]+\)', re.I),
-    #                   re.compile(r'^[a-z0-9ivxlcdm]+\.', re.I),
-    #                   re.compile(r'^\('),
-    #               ]
-    #               for pattern in continuation_patterns:
-    #                   if pattern.match(nxt_clean):
-    #                       return False
-    #       return True
-    #   # 🔧 Patch 2: At page end → don’t force False
-    #   return True
-
-
-    def check_line_preserve(self, text, next_text, at_page_end, text_coords, next_text_coords, pg_height, pg_width):
-      # if text_coords:
-      #     x0, y0, x1, y1 = text_coords
-      # else:
-      #     x0 = y0 = x1 = y1 = None
-
-      # if next_text_coords:
-      #     nx0, ny0, nx1, ny1 = next_text_coords
-      # else:
-      #     nx0 = ny0 = nx1 = ny1 = None
-
-      # s = (text or "").strip()
-      # nxt = (next_text or "").strip()
-      # if not s:
-      #     return False
-
-      # # === Bullet / numbered point detection ===
-      # if re.match(r'^\s*(\d+(\.\d+)*|\(?[a-zivxlcdm]+\)|[•\-–])', s, re.I):
-      #     return True
-
-      # # === TOC / dot leaders ===
-      # if re.search(r'\.{3,}$', s):
-      #     return True
-
-      # # === Same line continuation → merge ===
-      # if text_coords and next_text_coords:
-      #     line_height = (y1 - y0) if (y1 and y0) else 10
-      #     same_line = abs(y0 - ny0) < 0.5 * line_height
-      #     if same_line:
-      #         if pg_width and abs(nx0 - x0) > 0.35 * pg_width:  # columns
-      #             return True
-      #         return False
-
-      # # === Soft wrap continuation → merge ===
-      # if text_coords and next_text_coords:
-      #     if not re.search(r'[.?!:;]$', s):
-      #         vertical_gap = (ny0 - y1) if (ny0 and y1) else 0
-      #         if 0 < vertical_gap < 1.3 * (y1 - y0 if (y1 and y0) else 12):
-      #             if abs((nx0 or 0) - (x0 or 0)) < 0.05 * pg_width:
-      #                 return False
-
-      # # === Sentence end → preserve ===
-      # if re.search(r'[.?!:;]$', s):
-      #     if nxt and nxt[0].isupper():
-      #         return True
-
-      # # === Headings, signatures, right align, etc. (same as before) ===
-      # if len(s) < 40 and text_coords and pg_width:
-      #     mid = (x0 + x1) / 2
-      #     if abs(mid - pg_width / 2) < 0.1 * pg_width:
-      #         return True
-      # if x1 and pg_width and x1 > 0.85 * pg_width:
-      #     return True
-      # if nx0 and pg_width and nx0 > 0.75 * pg_width:
-      #     return True
-
-      # # === Page boundary ===
-      # if at_page_end:
-      #     if not re.search(r'[.?!:;]$', s):
-      #         return False
-      #     return True
-
-      # # Default → merge
-      # return False
-      if not text_coords or not next_text_coords:
-        return False  # if no coords, fallback to merge
-
-      x0, y0, x1, y1 = text_coords
-      nx0, ny0, nx1, ny1 = next_text_coords
-      line_height = (y1 - y0) if (y1 and y0) else 12
-
-      # === 1. Same line continuation ===
-      if abs(y0 - ny0) < 0.5 * line_height:
-          return False
-
-      # === 2. Left margin aligned + not touching right margin → merge ===
-      if abs(x0 - nx0) < 0.05 * pg_width and x1 < 0.8 * pg_width:
-          return False
-
-      # === 3. Big right margin gap + next line → preserve ===
-      if (pg_width - x1) > 0.25 * pg_width and ny0 > y1:
-          return True
-
-      # === 4. Indented next line → preserve ===
-      if (nx0 - x0) > 0.08 * pg_width:
-          return True
-
-      # === 5. Large vertical spacing → preserve ===
-      if ny0 - y1 > 1.5 * line_height:
-          return True
-
-      # === 6. Page boundary → preserve ===
-      if at_page_end:
-          return True
-
-      # Default → merge
-      return False
-

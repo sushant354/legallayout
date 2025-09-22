@@ -144,8 +144,6 @@ class Page:
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
-                        # if pdf_type == 'sebi':# and bad_end_re_sebi.search(text):
-                        #     continue
                         self.all_tbs[tb] = "title"
                     self.logger.debug(f"Title detected by font style - titlecase: '{text}' on page {self.pg_num}")
                     continue
@@ -154,8 +152,6 @@ class Page:
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
-                        # if pdf_type == 'sebi': #and bad_end_re_sebi.search(text):
-                        #     continue
                         self.all_tbs[tb] = "title"
                     self.logger.debug(f"Title detected by font style - bold: '{text}' on page {self.pg_num}")
                     continue
@@ -164,8 +160,6 @@ class Page:
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
                     else:
-                        # if pdf_type == 'sebi': # and bad_end_re_sebi.search(text):
-                        #     continue
                         self.all_tbs[tb] = "title"
                     self.logger.debug(f"Title detected by font style - upper case: '{text}' on page {self.pg_num}")
                     continue
@@ -405,16 +399,16 @@ class Page:
     
     # --- func to label the textboxes comes in table layout ---
     def label_table_tbs(self):
-        def bbox_satisfies(tb_box,table_box,tolerance = 5):
+        def bbox_satisfies(tb_box,table_box,x_tolerance = 8, y_tolerance = 5):
             try:
                 x_min_table, y_min_table, x_max_table, y_max_table = table_box
                 x_min_textbox, y_min_textbox, x_max_textbox, y_max_textbox = tb_box
 
                 return (
-                        round(x_min_textbox, 2) >= round(x_min_table, 2) - tolerance and
-                        round(y_min_textbox, 2) >= round(y_min_table, 2) - tolerance and
-                        round(x_max_textbox, 2) <= round(x_max_table, 2) + tolerance and
-                        round(y_max_textbox, 2) <= round(y_max_table, 2) + tolerance
+                        round(x_min_textbox, 2) >= round(x_min_table, 2) - x_tolerance and
+                        round(y_min_textbox, 2) >= round(y_min_table, 2) - y_tolerance and
+                        round(x_max_textbox, 2) <= round(x_max_table, 2) + x_tolerance and
+                        round(y_max_textbox, 2) <= round(y_max_table, 2) + y_tolerance
                     )
             except Exception as e:
                 self.logger.warning(f"Error comparing bounding boxes: {tb_box} vs {table_box} -- {e}")
@@ -437,35 +431,6 @@ class Page:
         #original
         # section_re = re.compile(r'^\s*\d+[A-Z]*\s*\.\s+.*$', re.IGNORECASE)
         # group_re = re.compile(r'^\s*((?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|(?:[IVXLCDM]+\)|\([IVXLCDM]+\))|(?:\(?\d+(?:\.\d+)*\)?[.\)]))', re.IGNORECASE)
-        
-        
-        # section_re = re.compile(r'^(?!\s*[1-9]\d{0,2}[./-][1-9]\d{0,2}[./-]\d{2,4})\s*[1-9]\d{0,2}[A-Z]*\s*\.\s*(.*)?$', re.IGNORECASE)
-        # group_re = re.compile(
-        #         r'^\s*((?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|'                  # a), b), A)
-        #         r'(?:[IVXLCDM]+\)|\([IVXLCDM]+\))|'                               # i), ii), (iv)
-        #         r'(?!(?:[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){1,3}[./-]\d{2,4}))'       # negative lookahead for dates
-        #         r'\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])',              # numeric groups up to 4 levels, no leading zeros
-        #         re.IGNORECASE
-        #     )
-        # section_re = re.compile(
-        #     r'^\s*[1-9]\d{0,2}[A-Z]?\.(?!\))\s+.*$', 
-        #     re.IGNORECASE
-        # )
-
-
-        # group_re = re.compile(
-        #     r'^\s*('
-        #         r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|'        # a, aa, aaa or (a), (aa), (aaa)
-        #         r'(?:[IVXLCDM]{1,3}\)|\([IVXLCDM]{1,3}\))|'      # roman numerals max 3 chars like iii, iv
-        #         r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,2}\)?[.\)])' # numeric: 1, 1.1, 1.1.1 max 3 levels, no leading zeros
-        #     r')',
-        #     re.IGNORECASE
-        # )
-
-        # section_re = re.compile(
-        #     r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))\s+.*$',
-        #     re.IGNORECASE
-        # )
         section_re = re.compile(
             r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
@@ -473,15 +438,16 @@ class Page:
 
         group_re = re.compile(
             r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*('
-                r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|'         # a), aa), (a), etc.
-                r'(?:[IVXLCDM]{1,3}\)|\([IVXLCDM]{1,3}\))|'       # i), ii), (iv), etc.
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # 1, 1.1, 1.1.1, 1.1.1.1 (max 4 levels, no leading zeros)
+                r'(?:[A-Za-z]{1,3}[.)]|\([A-Za-z]{1,3}\))|'        # a. a) (a)
+                r'(?:[IVXLCDM]{1,3}[.)]|\([IVXLCDM]{1,3}\))|'      # I. I) (I)
+                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.)])' # 1. 1) 1.1.
             r')',
             re.IGNORECASE
         )
         for tb,label in self.all_tbs.items():
             if label is not None:
-                continue
+                if label != 'title':
+                    continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
@@ -525,3 +491,8 @@ class Page:
             except Exception as e:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
                 continue
+         
+    def print_levels(self):
+        for tb,label in self.all_tbs.items():
+            if label and isinstance(label, str) and label[:-1] == 'level':
+                print(tb.extract_text_from_tb(), label)
