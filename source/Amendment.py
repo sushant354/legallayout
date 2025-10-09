@@ -7,7 +7,7 @@ class Amendment:
         self.quote_stack = []
     
     # --- func to classify the textbox if it is detected with sign of amendments properties ---
-    def check_for_amendment_acts(self, page,startPage,endPage):
+    def check_for_amendment_acts(self, page): #,startPage,endPage):
         for tb in page.all_tbs.keys():
             try:
                 text = tb.extract_text_from_tb().strip()
@@ -29,7 +29,7 @@ class Amendment:
                 self.logger.error(f"Invalid page number: {page.pg_num}")
                 continue
 
-            if label is None and startPage is not None and endPage is not None and  startPage <= page_num <= endPage:
+            if label is None: #and startPage is not None and endPage is not None and  startPage <= page_num <= endPage:
                 doubleQuote_count = text.count('"')
                 singleQuote_count = text.count("'") 
                 self.logger.debug(f"Page {page.pg_num}, Text: '{text}'")
@@ -47,7 +47,13 @@ class Amendment:
                         
 
                     # Check for opening quote
-                    elif  (text.startswith('"') or text.startswith("'")) and (doubleQuote_count%2!=0 or singleQuote_count%2!=0):
+                    elif  (text.startswith('"')) and (doubleQuote_count%2!=0):
+                        self.quote_stack.append(text[0])
+                        self.logger.debug(f"Detected opening quote with imbalance on page {page.pg_num}. Pushed to quote_stack.")
+                        self.isAmendmentPDF = True
+                        page.all_tbs[tb] = ["amendment"]
+                    
+                    elif  (text.startswith("'")) and (singleQuote_count%2!=0):
                         self.quote_stack.append(text[0])
                         self.logger.debug(f"Detected opening quote with imbalance on page {page.pg_num}. Pushed to quote_stack.")
                         self.isAmendmentPDF = True
@@ -55,7 +61,12 @@ class Amendment:
                         
 
                     # Check for closing quote
-                    elif self.quote_stack and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")):
+                    elif self.quote_stack and self.quote_stack[-1] == "'" and singleQuote_count%2!=0 and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")):
+                        self.quote_stack.pop()
+                        self.logger.debug(f"Detected closing quote on page {page.pg_num}. Popped from quote_stack.")
+                        page.all_tbs[tb] = ["amendment"]
+                    
+                    elif self.quote_stack and self.quote_stack[-1] == '"' and doubleQuote_count%2!=0 and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")):
                         self.quote_stack.pop()
                         self.logger.debug(f"Detected closing quote on page {page.pg_num}. Popped from quote_stack.")
                         page.all_tbs[tb] = ["amendment"]
@@ -101,25 +112,94 @@ class Amendment:
 
                 try:
                     # Check for self-contained quotes
-                    if ((text.startswith('"') and (text.endswith('".') or text.endswith('";'))) or \
-                    (text.startswith("'") and (text.endswith("'.") or text.endswith("';")))):
+                    # if ((text.startswith('"') and (text.endswith('".') or text.endswith('";'))) or \
+                    # (text.startswith("'") and (text.endswith("'.") or text.endswith("';")))):
+                    if (
+                            (
+                                 text.startswith('"') and (
+                                    text.lower().endswith('(emphasis supplied)') or
+                                    text.endswith('".') or
+                                    text.endswith('";') or
+                                    text.endswith('…"') or 
+                                    text.lower().endswith('…" (emphasis supplied)') or
+                                    text.lower().endswith('." (emphasis supplied)') or
+                                    text.lower().endswith(';" (emphasis supplied)') or
+                                    text.lower().endswith('…"(emphasis supplied)') or
+                                    text.lower().endswith('."(emphasis supplied)') or
+                                    text.lower().endswith(';"(emphasis supplied)') or
+                                    text.endswith('."') or
+                                    text.endswith(';"') or
+                                    text.lower().endswith('". (emphasis supplied)') or
+                                    text.lower().endswith('"; (emphasis supplied)') or
+                                    text.lower().endswith('".(emphasis supplied)') or
+                                    text.lower().endswith('";(emphasis supplied)') or
+                                    text.endswith('"')
+                                )
+                            )
+                            or
+                            (
+                                text.startswith("'") and (
+                                    text.lower().endswith('(emphasis supplied)') or
+                                    text.endswith("'.") or
+                                    text.endswith("';") or
+                                    text.endswith("…'") or 
+                                    text.lower().endswith("…' (emphasis supplied)") or
+                                    text.lower().endswith(".' (emphasis supplied)") or
+                                    text.lower().endswith(";' (emphasis supplied)") or
+                                    text.lower().endswith("…'(emphasis supplied)") or
+                                    text.lower().endswith(".'(emphasis supplied)") or
+                                    text.lower().endswith(";'(emphasis supplied)") or
+                                    text.endswith(".'") or
+                                    text.endswith(";'") or
+                                    text.lower().endswith("'.(emphasis supplied)") or
+                                    text.lower().endswith("';(emphasis supplied)") or
+                                    text.endswith("'")
+                                )
+                            )
+                    ):
                         self.isAmendmentPDF = True
                         self.logger.debug(f"Detected self-contained quote on page {page.pg_num}. Marked as amendment PDF.")
                         page.all_tbs[tb] = 'blockquote'
                         
 
                     # Check for opening quote
-                    elif  (text.startswith('"') or text.startswith("'")) and (doubleQuote_count%2!=0 or singleQuote_count%2!=0):
+                    elif (text.startswith('"')) and (doubleQuote_count%2!=0):
+                        self.quote_stack.append(text[0])
+                        self.logger.debug(f"Detected opening quote with imbalance on page {page.pg_num}. Pushed to quote_stack.")
+                        self.isAmendmentPDF = True
+                        page.all_tbs[tb] = 'blockquote'
+                    
+                    elif (text.startswith("'")) and (singleQuote_count%2!=0):
                         self.quote_stack.append(text[0])
                         self.logger.debug(f"Detected opening quote with imbalance on page {page.pg_num}. Pushed to quote_stack.")
                         self.isAmendmentPDF = True
                         page.all_tbs[tb] = 'blockquote'
             
-                        
-
+                    # elif self.quote_stack and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")\
+                    #                            or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1])):
                     # Check for closing quote
-                    elif self.quote_stack and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")\
-                                               or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1])):
+                    elif self.quote_stack and self.quote_stack[-1] == '"' and doubleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
+                                               text.lower().endswith(self.quote_stack[-1] + "." + " (emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + " (emphasis supplied)") or\
+                                               text.lower().endswith(self.quote_stack[-1] + "." + "(emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + "(emphasis supplied)")\
+                                               or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1]) or \
+                                               text.lower().endswith("."+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ " (emphasis supplied)") or \
+                                               text.lower().endswith("."+self.quote_stack[-1]+ "(emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ "(emphasis supplied)") or \
+                                               text.lower().endswith("…"+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith("…"+self.quote_stack[-1]+ "(emphasis supplied)") or text.endswith("…"+self.quote_stack[-1]) or \
+                                               text.endswith(self.quote_stack[-1])
+                                               ):
+                        self.quote_stack.pop()
+                        self.logger.debug(f"Detected closing quote on page {page.pg_num}. Popped from quote_stack.")
+                        page.all_tbs[tb] = 'blockquote'
+
+                    elif self.quote_stack and self.quote_stack[-1] == "'" and singleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
+                                               text.lower().endswith(self.quote_stack[-1] + "." + " (emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + " (emphasis supplied)") or\
+                                               text.lower().endswith(self.quote_stack[-1] + "." + "(emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + "(emphasis supplied)")\
+                                               or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1]) or \
+                                               text.lower().endswith("."+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ " (emphasis supplied)") or \
+                                               text.lower().endswith("."+self.quote_stack[-1]+ "(emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ "(emphasis supplied)") or \
+                                               text.lower().endswith("…"+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith("…"+self.quote_stack[-1]+ "(emphasis supplied)") or text.endswith("…"+self.quote_stack[-1]) or \
+                                               text.endswith(self.quote_stack[-1])
+                                               ):
                         self.quote_stack.pop()
                         self.logger.debug(f"Detected closing quote on page {page.pg_num}. Popped from quote_stack.")
                         page.all_tbs[tb] = 'blockquote'

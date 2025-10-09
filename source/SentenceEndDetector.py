@@ -77,7 +77,7 @@ class LegalSentenceDetector:
               return False
         
       # Continuation punctuation (:-, ---, ...)
-      continuation_punct = [":-", "---", "...", '—'] #'".','."',"'.",".'"]
+      continuation_punct = [":-", "---", "...", '—', '…'] #'".','."',"'.",".'"]
       for cp in continuation_punct:
           if s.endswith(cp):
               return False if at_page_end else True
@@ -301,6 +301,59 @@ class LegalSentenceDetector:
 
             return True
 
+    # def is_on_same_line(self, text_tb, next_text_tb):
+    #     """
+    #     Determine whether two textboxes are on the same visual line.
+    #     Prioritizes character-level bounding boxes; falls back to textbox-level coordinates.
+    #     """
+
+    #     # Constants for thresholds
+    #     BASELINE_TOLERANCE_RATIO = 0.35
+    #     MAX_HORIZONTAL_GAP_RATIO = 3.0
+    #     MIN_VERTICAL_OVERLAP_RATIO = 1.0 - self.same_line_tolerance
+
+    #     # Attempt to get character-level bounding boxes
+    #     box1 = getattr(text_tb, "get_last_char_coords", lambda: None)() \
+    #         or getattr(text_tb, "coords", None) \
+    #         or getattr(text_tb, "bbox", None)
+
+    #     box2 = getattr(next_text_tb, "get_first_char_coords", lambda: None)() \
+    #         or getattr(next_text_tb, "coords", None) \
+    #         or getattr(next_text_tb, "bbox", None)
+        
+    #     if not box1 or not box2:
+    #         return False  # Insufficient data to decide
+
+    #     # Normalize bounding boxes
+    #     x0a, y0a, x1a, y1a = self._normalize_bbox(box1)
+    #     x0b, y0b, x1b, y1b = self._normalize_bbox(box2)
+
+    #     # Compute heights and midlines
+    #     h1 = max(1.0, y1a - y0a)
+    #     h2 = max(1.0, y1b - y0b)
+    #     mid1 = (y0a + y1a) / 2
+    #     mid2 = (y0b + y1b) / 2
+    #     avg_height = (h1 + h2) / 2
+        
+    #     # Check baseline alignment
+    #     if abs(mid1 - mid2) > avg_height * BASELINE_TOLERANCE_RATIO:
+    #         return False
+
+    #     # Check vertical overlap
+    #     vertical_overlap = min(y1a, y1b) - max(y0a, y0b)
+    #     min_height = min(h1, h2)
+    #     if vertical_overlap / min_height < MIN_VERTICAL_OVERLAP_RATIO:
+    #         return False
+
+    #     # Check horizontal sequence
+    #     horizontal_gap = x0b - x1a
+    #     if horizontal_gap < -1:  # Overlapping in x-direction
+    #         return False
+    #     if horizontal_gap > avg_height * MAX_HORIZONTAL_GAP_RATIO:
+    #         return False
+
+    #     return True
+
     def _normalize_bbox(self, box: BBox):
         """
         Normalize a bounding box to the form (x0, y0, x1, y1)
@@ -335,7 +388,7 @@ class LegalSentenceDetector:
         return False
 
 
-    def indent_check(self, text_tb, next_text_tb, pg_width: float) -> bool:
+    def indent_check(self, text_tb, next_text_tb, pg_width):
             """
             Determines whether two text boxes on different lines indicate an indent pattern.
 
@@ -360,15 +413,21 @@ class LegalSentenceDetector:
                 or getattr(next_text_tb, "coords", None) \
                 or getattr(next_text_tb, "bbox", None)
 
-            if not box1 or not box2:
+            if not box1:
                 return False
-
+            
+            if not box2:
+                text = text_tb.extract_text_from_tb().strip()
+                if text.endswith((":-", "---", "...", '—', '…','.','?','!',':',';')):
+                    return True
+                return False
+            
             x0a, _, x1a, _ = self._normalize_bbox(box1)
             x0b, _, _, _ = self._normalize_bbox(box2)
 
             # Condition 1: First box ends ≥ 30% of page width from right margin
             right_gap_a = pg_width - x1a
-            if right_gap_a >= 0.3 * pg_width:
+            if right_gap_a >= 0.2 * pg_width:
                 return True
 
             # Condition 2: Second box starts ≥ 40% of page width from left margin
@@ -376,6 +435,55 @@ class LegalSentenceDetector:
                 return True
 
             return False
-
-
    
+    # def indent_check(self, text_tb, next_text_tb, pg_width: float) -> bool:
+    #     """
+    #     Determines whether two text boxes on different lines indicate an indent pattern.
+
+    #     Conditions:
+    #     - First box ends before 75% of page width (leaves ≥25% margin on the right).
+    #     - OR second box starts after 35% of page width (indent from the left).
+    #     - OR either box has a short width (absolute < 40 or relative < 40% of page width).
+
+    #     Args:
+    #         text_tb: First textbox object.
+    #         next_text_tb: Second textbox object.
+    #         pg_width: Width of the page.
+
+    #     Returns:
+    #         bool: True if indent pattern is detected, False otherwise.
+    #     """
+
+    #     # --- Guard for missing objects ---
+    #     if not text_tb or not next_text_tb:
+    #         return False
+
+    #     # --- Get normalized coords ---
+    #     box1 = getattr(text_tb, "coords", None) or getattr(text_tb, "bbox", None)
+    #     box2 = getattr(next_text_tb, "coords", None) or getattr(next_text_tb, "bbox", None)
+
+    #     if not box1 or not box2:
+    #         return False
+
+    #     x0a, _, x1a, _ = self._normalize_bbox(box1)
+    #     x0b, _, _, _ = self._normalize_bbox(box2)
+
+    #     # --- Use pre-computed widths if available, else fallback ---
+    #     width1 = getattr(text_tb, "width", None) or (x1a - x0a)
+    #     width2 = getattr(next_text_tb, "width", None) or (x1a - x0a)
+
+    #     # --- Condition 1: first box ends before 75% of page width ---
+    #     if x1a <= 0.75 * pg_width:
+    #         return True
+
+    #     # --- Condition 2: second box starts after 35% of page width ---
+    #     if x0b >= 0.35 * pg_width:
+    #         return True
+
+    #     # # --- Condition 3: short width boxes ---
+    #     # # if width1 < 40 or width2 < 40:  # absolute threshold
+    #     # #     return True
+    #     # if width1 < 0.4 * pg_width or width2 < 0.4 * pg_width:  # relative threshold
+    #     #     return True
+
+    #     # return False

@@ -11,6 +11,10 @@ from bs4 import BeautifulSoup
 from .SentenceEndDetector import LegalSentenceDetector
 from .NormalizeText import NormalizeText
 
+RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
+                 "h4", "center", "ul", "li"}
+VOID_TAGS = {"br"}
+
 class HTMLBuilder:
     
     def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
@@ -106,19 +110,17 @@ class HTMLBuilder:
                     if self.stack_for_level[-1] == self.stack_for_level[-2]:
                         tag = self.stack_for_level.pop()
                         if tag == 0:
-                            self.builder += "</section>\n"
-                        else:
-                            self.builder += "</li>\n"
+                            self.builder += "</p>\n"
                     else:
                         tag = self.stack_for_level.pop()
                         if tag == 0:
-                            self.builder += "</section>\n"
+                            self.builder += "</p>\n"
                         else:
                             self.builder += "</li>\n</ul>\n"
                   else:
                       tag = self.stack_for_level.pop()
                       if tag == 0:
-                            self.builder += "</section>\n"
+                            self.builder += "</p>\n"
                       else:
                             self.builder += "</li>\n</ul>\n"
         except Exception as e:
@@ -126,8 +128,8 @@ class HTMLBuilder:
           
     def check_for_last_token(self, html):
       last_token, last_tag = self.get_last_token(html)
-      if last_tag and last_token and (last_tag!='h4'):
-          if not last_token.endswith(('.','?','!',":-", "---", "...", '—',':','."', ".'",';"',";'")):
+      if last_tag and last_token and (last_tag!='h4' or last_tag!='td'):
+          if not last_token.endswith(('.','?','!',":-", "---", "...", '—',':','."', ".'",';"',";'", '…')):
              return True, last_tag
       return False, last_tag 
     
@@ -160,6 +162,7 @@ class HTMLBuilder:
                 self.pending_text = ""
                 return True
             else:
+                self.pending_tag = last_tag
                 self.pending_text += (' '+text.strip())
                 return True
         return False
@@ -167,7 +170,8 @@ class HTMLBuilder:
     def addTitle(self, tb,pg_width,pg_height, next_text, next_text_tb,  at_page_end,next_label = None):
         try:
           text = tb.extract_text_from_tb().strip()
-          sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))$', re.IGNORECASE)
+          #sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))$', re.IGNORECASE)
+          sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
 
           if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
             return
@@ -190,25 +194,25 @@ class HTMLBuilder:
           else:
               if text and sebi_level_close_re.match(text):
                   self.close_levels()
+              elif self.stack_for_level and self.stack_for_level[-1] == 0:
+                 self.close_levels()
               elif self.stack_for_level and next_label == 'level1':
                   while self.stack_for_level:
                           if len(self.stack_for_level) >= 2:
                             if self.stack_for_level[-1] == self.stack_for_level[-2]:
                                 tag = self.stack_for_level.pop()
                                 if tag == 0:
-                                    self.builder += "</section>\n"
-                                else:
-                                    self.builder += "</li>\n"
+                                    self.builder += "</p>\n"
                             else:
                                 tag = self.stack_for_level.pop()
                                 if tag == 0:
-                                    self.builder += "</section>\n"
+                                    self.builder += "</p>\n"
                                 else:
                                     self.builder += "</li>\n</ul>\n"
                           else:
                               tag = self.stack_for_level.pop()
                               if tag == 0:
-                                    self.builder += "</section>\n"
+                                    self.builder += "</p>\n"
                               else:
                                     self.builder += "</li>\n</ul>\n"
               
@@ -231,7 +235,9 @@ class HTMLBuilder:
     # --- func to add the table in the html ---
     def addTable(self, table):
         try:
-          if (not self.stack_for_section) or (not self.stack_for_level):
+          if (not self.stack_for_section):
+              self.flushPrevious()
+          elif (not self.stack_for_level):
               self.flushPrevious()
           # else:
           #     # Close everything up to and including the last "section"
@@ -240,7 +246,8 @@ class HTMLBuilder:
           #         self.builder += "</section>\n"
           #         if tag == 0:
           #             break
-
+          if self.stack_for_level:
+             self.close_levels()
           self.builder += self.normalize_text(table.to_html(index=False, header = False, border=1).replace("\\n"," "))
           self.builder += "\n" 
         except Exception as e:
@@ -260,12 +267,13 @@ class HTMLBuilder:
                 self.builder += self.pending_text
                 self.pending_tag = None
                 self.pending_text = ""
-            if not self.pending_tag and not self.pending_text and is_sentence_completed:
+            
+            if (not self.pending_tag) and (not self.pending_text) and is_sentence_completed:
               self.builder += f"<blockquote>{text}</blockquote>\n"
               self.pending_tag = None
               self.pending_text = ""
 
-            elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
+            elif (not self.pending_tag) and (not self.pending_text) and (not is_sentence_completed):
               self.pending_tag = "blockquote"
               self.pending_text = f"<blockquote>{text}"
             
@@ -283,7 +291,9 @@ class HTMLBuilder:
             self.logger.exception("Error while adding italic blockquote text [%s] : %s",text, e)
 
     def addUnlabelled(self,text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end):
-      sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))$', re.IGNORECASE)
+      # sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))| Sd/- $', re.IGNORECASE)
+      sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
+
       try:
         if self.stack_for_section:
           if re.fullmatch(r'—{3,}', text.strip()):
@@ -301,13 +311,13 @@ class HTMLBuilder:
         elif self.stack_for_level:
           if text and sebi_level_close_re.match(text):
                   self.close_levels()
-                  return
+                  # return
           if self.pdf_type != 'acts':
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
           if is_sentence_completed:
-            self.builder += (' ' +text )#+"<br>")
+            self.builder += (' ' +text +"<br>")
           else:
             if text in set(["•","▪","▫","✓","✕","o"]) and self.pending_text == "":
                self.pending_tag = 'blockquote'
@@ -319,11 +329,11 @@ class HTMLBuilder:
               is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
             else:
               is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
-            if not self.pending_tag and not self.pending_text and is_sentence_completed:
+            if (not self.pending_tag) and (not self.pending_text) and is_sentence_completed:
               self.builder += f"<p>{text}</p>\n"
               self.pending_tag = None
               self.pending_text = ""
-            elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
+            elif (not self.pending_tag) and (not self.pending_text) and (not is_sentence_completed):
               self.pending_tag = "p"
               self.pending_text = f"<p>{text}"
             elif self.pending_text and self.pending_tag and is_sentence_completed:
@@ -383,103 +393,160 @@ class HTMLBuilder:
         self.logger.exception("Error finding closest side note for TB BBox %s: %s", tb_bbox, e)
         return None
       
+    #original
+    # def get_last_token(self, html):
+    #     """
+    #     Extract the last token and the last unclosed tag from an HTML string.
+
+    #     Returns:
+    #         (last_token, last_open_tag)
+    #         - If the last tag is unclosed → (token, tagname)
+    #         - Otherwise → (None, None)
+    #     """
+    #     # Try lxml first, fallback to built-in parser
+    #     try:
+    #         soup = BeautifulSoup(html, "lxml")
+    #     except Exception:
+    #         soup = BeautifulSoup(html, "html.parser")
+
+    #     # Find the last tag
+    #     last_tag = None
+    #     for tag in soup.find_all(True):
+    #         last_tag = tag
+
+    #     if not last_tag:
+    #         return None, None
+
+    #     # Check if input HTML does NOT close this tag
+    #     if not str(html).strip().endswith(f"</{last_tag.name}>"):
+    #         # Extract last text token
+    #         text_only = soup.get_text().strip()
+    #         tokens = text_only.split()
+    #         last_token = tokens[-1] if tokens else ""
+    #         return last_token, last_tag.name
+
+    #     # If properly closed, return None
+    #     return None, None
+
     def get_last_token(self, html):
         """
-        Extract the last token and the last unclosed tag from an HTML string.
-
+        Extract the last token and the last unclosed tag from an HTML string
+        considering only the relevant tags.
+        
         Returns:
             (last_token, last_open_tag)
             - If the last tag is unclosed → (token, tagname)
             - Otherwise → (None, None)
         """
-        # Try lxml first, fallback to built-in parser
-        try:
-            soup = BeautifulSoup(html, "lxml")
-        except Exception:
-            soup = BeautifulSoup(html, "html.parser")
+        tag_stack = []
 
-        # Find the last tag
-        last_tag = None
-        for tag in soup.find_all(True):
-            last_tag = tag
+        # Regex to find all opening and closing tags
+        for match in re.finditer(r'<(/?)(\w+)[^>]*?>', html):
+            closing, tag_name = match.groups()
+            tag_name = tag_name.lower()
+            
+            # Only process relevant tags
+            if tag_name not in RELEVANT_TAGS:
+                continue
 
-        if not last_tag:
+            # Ignore void/self-closing tags
+            if tag_name in VOID_TAGS:
+                continue
+
+            if closing:  # closing tag
+                if tag_name in tag_stack:
+                    last_index = len(tag_stack) - 1 - tag_stack[::-1].index(tag_name)
+                    tag_stack.pop(last_index)
+            else:  # opening tag
+                tag_stack.append(tag_name)
+
+        # No unclosed tags
+        if not tag_stack:
             return None, None
 
-        # Check if input HTML does NOT close this tag
-        if not str(html).strip().endswith(f"</{last_tag.name}>"):
-            # Extract last text token
-            text_only = soup.get_text().strip()
-            tokens = text_only.split()
+        # Last unclosed tag
+        last_open_tag = tag_stack[-1]
+
+        # Extract content inside last unclosed tag from the end
+        pattern = rf'<{last_open_tag}[^>]*?>([^<]*)$'
+        m = re.search(pattern, html, re.DOTALL)
+        if m:
+            content = m.group(1).strip()
+            tokens = content.split()
             last_token = tokens[-1] if tokens else ""
-            return last_token, last_tag.name
+            return last_token, last_open_tag
+        else:
+            return "", last_open_tag
 
-        # If properly closed, return None
-        return None, None
-
-      
-    def addLevel(self, text, hierarchy_index, next_text,tb, next_text_tb, pg_height,pg_width,  at_page_end):
-          try:
+    # def addLevel(self, text, hierarchy_index, next_text,tb, next_text_tb, pg_height,pg_width,  at_page_end):
+    #       try:
               
-              # if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
-              #       return
+    #           # if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+    #           #       return
                    
-              # if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
-              #       return
+    #           # if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+    #           #       return
+    #           if not self.stack_for_level:
+    #               self.flushPrevious()
+    #           else:
+    #               self.flushPrevious()
+    #               if hierarchy_index == 0:
+    #                   while self.stack_for_level:
+    #                       if len(self.stack_for_level) >= 2:
+    #                         if self.stack_for_level[-1] == self.stack_for_level[-2]:
+    #                             tag = self.stack_for_level.pop()
+    #                             if tag == 0:
+    #                                 self.builder += "</p>\n"
+    #                             else:
+    #                                 self.builder += "</li>\n"
+    #                         else:
+    #                             tag = self.stack_for_level.pop()
+    #                             if tag == 0:
+    #                                 self.builder += "</p>\n"
+    #                             else:
+    #                                 self.builder += "</li>\n</ul>\n"
+    #                       else:
+    #                           tag = self.stack_for_level.pop()
+    #                           if tag == 0:
+    #                                 self.builder += "</p>\n"
+    #                           else:
+    #                                 self.builder += "</li>\n</ul>\n"
                   
-              if not self.stack_for_level:
-                  self.flushPrevious()
-              else:
-                  self.flushPrevious()
-                  if hierarchy_index == 0:
-                      while self.stack_for_level:
-                          if len(self.stack_for_level) >= 2:
-                            if self.stack_for_level[-1] == self.stack_for_level[-2]:
-                                tag = self.stack_for_level.pop()
-                                if tag == 0:
-                                    self.builder += "</section>\n"
-                                else:
-                                    self.builder += "</li>\n"
-                            else:
-                                tag = self.stack_for_level.pop()
-                                if tag == 0:
-                                    self.builder += "</section>\n"
-                                else:
-                                    self.builder += "</li>\n</ul>\n"
-                          else:
-                              tag = self.stack_for_level.pop()
-                              if tag == 0:
-                                    self.builder += "</section>\n"
-                              else:
-                                    self.builder += "</li>\n</ul>\n"
-                  
-                  else:
-                      while self.stack_for_level and self.stack_for_level[-1] > hierarchy_index:
-                          if len(self.stack_for_level) >= 2:
-                              if self.stack_for_level[-1] == self.stack_for_level[-2]:
-                                  self.stack_for_level.pop()
-                                  self.builder += "</li>\n"
-                              else:
-                                  self.stack_for_level.pop()
-                                  self.builder += "</li>\n</ul>\n"
-              # Open new tag depending on level
-              if hierarchy_index == 0:
-                  # Paragraph level always opens fresh
-                  self.builder += f"<section>{text}"
-              else:
-                  # If going deeper than parent, open a new <ul>
-                  if not self.stack_for_level or self.stack_for_level[-1] < hierarchy_index:
-                      self.builder += "<ul>\n"
-                  self.builder += f"<li>{text}"
+    #               else:
+    #                   while self.stack_for_level and self.stack_for_level[-1] > hierarchy_index:
+    #                       if len(self.stack_for_level) >= 2:
+    #                           if self.stack_for_level[-1] == self.stack_for_level[-2]:
+    #                               self.stack_for_level.pop()
+    #                               self.builder += "</li>\n"
+    #                           else:
+    #                               self.stack_for_level.pop()
+    #                               self.builder += "</li>\n</ul>\n"
+    #                       else:
+    #                           tag = self.stack_for_level.pop()
+    #                           if tag == 0:
+    #                                 self.builder += "</p>\n"
+    #                           else:
+    #                                 self.builder += "</li>\n</ul>\n"
+                   
+    #           # Open new tag depending on level
+    #           if hierarchy_index == 0:
+    #               # Paragraph level always opens fresh
+    #               self.builder += f"<p>{text}"
+    #           else:
+    #               # If going deeper than parent, open a new <ul>
+    #               if self.stack_for_level and self.stack_for_level[-1] == 0 and hierarchy_index == 1:
+    #                  self.close_levels()
+    #               if not self.stack_for_level or self.stack_for_level[-1] < hierarchy_index:
+    #                   self.builder += "<ul>\n"
+    #               self.builder += f"<li>{text}"
 
-              # Push this level onto stack
-              self.stack_for_level.append(hierarchy_index)
+    #           # Push this level onto stack
+    #           self.stack_for_level.append(hierarchy_index)
 
-              self.logger.debug("Opened section at hierarchy level: %d", hierarchy_index)
+    #           self.logger.debug("Opened section at hierarchy level: %d", hierarchy_index)
 
-          except Exception as e:
-              self.logger.exception("Error while adding section [%s]: %s", text, e)
-              
+    #       except Exception as e:
+    #           self.logger.exception("Error while adding section [%s]: %s", text, e)
 
     # --- func to add the section labelled textbox in the html ---
     def addSection(self,tb,side_note_datas,page_height,hierarchy_index):
@@ -631,20 +698,20 @@ class HTMLBuilder:
         except Exception as e:
           self.logger.exception("Error while adding subpara [%s]: %s",text,e)
         
-    def addBlockQuote(self, text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width):
+    def addBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end):
         text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
         is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width) #text.strip().endswith(self.sentence_completion_punctuation)
-        
+
         if self.pending_tag and self.pending_tag != "blockquote":
             self.pending_text += f"</{self.pending_tag}>\n"
             self.builder += self.pending_text
             self.pending_tag = None
             self.pending_text = ""
-        if not self.pending_tag and not self.pending_text and is_sentence_completed:
+        if (not self.pending_tag) and (not self.pending_text) and is_sentence_completed:
           self.builder += f"<blockquote>{text}</blockquote>\n"
           self.pending_tag = None
           self.pending_text = ""
-        elif not self.pending_tag and not self.pending_text and not is_sentence_completed:
+        elif (not self.pending_tag) and (not self.pending_text) and (not is_sentence_completed):
           self.pending_tag = "blockquote"
           self.pending_text = f"<blockquote>{text}"
         elif self.pending_text and self.pending_tag and is_sentence_completed:
@@ -654,7 +721,6 @@ class HTMLBuilder:
             self.pending_tag = None
             self.pending_text = ""
         else:
-           
             self.pending_text += (' '+text.strip())
 
     # ---func to add the textbox labelled as amendments in the html ---
@@ -754,6 +820,18 @@ class HTMLBuilder:
              return True
         return False
     
+    def addFigure(self, tb, page):
+      if tb.figname in page.figures.pics:
+          if self.pending_tag and self.pending_text:
+            self.flushPrevious()
+          if self.pending_table:
+            self.flushTables()
+          if self.stack_for_level:
+            self.close_levels()
+          img_path = page.figures.pics[tb.figname]
+          self.builder += f'<a href="{img_path}" target="_blank">[View Image]</a>\n'
+
+
     # --- func to build the textbox  as html ---
     # def build(self, page, section_end_page):
     #     visited_for_table = set()
@@ -839,18 +917,19 @@ class HTMLBuilder:
     #         elif label is None:
     #             if not self.is_pg_num(tb,page.pg_width):
     #               self.addUnlabelled(tb.extract_text_from_tb(), next_text,tb.coords, next_text_coords, page.pg_height, page.pg_width,  at_page_end)
-    def build(self, page, section_end_page):
+   
+    def build(self, page):#, section_end_page):
         visited_for_table = set()
         # if not page.is_single_column_page:
         #    page.all_tbs = self.get_orderBy_textboxes(page)
-        try:
-          if section_end_page and int(section_end_page)+1 == int(page.pg_num):
-              while self.stack_for_section:
-                  popped_index = self.stack_for_section.pop()
-                  self.builder += "</section>"
-                  self.logger.debug("Closed section at hierarchy level: %d", popped_index)
-        except Exception as e:
-            self.logger.warning(f'when closing sections tag after section end page - {e}')
+        # try:
+        #   if section_end_page and int(section_end_page)+1 == int(page.pg_num):
+        #       while self.stack_for_section:
+        #           popped_index = self.stack_for_section.pop()
+        #           self.builder += "</section>"
+        #           self.logger.debug("Closed section at hierarchy level: %d", popped_index)
+        # except Exception as e:
+        #     self.logger.warning(f'when closing sections tag after section end page - {e}')
               
         all_items = list(page.all_tbs.items())
         for idx, (tb, label) in enumerate(all_items):
@@ -859,17 +938,21 @@ class HTMLBuilder:
             if idx + 1 < len(all_items):
                 next_tb, next_label = all_items[idx + 1]
                 
-                if next_label is None:  # only consider unlabelled continuation
+                # if next_label is None:  # only consider unlabelled continuation
+                #     next_text = self.normalize_text(next_tb.extract_text_from_tb())
+                #     next_text_tb = next_tb
+                # elif self.is_nextlabel_blockquote(label, next_label):
+                #     next_text = self.normalize_text(next_tb.extract_text_from_tb())
+                #     next_text_tb = next_tb
+                # elif next_label[:-1] == 'level' or next_label == 'blockquote' or next_label == 'title' or (isinstance(next_label, tuple) and next_label[1] == 'blockquote'):
+                #     next_text = self.normalize_text(next_tb.extract_text_from_tb())
+                #     next_text_tb = next_tb
+                if next_label not in ("figure", "header", "footer"):
                     next_text = self.normalize_text(next_tb.extract_text_from_tb())
                     next_text_tb = next_tb
-                elif self.is_nextlabel_blockquote(label, next_label):
-                    next_text = self.normalize_text(next_tb.extract_text_from_tb())
-                    next_text_tb = next_tb
-                elif next_label[:-1] == 'level' or next_label == 'title' or (isinstance(next_label, tuple) and next_label[1] == 'blockquote'):
-                    next_text = self.normalize_text(next_tb.extract_text_from_tb())
-                    next_text_tb = next_tb
+
             at_page_end = (idx == len(all_items) - 1)
-            if label == "header" or label == "footer" or self.is_pg_num(tb,page.pg_width):
+            if label == "header" or label == "footer" :#or self.is_pg_num(tb,page.pg_width):
                continue
             if not ((isinstance(label, tuple) and label[0] == "table")):
                 if self.pending_table is not None and len(self.pending_table) <= 2:
@@ -913,8 +996,10 @@ class HTMLBuilder:
                 self.addBlockQuote(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
             elif label == 'level1' or label == 'level2' or label == 'level3' or label == 'level4':
                 self.addLevel(self.normalize_text(tb.extract_text_from_tb()), self.level_hierarchy.index(label), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
+            elif label == "figure":
+               self.addFigure(tb, page)
             elif label is None:
-                if not self.is_pg_num(tb,page.pg_width):
+                # if not self.is_pg_num(tb,page.pg_width):
                   self.addUnlabelled(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
 
     def is_pg_num(self,tb,pg_width):
@@ -1182,3 +1267,73 @@ class HTMLBuilder:
         if self.pending_table is not None and len(self.pending_table) <= 2:
             self.addTable(self.pending_table[0])
             self.pending_table = None
+
+    
+    def addLevel(self, text, hierarchy_index, next_text,tb, next_text_tb, pg_height,pg_width,  at_page_end):
+          try:
+              
+              # if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+              #       return
+                   
+              # if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+              #       return
+              if not self.stack_for_level:
+                  self.flushPrevious()
+              else:
+                  self.flushPrevious()
+                  if hierarchy_index == 0:
+                      while self.stack_for_level:
+                          if len(self.stack_for_level) >= 2:
+                            if self.stack_for_level[-1] == self.stack_for_level[-2]:
+                                tag = self.stack_for_level.pop()
+                                if tag == 0:
+                                    self.builder += "</p>\n"
+                            else:
+                                tag = self.stack_for_level.pop()
+                                if tag == 0:
+                                    self.builder += "</p>\n"
+                                else:
+                                    self.builder += "</li>\n</ul>\n"
+                          else:
+                              tag = self.stack_for_level.pop()
+                              if tag == 0:
+                                    self.builder += "</p>\n"
+                              else:
+                                    self.builder += "</li>\n</ul>\n"
+
+                  else:
+                      if self.stack_for_level and self.stack_for_level[-1] > 0:
+                          self.builder += "</li>\n"
+                      while self.stack_for_level and self.stack_for_level[-1] > hierarchy_index:
+                          if len(self.stack_for_level) >= 2:
+                              if self.stack_for_level[-1] == self.stack_for_level[-2]:
+                                  self.stack_for_level.pop()
+                              else:
+                                  self.stack_for_level.pop()
+                                  self.builder += "</li>\n</ul>\n"
+                          else:
+                              tag = self.stack_for_level.pop()
+                              if tag == 0:
+                                    self.builder += "</p>\n"
+                              else:
+                                    self.builder += "</li>\n</ul>\n"
+                   
+              # Open new tag depending on level
+              if hierarchy_index == 0:
+                  # Paragraph level always opens fresh
+                  self.builder += f"<p>{text}"
+              else:
+                  # If going deeper than parent, open a new <ul>
+                  if self.stack_for_level and self.stack_for_level[-1] == 0 and hierarchy_index == 1:
+                     self.close_levels()
+                  if not self.stack_for_level or self.stack_for_level[-1] < hierarchy_index:
+                      self.builder += "<ul>\n"
+                  self.builder += f"<li>{text}"
+
+              # Push this level onto stack
+              self.stack_for_level.append(hierarchy_index)
+
+              self.logger.debug("Opened section at hierarchy level: %d", hierarchy_index)
+
+          except Exception as e:
+              self.logger.exception("Error while adding section [%s]: %s", text, e)

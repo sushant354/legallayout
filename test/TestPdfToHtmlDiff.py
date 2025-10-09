@@ -59,8 +59,10 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 success = self._process_pdf(
                     test_case,
                     pdf_type=test_case.get('pdf_type'),
-                    start_page=test_case.get('start_page'),
-                    end_page=test_case.get('end_page'),
+                    # start_page=test_case.get('start_page'),
+                    # end_page=test_case.get('end_page'),
+                    has_sidenotes = test_case.get('has_sidenotes'),
+                    # output_dir = test_case.get('output_dir',''),
                     is_amendment=test_case.get('is_amendment', False)
                 )
                 self.assertTrue(success, f"Failed to process PDF: {test_case['pdf_name']}")
@@ -77,6 +79,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     'pdf_name': test_case['pdf_name'],
                     'pdf_type': test_case.get('pdf_type', 'default'),
                     'is_amendment': test_case.get('is_amendment', False),
+                    'has_sidenotes' : test_case.get('has_sidenotes', False),
                     'status': 'PASS' if diff_result['is_match'] else 'DIFF',
                     'diff_file': diff_result.get('diff_file')
                 })
@@ -102,12 +105,12 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     # Parse optional parameters
                     pdf_type = row.get('pdf_type', '').strip() or None
                     is_amendment = row.get('is_amendment', '').strip().lower() in ['true', 'yes', '1']
-                    start_page = row.get('start_page', '').strip()
-                    end_page = row.get('end_page', '').strip()
+                    # start_page = row.get('start_page', '').strip()
+                    # end_page = row.get('end_page', '').strip()
 
-                    start_page = int(start_page) if start_page.isdigit() else None
-                    end_page = int(end_page) if end_page.isdigit() else None
-
+                    # start_page = int(start_page) if start_page.isdigit() else None
+                    # end_page = int(end_page) if end_page.isdigit() else None
+                    has_sidenotes = row.get('has_sidenotes', '').strip().lower() in ['true', 'yes', '1']
                     base_name = pdf_path.stem 
 
                     cls.test_cases.append({
@@ -116,8 +119,9 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'filename': filename,
                         'pdf_type': pdf_type,
                         'is_amendment': is_amendment,
-                        'start_page': start_page,
-                        'end_page': end_page,
+                        # 'start_page': start_page,
+                        # 'end_page': end_page,
+                        'has_sidenotes' : has_sidenotes,
                         'expected_html': cls.expected_output_dir / f"{base_name}.html",
                         'actual_html': cls.actual_output_dir / f"{base_name}.html"
                     })
@@ -125,31 +129,34 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             print(f"Error reading CSV file {cls.csv_file}: {e}")
 
     @classmethod
-    def _generate_config_suffix(cls, pdf_type, is_amendment, start_page, end_page):
+    def _generate_config_suffix(cls, pdf_type, is_amendment, has_sidenotes):#start_page, end_page):
         """Generate a suffix based on configuration parameters."""
         suffix_parts = []
         if pdf_type:
             suffix_parts.append(f"type-{pdf_type}")
         if is_amendment:
             suffix_parts.append("amendment")
-        if start_page is not None:
-            suffix_parts.append(f"start-{start_page}")
-        if end_page is not None:
-            suffix_parts.append(f"end-{end_page}")
+        # if start_page is not None:
+        #     suffix_parts.append(f"start-{start_page}")
+        # if end_page is not None:
+        #     suffix_parts.append(f"end-{end_page}")
+        if has_sidenotes:
+            suffix_parts.append("has_sidenotes")
 
         return f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
 
-    def _process_pdf(self, test_case, pdf_type=None, start_page=None, end_page=None, is_amendment=False):
+    def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False):
         """Process a single PDF file and generate HTML output."""
         try:
             # Create Main instance
             main = Main(
                 pdfPath=test_case['pdf_path'],
-                start=start_page,
-                end=end_page,
+                # start=start_page,
+                # end=end_page,
                 is_amendment_pdf=is_amendment,
                 output_dir=str(self.actual_output_dir),
-                pdf_type=pdf_type
+                pdf_type=pdf_type,
+                has_side_notes = has_sidenotes
             )
 
             # Parse PDF
@@ -158,7 +165,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 return False
 
             # Build HTML
-            main.buildHTML(end_page)
+            main.buildHTML()
 
             # Clean up cache
             main.clear_cache_pdf()
@@ -235,6 +242,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 f.write(f"PDF: {result['pdf_name']}\n")
                 f.write(f"Type: {result.get('pdf_type', 'default')}\n")
                 f.write(f"Amendment: {result.get('is_amendment', False)}\n")
+                f.write(f"Sidenotes: {result.get('has_sidenotes', False)}\n")
                 f.write(f"Status: {result['status']}\n")
                 if result.get('diff_file'):
                     f.write(f"Diff file: {result['diff_file']}\n")
@@ -248,11 +256,12 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         with self.assertLogs(level='ERROR'):
             main = Main(
                 pdfPath="non_existent.pdf",
-                start=None,
-                end=None,
+                # start=None,
+                # end=None,
                 is_amendment_pdf=False,
                 output_dir=str(self.actual_output_dir),
-                pdf_type=None
+                pdf_type=None,
+                has_side_notes = False
             )
             success = main.parsePDF(None)
             self.assertFalse(success)

@@ -5,8 +5,21 @@ import logging
 class ParserTool:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    def convert_to_xml(self,pdf_path, xml_path):
-        cmd = [
+    def convert_to_xml(self,pdf_path, xml_path, pdf_type):
+        if pdf_type == "sebi":
+            cmd = [
+            "pdf2txt.py",
+            "-A",
+            "-t", "xml",
+            "-o", xml_path,
+            # "--char-margin", "15.0",
+            # "--word-margin", "5.0",
+            # "--line-margin", "0.5",
+            "--char-margin", "25.0",
+            pdf_path
+        ]
+        else:
+            cmd = [
             "pdf2txt.py",
             "-A",
             "-t", "xml",
