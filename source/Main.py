@@ -11,7 +11,7 @@ from .ParserTool import ParserTool
 from .Page import Page, SectionState
 from .HTMLBuilder import HTMLBuilder
 from .Amendment import Amendment
-# from BqLayout import BqLayout
+from .Utils import *
 
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes): #start,end,is_amendment_pdf,output_dir, pdf_type):
@@ -115,14 +115,16 @@ class Main:
             # print(page.is_single_column_page)
             page.get_italic_blockquotes(pdf_type)
             self.amendment.check_for_blockquotes(page)
-            page.get_titles(pdf_type)
+            # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
+            page.get_titles(pdf_type)
             page.sort_all_boxes()
             # page.print_blockquote()
             # page.print_headers()
             # page.print_footers()
             # page.print_levels()
             page.print_all()
+            # page.print_tbs()
             
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
@@ -385,7 +387,7 @@ class Main:
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
 
-            page = Page(pg, self.pdf_path, base_name_of_file, output_dir)
+            page = Page(pg, self.pdf_path, base_name_of_file, output_dir, self.pdf_type)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes(pg)
@@ -500,6 +502,8 @@ class Main:
             
             # Step 2: Simple similarity calculation
             def calculate_similarity(elem1, elem2):
+                if re.fullmatch(r'\d+', elem1['text'].strip()) and re.fullmatch(r'\d+', elem2['text'].strip()):
+                    return 1.0
                 text_sim = SequenceMatcher(None, elem1['text'], elem2['text']).ratio()
                 x_sim = 1 - abs(elem1['x0_pct'] - elem2['x0_pct'])
                 y_sim = 1 - abs(elem1['y0_pct'] - elem2['y0_pct'])
@@ -821,6 +825,7 @@ class Main:
         
         return header_zones, footer_zones
     
+    #original
     def _validate_header_footer_groups_strict(self, groups, hf_type, total_pages):
         """
         Strict validation for header/footer groups to prevent false positives.
@@ -1113,7 +1118,7 @@ class Main:
         """Group similar elements across pages"""
         groups = []
         used_elements = set()
-        
+
         for candidate in candidates:
             if id(candidate) in used_elements:
                 continue
@@ -1379,7 +1384,6 @@ class Main:
                 self.process_pages_sebi(pdf_type)
             else:
                 self.process_pages(pdf_type)
-            # self.print_labels(pdf_type)
             self.logger.info("Finished Processing of pages for: %s", self.pdf_path)
             return True
         except Exception as e:

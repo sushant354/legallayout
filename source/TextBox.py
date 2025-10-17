@@ -95,6 +95,9 @@ class TextBox:
     def is_uppercase(self, pdf_type = None):
         total_letters = 0
         total_uppercase = 0
+
+        if pdf_type == 'sebi':
+            return False
         try:
             for textline in self.tbox.findall(".//textline"):
                 for text in textline.findall(".//text"):
@@ -108,9 +111,9 @@ class TextBox:
             if total_letters == 0:
                 return False  # Avoid division by zero
 
-            if pdf_type == 'sebi':
-                return (total_uppercase / total_letters) >= 0.70
-            elif pdf_type == 'acts':
+            # if pdf_type == 'sebi':
+            #     return (total_uppercase / total_letters) >= 0.70
+            if pdf_type == 'acts':
                 return (total_uppercase / total_letters) >= 0.25  
             else:
                 return (total_uppercase / total_letters) >= 0.75 
@@ -123,6 +126,8 @@ class TextBox:
     # --- func to detect the textbox having texts font in Title Case for heading/title detection ---
     def is_titlecase(self, pdf_type = None):
         words = []
+        if pdf_type == 'sebi':
+            return False
         try:
             for textline in self.tbox.findall(".//textline"):
                 for text in textline.findall(".//text"):
@@ -163,9 +168,9 @@ class TextBox:
                 return False
 
             # Return True if at least 25% of words are titlecase
-            if pdf_type == 'sebi':
-                return (titlecase_count / valid_word_count) >= 0.70
-            elif pdf_type == 'acts':
+            # if pdf_type == 'sebi':
+            #     return (titlecase_count / valid_word_count) >= 0.70
+            if pdf_type == 'acts':
                 return (titlecase_count / valid_word_count) >= 0.25
             else:
                 return (titlecase_count / valid_word_count) >= 0.75

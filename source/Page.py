@@ -32,7 +32,7 @@ class SectionState:
 
 
 class Page:
-    def __init__(self,pg,pdfPath, base_name_of_file, output_dir):
+    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -41,7 +41,7 @@ class Page:
         self.all_tbs = {}
         self.all_figbox = {}
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, output_dir)
-        self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num)
+        self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
     
 
@@ -222,14 +222,6 @@ class Page:
                 if label not in (None,["amendment"]):
                     continue
                 
-                if  tb.is_titlecase(pdf_type):
-                    if label == ["amendment"]:
-                        self.all_tbs[tb].append("title")
-                    else:
-                        self.all_tbs[tb] = "title"
-                    self.logger.debug(f"Title detected by font style - titlecase: '{text}' on page {self.pg_num}")
-                    continue
-
                 if  tb.textFont_is_bold(pdf_type):
                     if label == ["amendment"]:
                         self.all_tbs[tb].append("title")
@@ -254,6 +246,14 @@ class Page:
                                 self.all_tbs[tb] = "title"
                             self.logger.debug(f"Title detected by font style -  italic: '{text}' on page {self.pg_num}")
                             continue
+                
+                if  tb.is_titlecase(pdf_type):
+                    if label == ["amendment"]:
+                        self.all_tbs[tb].append("title")
+                    else:
+                        self.all_tbs[tb] = "title"
+                    self.logger.debug(f"Title detected by font style - titlecase: '{text}' on page {self.pg_num}")
+                    continue
 
                 # Centered within tolerance
                 tb_cx = (tb.coords[0] + tb.coords[2]) / 2
@@ -271,7 +271,6 @@ class Page:
                             if label == ["amendment"]:
                                 self.all_tbs[tb].append("title")
                             else:
-                            # print("text height,text width of box:",tb.height,tb.width)
                                 self.all_tbs[tb] = "title"
                             self.logger.debug(f"Title detected by page centered : '{text}' on page {self.pg_num}")
                             continue
@@ -302,8 +301,9 @@ class Page:
             
             
     def print_tbs(self):
-        for tb in self.all_tbs.keys():
-            print(tb.extract_text_from_tb())
+        for tb , label in self.all_tbs.items():
+            if label not in ('figure',):
+                print(tb.extract_text_from_tb(),'\n')
 
     def print_titles(self):
         print("i'm from headings")
@@ -529,7 +529,7 @@ class Page:
         # original
         section_re = re.compile(
             r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
-            re.IGNORECASE
+            # re.IGNORECASE
         )
         # group_re = re.compile( r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*(' 
         #     r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|' # a), aa), (a), etc. 
@@ -537,19 +537,31 @@ class Page:
         #     r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # 1, 1.1, 1.1.1, 1.1.1.1 (max 4 levels, no leading zeros) 
         #     r')', 
         #     re.IGNORECASE )
+        #original
+        # group_re = re.compile(
+        #         r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})'  # reject long dotted decimals
+        #         r'\s*('
+        #             r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'          # a., a), (a), AA., (AA)
+        #             r'(?:[IVXLCDMivxlcdm]{1,3}[.\)]|\([IVXLCDMivxlcdm]{1,3}\))|'  # i., i), IX., (IX)
+        #             r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # numeric 1., 1.1., 1.1.1.1
+        #         r')',
+        #        # re.IGNORECASE
+        #     )
         group_re = re.compile(
-                r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})'  # reject long dotted decimals
-                r'\s*('
-                    r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'          # a., a), (a), AA., (AA)
-                    r'(?:[IVXLCDMivxlcdm]{1,3}[.\)]|\([IVXLCDMivxlcdm]{1,3}\))|'  # i., i), IX., (IX)
-                    r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # numeric 1., 1.1., 1.1.1.1
-                r')',
-               # re.IGNORECASE
-            )
+            # r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})'  # reject long dotted decimals
+            r'\s*('
+                r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
+                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+            r')(?!\w)',  # ensure not followed by alphanumeric (safety)
+        )
+
         
         for tb,label in self.all_tbs.items():
             if label is not None:
                     continue
+            # if label is not None and (isinstance(label,tuple) and label  not in (('italic', 'blockquote'),)):
+            #     continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:

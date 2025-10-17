@@ -16,6 +16,7 @@ class ParserTool:
             # "--word-margin", "5.0",
             # "--line-margin", "0.5",
             "--char-margin", "25.0",
+            # "--line-margin", "0.08",
             pdf_path
         ]
         else:

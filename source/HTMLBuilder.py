@@ -7,12 +7,14 @@ import pandas as pd
 from difflib import SequenceMatcher
 from sklearn.cluster import DBSCAN
 from bs4 import BeautifulSoup
+import copy
 
 from .SentenceEndDetector import LegalSentenceDetector
 from .NormalizeText import NormalizeText
+# from .Utils import *
 
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
-                 "h4", "center", "ul", "li"}
+                 "h4", "center", "li"}
 VOID_TAGS = {"br"}
 
 class HTMLBuilder:
@@ -29,6 +31,8 @@ class HTMLBuilder:
         self.level_hierarchy = ('level1', 'level2', 'level3', 'level4','level5')
         self.pending_table = None
         self.is_real_sentence_end =LegalSentenceDetector().is_real_sentence_end
+        self.previous_sentence_end_status = True
+        self.is_pre_added = False
         self.normalize_text = NormalizeText().normalize_text
         self.min_word_threshold_tableRows = 2
         self.table_terminators = {".", "?", "!"} #";", ":",
@@ -128,8 +132,8 @@ class HTMLBuilder:
           
     def check_for_last_token(self, html):
       last_token, last_tag = self.get_last_token(html)
-      if last_tag and last_token and (last_tag!='h4' or last_tag!='td'):
-          if not last_token.endswith(('.','?','!',":-", "---", "...", '—',':','."', ".'",';"',";'", '…')):
+      if last_tag and last_token: #and (last_tag!='h4' or last_tag!='td'):
+          if not last_token.endswith(('.','?','!',';',':',":-", "---", "...", '—',':','."', ".'",';"',";'", '…')): #, '-'
              return True, last_tag
       return False, last_tag 
     
@@ -144,15 +148,24 @@ class HTMLBuilder:
                         self.builder += self.pending_text
                         self.pending_tag = None
                         self.pending_text = ""
+                        self.previous_sentence_end_status = is_sentence_completed
                         return True
                     else:
                         self.pending_text += (' '+text.strip())
+                        self.previous_sentence_end_status = is_sentence_completed
                         return True
         return False
     
     def handle_continuation(self, html, text, next_text, at_page_end, tb, next_text_tb, pg_height, pg_width):
         status, last_tag = self.check_for_last_token(html)
         if status and last_tag:
+            if self.stack_for_section:
+               self.builder += (" "+text.strip()+" ")
+               return True
+            if self.stack_for_level:
+               self.builder += (" "+text.strip()+" ")
+               self.previous_sentence_end_status = self.is_real_sentence_end(text, next_text, at_page_end, tb, next_text_tb, pg_height, pg_width)
+               return True
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, tb, next_text_tb, pg_height, pg_width)
             if is_sentence_completed:
                 self.pending_text += (" "+text.strip())
@@ -160,10 +173,12 @@ class HTMLBuilder:
                 self.builder += self.pending_text
                 self.pending_tag = None
                 self.pending_text = ""
+                self.previous_sentence_end_status = is_sentence_completed
                 return True
             else:
                 self.pending_tag = last_tag
                 self.pending_text += (' '+text.strip())
+                self.previous_sentence_end_status = is_sentence_completed
                 return True
         return False
     # --- func to add Title in the html ---
@@ -171,14 +186,16 @@ class HTMLBuilder:
         try:
           text = tb.extract_text_from_tb().strip()
           #sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))$', re.IGNORECASE)
-          sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
-
+          #sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
+          #original
+          sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
           if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
-            return
+                return
                   
-          if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+          if not self.previous_sentence_end_status and self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
                 return
           
+          self.previous_sentence_end_status = self.is_real_sentence_end(text, next_text, at_page_end, tb, next_text_tb, pg_height, pg_width)
           if not self.stack_for_section:
               self.flushPrevious()
           else:
@@ -194,7 +211,7 @@ class HTMLBuilder:
           else:
               if text and sebi_level_close_re.match(text):
                   self.close_levels()
-              elif self.stack_for_level and self.stack_for_level[-1] == 0:
+              elif self.stack_for_level: #and self.stack_for_level[-1] == 0:
                  self.close_levels()
               elif self.stack_for_level and next_label == 'level1':
                   while self.stack_for_level:
@@ -246,7 +263,9 @@ class HTMLBuilder:
           #         self.builder += "</section>\n"
           #         if tag == 0:
           #             break
-          if self.stack_for_level:
+          # if self.stack_for_level:
+          #    self.close_levels()
+          if self.stack_for_level and self.stack_for_level[-1] == 0:
              self.close_levels()
           self.builder += self.normalize_text(table.to_html(index=False, header = False, border=1).replace("\\n"," "))
           self.builder += "\n" 
@@ -259,7 +278,7 @@ class HTMLBuilder:
           self.builder += "</section>\n"
        
     # --- func to add the unknown label of textbox in the html - classified as <p> tag ---
-    def addItalicBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end):
+    def addItalicBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end, tb):
         try:
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
             if self.pending_tag and self.pending_tag != 'blockquote':
@@ -267,33 +286,40 @@ class HTMLBuilder:
                 self.builder += self.pending_text
                 self.pending_tag = None
                 self.pending_text = ""
-            
+            elif self.stack_for_level and self.stack_for_level[-1] == 0:
+                self.close_levels()
+               
+            if not self.previous_sentence_end_status and self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+                return
             if (not self.pending_tag) and (not self.pending_text) and is_sentence_completed:
               self.builder += f"<blockquote>{text}</blockquote>\n"
               self.pending_tag = None
               self.pending_text = ""
-
+              self.previous_sentence_end_status = is_sentence_completed
             elif (not self.pending_tag) and (not self.pending_text) and (not is_sentence_completed):
               self.pending_tag = "blockquote"
               self.pending_text = f"<blockquote>{text}"
-            
+              self.previous_sentence_end_status = is_sentence_completed
             elif self.pending_text and self.pending_tag and is_sentence_completed:
                 self.pending_text += (" "+text.strip())
                 self.pending_text += f"</{self.pending_tag}>\n"
                 self.builder += self.pending_text
                 self.pending_tag = None
                 self.pending_text = ""
+                self.previous_sentence_end_status = is_sentence_completed
 
             else:
                 self.pending_text += (' '+text.strip())
-                
+                self.previous_sentence_end_status = is_sentence_completed
         except Exception as e:
             self.logger.exception("Error while adding italic blockquote text [%s] : %s",text, e)
 
     def addUnlabelled(self,text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end):
       # sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\))| Sd/- $', re.IGNORECASE)
-      sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
-
+      #sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]?\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place|At)\s*[:\-]?\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
+      #original
+      sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
+      
       try:
         if self.stack_for_section:
           if re.fullmatch(r'—{3,}', text.strip()):
@@ -318,12 +344,15 @@ class HTMLBuilder:
             is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
           if is_sentence_completed:
             self.builder += (' ' +text +"<br>")
+            self.previous_sentence_end_status = is_sentence_completed
           else:
             if text in set(["•","▪","▫","✓","✕","o"]) and self.pending_text == "":
                self.pending_tag = 'blockquote'
                self.pending_text = f'<blockquote>{text}'   
+               self.previous_sentence_end_status = is_sentence_completed
             else:   
                 self.builder += (' ' + text)
+                self.previous_sentence_end_status = is_sentence_completed
         else:
             if self.pdf_type != 'acts':
               is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
@@ -333,17 +362,21 @@ class HTMLBuilder:
               self.builder += f"<p>{text}</p>\n"
               self.pending_tag = None
               self.pending_text = ""
+              self.previous_sentence_end_status = is_sentence_completed
             elif (not self.pending_tag) and (not self.pending_text) and (not is_sentence_completed):
               self.pending_tag = "p"
               self.pending_text = f"<p>{text}"
+              self.previous_sentence_end_status = is_sentence_completed
             elif self.pending_text and self.pending_tag and is_sentence_completed:
                 self.pending_text += (" "+text.strip())
                 self.pending_text += f"</{self.pending_tag}>\n"
                 self.builder += self.pending_text
                 self.pending_tag = None
                 self.pending_text = ""
+                self.previous_sentence_end_status = is_sentence_completed
             else:
                 self.pending_text += (' '+text.strip())
+                self.previous_sentence_end_status = is_sentence_completed
 
       except Exception as e:
         self.logger.exception("Error while adding unlabelled text [%s] : %s",text, e)
@@ -429,15 +462,6 @@ class HTMLBuilder:
     #     return None, None
 
     def get_last_token(self, html):
-        """
-        Extract the last token and the last unclosed tag from an HTML string
-        considering only the relevant tags.
-        
-        Returns:
-            (last_token, last_open_tag)
-            - If the last tag is unclosed → (token, tagname)
-            - Otherwise → (None, None)
-        """
         tag_stack = []
 
         # Regex to find all opening and closing tags
@@ -698,7 +722,7 @@ class HTMLBuilder:
         except Exception as e:
           self.logger.exception("Error while adding subpara [%s]: %s",text,e)
         
-    def addBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end):
+    def addBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end, tb):
         text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
         is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width) #text.strip().endswith(self.sentence_completion_punctuation)
 
@@ -707,21 +731,30 @@ class HTMLBuilder:
             self.builder += self.pending_text
             self.pending_tag = None
             self.pending_text = ""
+        elif self.stack_for_level and self.stack_for_level[-1] == 0:
+            self.close_levels()
+            
+        if not self.previous_sentence_end_status and self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+                return
         if (not self.pending_tag) and (not self.pending_text) and is_sentence_completed:
           self.builder += f"<blockquote>{text}</blockquote>\n"
           self.pending_tag = None
           self.pending_text = ""
+          self.previous_sentence_end_status = is_sentence_completed
         elif (not self.pending_tag) and (not self.pending_text) and (not is_sentence_completed):
           self.pending_tag = "blockquote"
           self.pending_text = f"<blockquote>{text}"
+          self.previous_sentence_end_status = is_sentence_completed
         elif self.pending_text and self.pending_tag and is_sentence_completed:
             self.pending_text += (" "+text.strip())
             self.pending_text += f"</{self.pending_tag}>\n"
             self.builder += self.pending_text
             self.pending_tag = None
             self.pending_text = ""
+            self.previous_sentence_end_status = is_sentence_completed
         else:
             self.pending_text += (' '+text.strip())
+            self.previous_sentence_end_status = is_sentence_completed
 
     # ---func to add the textbox labelled as amendments in the html ---
     def addAmendment(self,label,tb,side_notes,pg_height):
@@ -807,7 +840,7 @@ class HTMLBuilder:
         self.logger.exception("Error in add_amendment_section [%s]: %s",text, e)
        
     def is_section(self,texts):
-      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
+      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE) # 
       texts = texts.strip()
       texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
       if section_re.match(texts):
@@ -826,8 +859,8 @@ class HTMLBuilder:
             self.flushPrevious()
           if self.pending_table:
             self.flushTables()
-          if self.stack_for_level:
-            self.close_levels()
+          # if self.stack_for_level:
+          #   self.close_levels()
           img_path = page.figures.pics[tb.figname]
           self.builder += f'<a href="{img_path}" target="_blank">[View Image]</a>\n'
 
@@ -918,6 +951,48 @@ class HTMLBuilder:
     #             if not self.is_pg_num(tb,page.pg_width):
     #               self.addUnlabelled(tb.extract_text_from_tb(), next_text,tb.coords, next_text_coords, page.pg_height, page.pg_width,  at_page_end)
    
+    def add_pre(self):
+        html = copy.deepcopy(self.builder)
+        cleaned_html = re.sub(r'</?center>', '', html)
+        cleaned_html = re.sub(r'</?h4>', '', cleaned_html)
+        self.main_builder += f'<pre>\n{cleaned_html}</pre>\n'
+        self.builder = ""
+        self.is_pre_added = True
+
+    def check_for_pre_ended(self, text, label):
+        text = text.strip()
+        if not text:
+           return False
+        background_re = re.compile(
+                            r'(?i)\bB\s*[\W_]*A\s*[\W_]*C\s*[\W_]*K\s*[\W_]*G\s*[\W_]*R\s*[\W_]*O\s*[\W_]*U\s*[\W_]*N\s*[\W_]*D\b'
+                        )
+
+        toc_re = re.compile(
+            r'(?i)\b(?:table\s*[\W_]*of\s*[\W_]*contents?|table\s*[\W_]*contents?|contents?)\b',
+            re.IGNORECASE
+        )
+
+        section_re = re.compile(
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            # re.IGNORECASE
+        )
+
+        facts_case_pattern = re.compile(
+                      r'f\s*a\s*c\s*t\s*s\s*.*o\s*f\s*.*t\s*h\s*e\s*.*c\s*a\s*s\s*e\s*.*i\s*n\s*.*b\s*r\s*i\s*e\s*f',
+                      re.IGNORECASE
+                  )
+        if background_re.search(text):
+            self.add_pre()
+        elif toc_re.search(text):
+            self.add_pre()
+        elif section_re.search(text):
+            self.add_pre()
+        elif facts_case_pattern.search(text):
+            self.add_pre()
+        
+        
+
+        
     def build(self, page):#, section_end_page):
         visited_for_table = set()
         # if not page.is_single_column_page:
@@ -958,6 +1033,10 @@ class HTMLBuilder:
                 if self.pending_table is not None and len(self.pending_table) <= 2:
                     self.addTable(self.pending_table[0])
                     self.pending_table = None
+            
+            if self.pdf_type == 'sebi' and not self.is_pre_added and label in ('title', 'level1'):
+                self.check_for_pre_ended(self.normalize_text(tb.extract_text_from_tb()), label)
+
             if isinstance(label, tuple) and label[0] == "table":
                 table_id = label[1]
                 if table_id not in visited_for_table:
@@ -981,7 +1060,7 @@ class HTMLBuilder:
             elif isinstance(label,list) and label[0] == "amendment":
                self.addAmendment(label,tb,page.side_notes_datas,page.pg_height)
             elif isinstance(label, tuple) and label[1] == 'blockquote':
-               self.addItalicBlockQuote(self.normalize_text(tb.extract_text_from_tb()), next_text, tb, next_text_tb, page.pg_height, page.pg_width, at_page_end)
+               self.addItalicBlockQuote(self.normalize_text(tb.extract_text_from_tb()), next_text, tb, next_text_tb, page.pg_height, page.pg_width, at_page_end, tb)
             elif label == "title":
                 self.addTitle(tb,page.pg_width,page.pg_height, next_text, next_text_tb,at_page_end,next_label)
             elif label == "section":
@@ -993,7 +1072,7 @@ class HTMLBuilder:
             elif label == "subpara":
                 self.addSubpara(self.normalize_text(tb.extract_text_from_tb()),self.hierarchy.index(label))
             elif label == 'blockquote':
-                self.addBlockQuote(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
+                self.addBlockQuote(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end, tb)
             elif label == 'level1' or label == 'level2' or label == 'level3' or label == 'level4':
                 self.addLevel(self.normalize_text(tb.extract_text_from_tb()), self.level_hierarchy.index(label), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
             elif label == "figure":
@@ -1068,7 +1147,6 @@ class HTMLBuilder:
         return self.close_html()
     
     def is_sequential(self, text1, text2):
-        """Check if two strings represent sequential numbers."""
         try:
             s1, s2 = str(text1).strip(), str(text2).strip()
             if s1.isdigit() and s2.isdigit():
@@ -1081,17 +1159,10 @@ class HTMLBuilder:
             return False
 
     def row_similarity(self, row1, row2):
-        """Compute similarity ratio between two rows."""
         s1, s2 = " ".join(str(x) for x in row1), " ".join(str(x) for x in row2)
         return SequenceMatcher(None, s1, s2).ratio()
 
     def _has_serial_number(self, cell):
-        """
-        Check if a cell looks like a serial number:
-        - Arabic numerals
-        - Roman numerals
-        - Alphanumeric IDs (A1, B.2, Sec-3)
-        """
         text = str(cell).strip().lower()
         if not text or text in ["nan", ""]:
             return False
@@ -1120,7 +1191,6 @@ class HTMLBuilder:
         return False
 
     def _is_numeric_or_symbolic(self, cell):
-        """Return True if cell is purely numeric/measurement/symbolic."""
         text = str(cell).strip().lower()
         if not text or text in ["-", "—", "–", "na", "n/a", "nil", "none", "✓", "x"]:
             return True
@@ -1129,7 +1199,6 @@ class HTMLBuilder:
         return False
 
     def _looks_like_continuation(self, prev_text, curr_text, curr_row):
-        """Heuristics when serial numbers are absent."""
         prev_text, curr_text = str(prev_text).strip(), str(curr_text).strip()
 
         # Guard: numeric/measurement-only rows should not merge
@@ -1153,10 +1222,6 @@ class HTMLBuilder:
         return False
 
     def merge_broken_rows(self, table):
-        """
-        Merge rows where first column is missing OR looks like a continuation.
-        Handles Camelot-style DataFrames like the one you shared.
-        """
         merged = []
         for idx, row in table.iterrows():
             row_list = list(row)
@@ -1193,7 +1258,6 @@ class HTMLBuilder:
         return pd.DataFrame(merged, columns=table.columns)
 
     def is_table_continuation(self, table2, table2_width):
-      """Check if table2 is a continuation of pending_table."""
       table1, table1_width = self.pending_table
 
       # 1. Width similarity check
@@ -1235,7 +1299,6 @@ class HTMLBuilder:
 
 
     def merge_tables(self, table2, table2_width):
-        """Merge table2 into pending_table with broken-row handling."""
         table1, table1_width = self.pending_table
 
         # Step 1: Header similarity → skip duplicate header
@@ -1275,8 +1338,8 @@ class HTMLBuilder:
               # if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
               #       return
                    
-              # if self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
-              #       return
+              if not self.previous_sentence_end_status and self.handle_continuation(self.builder, text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
+                    return
               if not self.stack_for_level:
                   self.flushPrevious()
               else:
@@ -1302,22 +1365,29 @@ class HTMLBuilder:
                                     self.builder += "</li>\n</ul>\n"
 
                   else:
-                      if self.stack_for_level and self.stack_for_level[-1] > 0:
+                      if self.stack_for_level and self.stack_for_level[-1] > 0 \
+                        and self.stack_for_level[-1] == hierarchy_index:
                           self.builder += "</li>\n"
+                      # original
                       while self.stack_for_level and self.stack_for_level[-1] > hierarchy_index:
                           if len(self.stack_for_level) >= 2:
                               if self.stack_for_level[-1] == self.stack_for_level[-2]:
                                   self.stack_for_level.pop()
                               else:
-                                  self.stack_for_level.pop()
+                                  tag = self.stack_for_level.pop()
                                   self.builder += "</li>\n</ul>\n"
+                                  if tag == hierarchy_index + 1:
+                                        self.builder += "</li>\n"
                           else:
                               tag = self.stack_for_level.pop()
                               if tag == 0:
                                     self.builder += "</p>\n"
                               else:
                                     self.builder += "</li>\n</ul>\n"
-                   
+                                    if tag == hierarchy_index + 1:
+                                        self.builder += "</li>\n"
+              
+              self.previous_sentence_end_status = self.is_real_sentence_end(text, next_text, at_page_end, tb, next_text_tb, pg_height, pg_width)
               # Open new tag depending on level
               if hierarchy_index == 0:
                   # Paragraph level always opens fresh
