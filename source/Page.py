@@ -19,16 +19,12 @@ GENSTRING    = 1
 ROMAN        = 0
 
 class SectionState:
-    def __init__(self, last_state = None):
-        if last_state is None:
-            self.last_state = []
-        else:
-            self.last_state = last_state
-
+    def __init__(self):
         self.compare_obj = None
         self.prev_value = None
         self.prev_type = None
         self.curr_depth = 0
+        self.state = None
 
 
 class Page:
@@ -435,9 +431,11 @@ class Page:
         self.logger.debug(f"page: {self.pg_num} --- Calculated body-startx: {self.body_startX} ,body-endX: {self.body_endX}")
         return round(self.body_endX - self.body_startX, 2)
     
+    #original
     #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,sectionState): #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
+        #original
         section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
         # group_re = re.compile(r'^\(([^\s\)]+)\)\s*\S*',re.IGNORECASE)
         group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE)
@@ -447,8 +445,13 @@ class Page:
             self.logger.error(f"Invalid page number: {self.pg_num}")
             return
 
+        if sectionState.state != 'section':
+            return
         # if startPage is not None and endPage is not None and startPage <= page_num <= endPage:
         for tb,label in self.all_tbs.items():
+            if label is not None and isinstance(label, tuple) and label[0] == 'article':
+                self.logger.info(f'{tb.extract_text_from_tb().strip()}- {label}')
+                continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
@@ -484,6 +487,72 @@ class Page:
                     else:
                         classification = hierarchy_type[sectionState.curr_depth]
                         self.all_tbs[tb] = classification
+                        sectionState.prev_value = group
+                        sectionState.prev_type = valueType2
+                        self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
+            
+            except Exception as e:
+                self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
+                continue
+    
+    def get_article(self,sectionState): #,startPage,endPage):
+        hierarchy_type = ("article","subsection","para","subpara","subsubpara")
+        
+        roman_re = r"[IVXLCDM]+"
+        article_number = rf"({roman_re}|\d+)"
+
+        section_re = re.compile(
+            rf"(?:^\s*ARTICLE\s+{article_number}$)",
+            re.IGNORECASE
+        )
+
+        # group_re = re.compile(r'^\s*(?:\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*|\(\s*[^\s\)]+\s*\)\s*\S*)',
+        #                       re.IGNORECASE)
+
+        group_re = re.compile(
+            r'^\s*(?:'
+            r'(\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # capture section
+            r'|'
+            r'\(\s*([^\s\)]+)\s*\)'           # capture group
+            r')',
+            re.IGNORECASE
+        )
+
+        try:
+            page_num = int(self.pg_num)
+        except Exception as e:
+            self.logger.error(f"Invalid page number: {self.pg_num}")
+            return
+
+        # if startPage is not None and endPage is not None and startPage <= page_num <= endPage:
+        if sectionState.state != 'article':
+            return
+        for tb,label in self.all_tbs.items():
+           
+            texts = tb.extract_text_from_tb().strip()
+            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            try:
+                if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
+                    section_number = section_re.match(texts).group().split('.')[0].strip()
+                    sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
+                    sectionState.prev_value = section_number
+                    sectionState.prev_type = ARTICLE
+                    sectionState.curr_depth = 0
+                    self.all_tbs[tb] = ('article', hierarchy_type[0])
+                    self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
+                    continue
+
+                match = group_re.match(texts)
+                if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
+                    group =match.group(1) or match.group(2)
+                    group = group.strip()
+                    valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
+                    sectionState.curr_depth = sectionState.curr_depth - compValue
+                    if sectionState.curr_depth >= len(hierarchy_type)-1:
+                                continue
+                    else:
+                        classification = hierarchy_type[sectionState.curr_depth]
+                        self.all_tbs[tb] = ('article', classification)
                         sectionState.prev_value = group
                         sectionState.prev_type = valueType2
                         self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")

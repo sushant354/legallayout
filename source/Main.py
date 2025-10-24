@@ -10,6 +10,7 @@ import shutil
 from .ParserTool import ParserTool
 from .Page import Page, SectionState
 from .HTMLBuilder import HTMLBuilder
+from .Acts import Acts
 from .Amendment import Amendment
 from .Utils import *
 
@@ -24,7 +25,10 @@ class Main:
         self.total_pgs = 0
         self.all_pgs = {}
         self.pdf_type = pdf_type  # Store pdf_type for later use
-        self.html_builder = self.get_htmlBuilder(pdf_type)
+        if self.pdf_type == 'acts':
+            self.html_builder = self.get_htmlBuilder(pdf_type)
+        else:
+            self.html_builder = self.get_htmlBuilder(pdf_type)
         self.is_amendment_pdf = is_amendment_pdf
         self.has_side_notes = has_side_notes
         self.amendment = Amendment()
@@ -36,7 +40,7 @@ class Main:
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
         elif pdf_type == 'acts':
             sentence_completion_punctutation = ('.', ';', ':', '—')
-            return HTMLBuilder(sentence_completion_punctutation, pdf_type)
+            return Acts(sentence_completion_punctutation, pdf_type)
         else:
             sentence_completion_punctutation = ('.', ':')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
@@ -48,8 +52,12 @@ class Main:
             self.html_builder.build(page) #, section_page_end)
         
         self.logger.debug("Fetching Full HTML content")
-        html_content = self.html_builder.get_html()
-        self.write_html(html_content)
+        if self.pdf_type != "acts":
+            html_content = self.html_builder.get_html()
+            self.write_html(html_content)
+        else:
+            content = self.html_builder.get_content()
+            self.write_bluebell(content)
 
 
     
@@ -97,10 +105,15 @@ class Main:
             # print(page.is_single_column_page)
             if self.is_amendment_pdf:
                 self.amendment.check_for_amendment_acts(page)#,self.section_start_page,self.section_end_page)
-
-            page.get_section_para(self.section_state)#, self.section_start_page,self.section_end_page)
+            self.section_state.state = 'article'
+            page.get_article(self.section_state)
+            page.print_all()
+            self.section_state.state = 'section'
+            # page.get_section_para(self.section_state)#, self.section_start_page,self.section_end_page)
+            self.section_state.state = None
             page.get_titles(pdf_type)
             page.sort_all_boxes()
+            # page.print_all()
             # page.print_headers()
             # page.print_footers()
 
@@ -1417,6 +1430,31 @@ class Main:
 
         except Exception as e:
             self.logger.exception("Failed to write HTML content: %s", e)
+
+    def write_bluebell(self, content):
+        if not content:
+            self.logger.warning('Bluebell content not available to save')
+            return
+        filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".bluebell"
+        try:
+            output_dir = Path(self.output_dir)
+
+            # Check if the directory exists
+            if not output_dir.exists():
+                output_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.info(f"Created directory: {output_dir.resolve()}")
+            else:
+                self.logger.info(f"Directory already exists: {output_dir.resolve()}")
+
+            # Write the HTML content to the specified file
+            output_path = output_dir / filename
+            with output_path.open("w", encoding="utf-8") as f:
+                f.write(content)
+
+            self.logger.info("content written successfully to %s", output_path)
+
+        except Exception as e:
+            self.logger.exception("Failed to write  content: %s", e)
     
     def clear_cache(self):
         if not hasattr(self, "xml_path") or not self.xml_path:

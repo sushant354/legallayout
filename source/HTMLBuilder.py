@@ -623,10 +623,10 @@ class HTMLBuilder:
               rest_text_type = self.findType(rest_text)
               if rest_text_type is None:
                   if is_sentence_completed:
-                    self.builder += f"<section class=\"section\">{prefix}<br>{rest_text}\n" #<br>
+                    self.builder += f"<section class=\"section\">{prefix}{rest_text}\n" #<br>{rest_text}\n" #<br>
                     self.stack_for_section.append(hierarchy_index)
                   else:
-                      self.builder +=f"<section class=\"section\">{prefix}<br>{rest_text}\n"
+                      self.builder +=f"<section class=\"section\">{prefix} {rest_text}\n" #<br>{rest_text}\n"
                       self.stack_for_section.append(hierarchy_index)
               else:
                   self.builder += f"<section class=\"section\">{prefix}\n"
