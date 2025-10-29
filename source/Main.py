@@ -33,6 +33,8 @@ class Main:
         self.has_side_notes = has_side_notes
         self.amendment = Amendment()
         self.section_state = SectionState()
+        self.article_state = SectionState()
+        self.is_preamble_reached = False
     
     def get_htmlBuilder(self, pdf_type):
         if pdf_type == 'sebi':
@@ -49,7 +51,7 @@ class Main:
     def buildHTML(self): #, section_page_end):
         for page in self.all_pgs.values():
             self.logger.info(f"HTML build starts for page num-{page.pg_num}")
-            self.html_builder.build(page) #, section_page_end)
+            self.html_builder.build(page, self.has_side_notes) #, section_page_end)
         
         self.logger.debug("Fetching Full HTML content")
         if self.pdf_type != "acts":
@@ -100,20 +102,17 @@ class Main:
             page.get_width_ofTB_moreThan_Half_of_pg()
             page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
-            page.get_side_notes(self.has_side_notes) #self.section_start_page,self.section_end_page)
+            page.get_side_notes() #self.section_start_page,self.section_end_page)
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             if self.is_amendment_pdf:
                 self.amendment.check_for_amendment_acts(page)#,self.section_start_page,self.section_end_page)
-            self.section_state.state = 'article'
-            page.get_article(self.section_state)
-            page.print_all()
-            self.section_state.state = 'section'
-            # page.get_section_para(self.section_state)#, self.section_start_page,self.section_end_page)
-            self.section_state.state = None
+
+            page.get_article(self.article_state, self)
+            page.get_section_para(self.section_state)#, self.section_start_page,self.section_end_page)
             page.get_titles(pdf_type)
             page.sort_all_boxes()
-            # page.print_all()
+            page.print_all()
             # page.print_headers()
             # page.print_footers()
 
@@ -400,7 +399,7 @@ class Main:
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
 
-            page = Page(pg, self.pdf_path, base_name_of_file, output_dir, self.pdf_type)
+            page = Page(pg, self.pdf_path, base_name_of_file, output_dir, self.pdf_type, self.has_side_notes, self.is_amendment_pdf)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes(pg)

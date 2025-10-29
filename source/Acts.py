@@ -52,7 +52,13 @@ class Acts:
         return None
     
     def check_preamble_start(self, text):
-        pattern = re.compile(r'^\s*(?:A\s+)?An\s+Act\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?', re.I)
+        # pattern = re.compile(r'^\s*(?:A\s+)?An\s+Act\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?', re.I)
+
+        pattern = re.compile(
+            r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
+            re.IGNORECASE
+        )
+
         match = re.search(pattern, text)
         return bool(match)
     
@@ -92,8 +98,8 @@ class Acts:
         numbers_re = r"(?:[1-9]|1[0-9]|20)"
 
         # Single regex with capturing group
-        pattern = rf"(?:schedule\s*({ordinals_re}|{numbers_re}|{self.roman_re})|" \
-                rf"({ordinals_re}|{numbers_re}|{self.roman_re})\s*schedule)"
+        pattern = rf"(?:^schedule\s*({ordinals_re}|{numbers_re}|{self.roman_re})|" \
+                rf"({ordinals_re}|{numbers_re}|{self.roman_re})\s*schedule$)"
 
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
@@ -111,7 +117,7 @@ class Acts:
                         line_texts.append(text.text)
                 line = ''.join(line_texts).replace("\n", " ").strip()
 
-                if re.fullmatch(r'—{3,}', line):
+                if re.fullmatch(r'[—_]{3,}', line):
                         self.is_act_ended = True
                         break
                 
@@ -204,7 +210,7 @@ class Acts:
         except Exception as e:
           self.logger.exception("Error while adding title - [%s] in html: %s",tb.extract_text_from_tb(),e)
     
-    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.005):
+    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05):
         try:
             tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
             vertical_threshold = page_height * vertical_threshold_ratio
@@ -253,7 +259,15 @@ class Acts:
         return None, "", text
     
     def find_value_and_text(self,text):
-        group_re = re.compile(r'^(\(\s*[^\s\)]+\s*\))\s*(.*)', re.IGNORECASE)
+        # group_re = re.compile(r'^(\(\s*[^\s\)]+\s*\))\s*(.*)', re.IGNORECASE)
+        group_re = re.compile(
+                r'^\s*('
+                r'(?:\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # section: 1. , 2A. , 3A-B.
+                r'|'
+                r'(?:\(\s*[^\s\)]+\s*\))'           # group: (A), (1), (B1)
+                r')\s*(.*)$',                       # group 2 = remaining text
+                re.IGNORECASE
+            )
     
         match = group_re.match(text.strip())
         if match:
@@ -270,7 +284,7 @@ class Acts:
             self.hierarchy.append(category)
             return self.hierarchy.index(category)
         
-    def addSection(self, tb, side_note_datas, page_height):
+    def addSection(self, tb, side_note_datas, page_height, has_side_notes):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
             if not self.is_body_added:
@@ -302,16 +316,17 @@ class Acts:
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                 
             else:
-                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*\.)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
-                    rest_text = match.group(2).strip()
+                    short_title = match.group(2)
+                    rest_text = match.group(3).strip()
                     rest_text_type, value, remain_text = self.findType(rest_text)
                     if rest_text_type is None:
-                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix}"
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
                         self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
                     else:
-                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix}"
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
                         self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
@@ -339,12 +354,21 @@ class Acts:
                         self.is_schedule_open = False
                         
                     else:
+                        self.clear_article_hierarchy(level = 'SUBPART')
                         self.curr_tab_level = self.get_hierarchy_level('SUBPART')
                         self.builder += "\n" + ("\t" * self.curr_tab_level) + f"ART {val}"
             return
         self.builder += " " + line
-                    
-    def addSubsection(self, text):
+    
+    def clear_article_hierarchy(self, level):
+        try:
+            if level in self.hierarchy:
+                idx = self.hierarchy.index(level)
+                self.hierarchy = self.hierarchy[:idx]
+        except Exception as e:
+            self.logger.error(f'while try to clear article hierarchy- {e}')
+
+    def addSubsection(self, text, is_article_subsection):
         try:
             self.curr_tab_level = self.get_hierarchy_level('SUBSEC')
             value, remain_text = self.find_value_and_text(text)
@@ -354,7 +378,7 @@ class Acts:
         except Exception as e:
             self.logger.exception("Error while adding subsection [%s]: %s",text, e)
     
-    def addPara(self, text):
+    def addPara(self, text, is_article_para):
         try:
             self.curr_tab_level = self.get_hierarchy_level('PARA')
             value, remain_text = self.find_value_and_text(text)
@@ -365,7 +389,7 @@ class Acts:
             self.logger.exception("Error while adding para [%s]: %s",text, e)
 
 
-    def addSubpara(self, text):
+    def addSubpara(self, text, is_article_subpara):
         try:
             self.curr_tab_level = self.get_hierarchy_level('SUBPARA')
             value, remain_text = self.find_value_and_text(text)
@@ -393,12 +417,22 @@ class Acts:
                         self.builder += ("\t" * (self.curr_tab_level+1) + text)
                         return
             else:
-                if re.fullmatch(r'—{3,}', text):
+                if re.fullmatch(r'[— _]{3,}', text):
                     self.is_act_ended = True
                     return
-                self.builder += " " + text
+                last_tag = self.get_last_hierarchy_tag()
+                if last_tag == 'SUBPART':
+                    self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
+                else:
+                    self.builder += " " + text
         except Exception as e:
             self.logger.exception("Error while adding unlabelled [%s]: %s",text, e)
+    
+    def get_last_hierarchy_tag(self):
+        if len(self.hierarchy) == 0:
+            return ""
+        else:
+            return self.hierarchy[-1]
         
     def addTable(self, table):
         try:
@@ -423,7 +457,7 @@ class Acts:
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n",e, table.head().to_string(index=False))
   
-    def build(self, page) :
+    def build(self, page, has_side_notes) :
         visited_for_table = set()
        
         all_items = list(page.all_tbs.items())
@@ -476,16 +510,23 @@ class Acts:
                self.addAmendment(label,tb,page.side_notes_datas,page.pg_height)
             elif label == "title":
                 self.addTitle(tb)
-            elif  label == "article":
-                self.addArticle(text)
+            elif isinstance(label, tuple) and label[0] == "article":
+                if label[1] == "article":
+                    self.addArticle(text)
+                elif label[1] == 'subsection':
+                    self.addSubsection(text, is_article_subsection = True)
+                elif  label[1] == 'para':
+                    self.addPara(text, is_article_para = True)
+                elif  label[1] == 'subpara':
+                    self.addSubpara(text, is_article_subpara = True)
             elif label == "section":
-                self.addSection(tb,page.side_notes_datas,page.pg_height)
-            elif (isinstance(label, tuple) and label[1] == 'subsection') or label == "subsection":
-                self.addSubsection(text)
-            elif (isinstance(label, tuple) and label[1] == 'para') or label == "para":
-                self.addPara(text)
-            elif (isinstance(label, tuple) and label[1] == 'subpara') or label == "subpara":
-                self.addSubpara(text)
+                self.addSection(tb,page.side_notes_datas,page.pg_height, has_side_notes)
+            elif label == "subsection":
+                self.addSubsection(text, is_article_subsection = False)
+            elif label == "para":
+                self.addPara(text, is_article_para = False)
+            elif label == "subpara":
+                self.addSubpara(text, is_article_subpara = False)
             # elif label == "figure":
             #    self.addFigure(tb, page)
             elif label is None:

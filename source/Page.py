@@ -24,11 +24,10 @@ class SectionState:
         self.prev_value = None
         self.prev_type = None
         self.curr_depth = 0
-        self.state = None
 
 
 class Page:
-    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type):
+    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type, has_side_notes, is_amendment_pdf):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -36,6 +35,9 @@ class Page:
         self.logger.debug(f"page: {self.pg_num} --- page_height: {self.pg_height} , page_width: {self.pg_width}")
         self.all_tbs = {}
         self.all_figbox = {}
+        self.has_side_notes = has_side_notes
+        self.pdf_type = pdf_type
+        self.is_amendment_pdf = is_amendment_pdf
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, output_dir)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
@@ -49,6 +51,48 @@ class Page:
         return width,height
 
     # --- gather all textboxes of the page and store it in the list ---
+    def process_textlines(self,pg):
+        def parse_bbox(textbox):
+            try:
+                x0, y0, x1, y1 = map(float, textbox.attrib["bbox"].split(","))
+                return x0, y0, x1, y1
+            except (KeyError, ValueError) as e:
+                self.logger.warning("Skipping textbox due to bbox parsing error: %s", e)
+                return None
+        
+        def get_sorted_textboxes(tbs):
+            def sort_key(tb):
+                bbox = parse_bbox(tb)
+                if bbox is None:
+                    return (float('inf'), float('inf'), float('inf'), float('inf'))
+                x0, y0, x1, y1 = bbox
+                return (-y0, x0, -y1, x1)
+
+            return sorted(tbs, key=sort_key)
+    #         return sorted(tbs,
+    #     key=lambda tb: (
+    #         -float(parse_bbox(tb)[1]),  # y0: top to bottom (higher y lower)
+    #        float(parse_bbox(tb)[0]), #,   # x0: left to right
+    #         -float(parse_bbox(tb)[3]),  # y1: optional secondary vertical order
+    #         float(parse_bbox(tb)[2])    # x1: optional secondary horizontal order
+    #      )
+    # )
+        try:
+            textBoxes = get_sorted_textboxes(pg.findall(".//textbox"))
+            # textBoxes = pg.findall(".//textbox") 
+            for tb in textBoxes:
+                try:
+                    for textline in tb.findall('.//textline'):
+                        tb_obj = Textline(textline)
+                        text = tb_obj.extract_text_from_tb()
+                        if text and text.strip():
+                            self.all_tbs[tb_obj] = None
+                except Exception as e:
+                    self.logger.warning("Failed to process a textbox: %s", e)
+                    continue
+        except Exception as e:
+            self.logger.exception("Failed to process textboxes for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
+        
     def process_textboxes(self,pg):
         def parse_bbox(textbox):
             try:
@@ -160,10 +204,10 @@ class Page:
 
         
     # --- func for gathering the sidenotes textboxes ---
-    def get_side_notes(self, has_side_notes): #,startPage,endPage):
+    def get_side_notes(self): #,startPage,endPage):
         try:
             # if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
-            if has_side_notes:
+            if self.has_side_notes:
                 if not hasattr(self, 'body_startX') and not hasattr(self, 'body_endX'):
                     self.logger.warning("Body boundaries (body_startX, body_endX) are not defined for page %s", self.pg_num)
                     return  # Skip if body region not defined
@@ -171,7 +215,7 @@ class Page:
                 pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.\s*\d+\s+of\s+\d+\.)$')
                 for tb in list(self.all_tbs.keys()):
                     try:
-                        if (tb.coords[2]< self.body_startX or tb.coords[0] > self.body_endX ) \
+                        if (tb.coords[2]< (self.body_startX ) or tb.coords[0] > (self.body_endX) ) \
                             and (self.all_tbs[tb] is None ) \
                             and tb.height < 0.25 * self.pg_height \
                             and tb.width < 0.25 * self.pg_width \
@@ -213,7 +257,7 @@ class Page:
             text = tb.extract_text_from_tb()
             try:
                 label = self.all_tbs.get(tb)
-                
+
                 # Skip known structural blocks
                 if label not in (None,["amendment"]):
                     continue
@@ -431,6 +475,51 @@ class Page:
         self.logger.debug(f"page: {self.pg_num} --- Calculated body-startx: {self.body_startX} ,body-endX: {self.body_endX}")
         return round(self.body_endX - self.body_startX, 2)
     
+    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05):
+        try:
+            tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
+            vertical_threshold = page_height * vertical_threshold_ratio
+
+            self.logger.debug("Target TB BBox: %s", tb_bbox)
+            self.logger.debug("Vertical threshold: %.4f", vertical_threshold)
+
+            closest_key = None
+            closest_text = None
+
+            for sn_bbox, sn_text in side_note_datas.items():
+                sn_x0, sn_y0, sn_x1, sn_y1 = sn_bbox
+        
+                # Check if sidenote is to the immediate left or right
+                is_left = sn_x1 <= tb_x0
+                is_right = sn_x0 >= tb_x1
+                if not (is_left or is_right):
+                    continue
+
+                # Compare Y positions of top-right corners (you said y1 is top)
+                if abs(sn_y1 - tb_y1) <= vertical_threshold:
+                    closest_key = sn_bbox
+                    closest_text = sn_text
+                    self.logger.debug("Matched side note: %s", closest_text)
+                    break  # found one match, stop
+
+            if closest_key:
+                return True
+            return False
+        except Exception as e:
+            self.logger.exception("Error finding closest side note for TB BBox %s: %s", tb_bbox, e)
+            return False
+    
+    def check_preamble_start(self, text):
+        # pattern = re.compile(r'^\s*(?:A\s+)?An\s+Act\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?', re.I)
+
+        pattern = re.compile(
+            r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
+            re.IGNORECASE
+        )
+
+        match = re.search(pattern, text)
+        return bool(match)
+    
     #original
     #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,sectionState): #,startPage,endPage):
@@ -445,17 +534,18 @@ class Page:
             self.logger.error(f"Invalid page number: {self.pg_num}")
             return
 
-        if sectionState.state != 'section':
-            return
         # if startPage is not None and endPage is not None and startPage <= page_num <= endPage:
         for tb,label in self.all_tbs.items():
-            if label is not None and isinstance(label, tuple) and label[0] == 'article':
-                self.logger.info(f'{tb.extract_text_from_tb().strip()}- {label}')
+            side_note_status = self.find_closest_side_note(tb_bbox = tb.coords, side_note_datas = self.side_notes_datas, page_height = self.pg_height)
+            if label is not None and isinstance(label, tuple) and label[0] == 'article' and not side_note_status:
                 continue
+
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
                 if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
+                    if not side_note_status:
+                        continue
                     section_number = section_re.match(texts).group().split('.')[0].strip()
                     sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
                     sectionState.prev_value = section_number
@@ -495,7 +585,29 @@ class Page:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
                 continue
     
-    def get_article(self,sectionState): #,startPage,endPage):
+    def is_schedule(self, text):
+        roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
+        ordinals = [
+        "first", "second", "third", "fourth", "fifth",
+        "sixth", "seventh", "eighth", "ninth", "tenth",
+        "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth",
+        "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth"
+        ]
+        ordinals_re = r"(?:{})".format("|".join(ordinals))
+
+        # Numbers 1–20
+        numbers_re = r"(?:[1-9]|1[0-9]|20)"
+
+        # Single regex with capturing group
+        pattern = rf"(?:^schedule\s*({ordinals_re}|{numbers_re}|{roman_re})|" \
+                rf"({ordinals_re}|{numbers_re}|{roman_re})\s*schedule$)"
+
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return True
+        return False
+    
+    def get_article(self,sectionState, main): #,startPage,endPage):
         hierarchy_type = ("article","subsection","para","subpara","subsubpara")
         
         roman_re = r"[IVXLCDM]+"
@@ -525,13 +637,30 @@ class Page:
             return
 
         # if startPage is not None and endPage is not None and startPage <= page_num <= endPage:
-        if sectionState.state != 'article':
-            return
         for tb,label in self.all_tbs.items():
-           
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
+                if self.check_preamble_start(texts):
+                    main.is_preamble_reached = True
+                    continue
+                    
+                schedule_status = self.is_schedule(texts)
+
+                if not main.is_preamble_reached and schedule_status:
+                    sectionState.compare_obj = None #CompareLevel(1, ARTICLE)
+                    sectionState.prev_value = None #1
+                    sectionState.prev_type = None #ARTICLE
+                    sectionState.curr_depth = 0
+                    continue
+
+                elif main.is_preamble_reached and schedule_status:
+                    sectionState.compare_obj = CompareLevel(1, ARTICLE)
+                    sectionState.prev_value = 1
+                    sectionState.prev_type = ARTICLE
+                    sectionState.curr_depth = 0
+                    continue
+
                 if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
                     section_number = section_re.match(texts).group().split('.')[0].strip()
                     sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
@@ -539,7 +668,7 @@ class Page:
                     sectionState.prev_type = ARTICLE
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = ('article', hierarchy_type[0])
-                    self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
+                    self.logger.debug(f"Page {self.pg_num}: Detected Article: {section_number}")
                     continue
 
                 match = group_re.match(texts)

@@ -993,7 +993,7 @@ class HTMLBuilder:
         
 
         
-    def build(self, page):#, section_end_page):
+    def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
         # if not page.is_single_column_page:
         #    page.all_tbs = self.get_orderBy_textboxes(page)
