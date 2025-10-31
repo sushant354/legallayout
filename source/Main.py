@@ -35,6 +35,7 @@ class Main:
         self.section_state = SectionState()
         self.article_state = SectionState()
         self.is_preamble_reached = False
+        self.section_shorttitle_notend_status = False
     
     def get_htmlBuilder(self, pdf_type):
         if pdf_type == 'sebi':
@@ -109,7 +110,7 @@ class Main:
                 self.amendment.check_for_amendment_acts(page)#,self.section_start_page,self.section_end_page)
 
             page.get_article(self.article_state, self)
-            page.get_section_para(self.section_state)#, self.section_start_page,self.section_end_page)
+            page.get_section_para(self.section_state, self)#, self.section_start_page,self.section_end_page)
             page.get_titles(pdf_type)
             page.sort_all_boxes()
             page.print_all()

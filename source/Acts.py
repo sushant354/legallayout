@@ -40,7 +40,7 @@ class Acts:
         self.curr_tab_level = 0
         self.is_act_ended = False
         self.roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
-
+        self.section_shorttitle_notend_status = False
         self.tab_level = {
             0 : ['PREFACE', 'PREAMBLE', 'CHAP', 'BODY', 'SCHEDULE', 'ART']
         }
@@ -122,35 +122,12 @@ class Acts:
                         break
                 
                 if self.is_preamble_reached and line:
-
-                    # matched, val = self.is_article(line)
-                    # if matched:
-                    #     if not self.is_body_added:
-                    #         tab_level = self.get_tab_level('BODY')
-                    #         if tab_level is not None:
-                    #             self.builder += "\n" + ("\t" * tab_level) + f"BODY\n"
-                    #             self.is_body_added = True
-                    #             self.curr_tab_level = tab_level
-
-                    #     tab_level = self.get_tab_level('ART')
-                    #     if tab_level is not None:
-                    #         if not self.is_schedule:
-                    #             self.builder += "\n" + ("\t" * tab_level) + f"ART {val}"
-                    #             self.curr_tab_level = tab_level
-                    #             self.hierarchy = ['ART']
-                    #             self.is_schedule_open = False
-                    #             continue
-                    #         else:
-                    #             self.curr_tab_level = self.get_hierarchy_level('SUBPART')
-                    #             self.builder += "\n" + ("\t" * self.curr_tab_level) + f"ART {val}"
-                    #             continue
-                    
                     matched = self.is_schedule(line)
                     if matched:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
-                                self.builder += "\n" + ("\t" * tab_level) + f"BODY\n"
+                                self.builder += "\n" + ("\t" * tab_level) + f"BODY"
                                 self.is_body_added = True
                                 self.curr_tab_level = tab_level
 
@@ -174,7 +151,7 @@ class Acts:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
-                                self.builder += "\n" + ("\t" * tab_level) + f"BODY\n"
+                                self.builder += "\n" + ("\t" * tab_level) + f"BODY"
                                 self.is_body_added = True
                                 self.curr_tab_level = tab_level
 
@@ -205,7 +182,23 @@ class Acts:
                             self.builder += ("\t" * (self.curr_tab_level)) + "PREAMBLE\n"
                             self.builder += ("\t" * (self.curr_tab_level+1) + line)
                             continue
-                        
+
+                    matched, val = self.is_chapter(line)
+                    if matched:
+                        if not self.is_body_added:
+                            tab_level = self.get_tab_level('BODY')
+                            if tab_level is not None:
+                                self.builder += "\n" + ("\t" * tab_level) + f"BODY"
+                                self.is_body_added = True
+                                self.curr_tab_level = tab_level
+
+                        tab_level = self.get_tab_level('CHAP')
+                        if tab_level is not None:
+                            self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} -"
+                            self.curr_tab_level = tab_level
+                            self.hierarchy = ['CHAP']
+                            self.is_schedule_open = False
+                            continue
                     
         except Exception as e:
           self.logger.exception("Error while adding title - [%s] in html: %s",tb.extract_text_from_tb(),e)
@@ -287,39 +280,61 @@ class Acts:
     def addSection(self, tb, side_note_datas, page_height, has_side_notes):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
-            if not self.is_body_added:
-                tab_level = self.get_tab_level('BODY')
-                if tab_level is not None:
-                    self.builder += "\n" + ("\t" * tab_level) + f"BODY\n"
-                    self.is_body_added = True
-                    self.curr_tab_level = tab_level
+            # if not self.is_body_added:
+            #     self.is_preamble_reached = True
+            #     tab_level = self.get_tab_level('BODY')
+            #     if tab_level is not None:
+            #         self.builder += "\n" + ("\t" * tab_level) + f"BODY"
+            #         self.is_body_added = True
+            #         self.curr_tab_level = tab_level
 
             self.curr_tab_level = self.get_hierarchy_level('SEC')
             
             side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
             self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
-            if side_note_text:
+            if not has_side_notes:
                 match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
-                if match:
-                    prefix = match.group(1)
-                    short_title = self.normalize_text(side_note_text.strip())
-                    rest_text = match.group(2).strip()
-                    rest_text_type, value, remain_text = self.findType(rest_text)
+                prefix = match.group(1)
+                rest_text = match.group(2).strip()
+                rest_text_type, value, remain_text = self.findType(rest_text)
+                if rest_text:
                     if rest_text_type is None:
-                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix}"
                         self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
                     else:
-                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix}"
                         self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
 
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
-                
-            else:
-                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*\.)(.*)', text.strip())
+                else:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix}"
+                return
+            if side_note_text:
+                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
-                    short_title = match.group(2)
+                    short_title = self.normalize_text((side_note_text or "").strip()) or ""
+                    rest_text = match.group(2).strip()
+                    rest_text_type, value, remain_text = self.findType(rest_text)
+                    if rest_text:
+                        if rest_text_type is None:
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                        else:
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                            self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+
+                            self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
+                            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                    else:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                
+            else:
+                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*?(?:\.-|\.—|\.))(.*)', text.strip())
+                if match:
+                    prefix = match.group(1)
+                    short_title = match.group(2).strip()
                     rest_text = match.group(3).strip()
                     rest_text_type, value, remain_text = self.findType(rest_text)
                     if rest_text_type is None:
@@ -330,7 +345,18 @@ class Acts:
                         self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
-                        
+                    return
+                
+                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                if match:
+                    prefix = match.group(1)
+                    short_title = match.group(2).strip()
+                    self.section_shorttitle_notend_status = True
+                    if short_title:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                    else:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} -"
+                     
         except Exception as e:
             self.logger.exception("Error while adding section [%s]: %s",text, e)
     
@@ -373,7 +399,13 @@ class Acts:
             self.curr_tab_level = self.get_hierarchy_level('SUBSEC')
             value, remain_text = self.find_value_and_text(text)
             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBSEC {value}"
-            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+            value2, remain_text2 = self.find_value_and_text(remain_text)
+            if value2 == "":
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text2}"
+            else:
+                self.curr_tab_level = self.get_hierarchy_level('PARA')
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"PARA {value2}"
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text2}"
 
         except Exception as e:
             self.logger.exception("Error while adding subsection [%s]: %s",text, e)
@@ -383,7 +415,13 @@ class Acts:
             self.curr_tab_level = self.get_hierarchy_level('PARA')
             value, remain_text = self.find_value_and_text(text)
             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"PARA {value}"
-            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+            value2, remain_text2 = self.find_value_and_text(remain_text)
+            if value2 == "":
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text2}"
+            else:
+                self.curr_tab_level = self.get_hierarchy_level('SUBPARA')
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBPARA {value2}"
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text2}"
 
         except Exception as e:
             self.logger.exception("Error while adding para [%s]: %s",text, e)
@@ -423,6 +461,21 @@ class Acts:
                 last_tag = self.get_last_hierarchy_tag()
                 if last_tag == 'SUBPART':
                     self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
+                elif self.section_shorttitle_notend_status:
+                    match = re.match(r'^(.*?\.(?:-)?)[\s]+(.*)$', text)
+                    if match:
+                        self.builder += " " + match.group(1).strip()
+                        rest_text = match.group(2).strip()
+                        rest_text_type, value, remain_text = self.findType(rest_text)
+                        if rest_text_type is None:
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                        else:
+                            self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                            self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
+                            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                        self.section_shorttitle_notend_status = False
+                    else:
+                        self.builder += " " + text
                 else:
                     self.builder += " " + text
         except Exception as e:
@@ -450,7 +503,7 @@ class Acts:
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
                 value_tab = cell_tab + 1
                 value = row[col]
-                value = str(value).replace("\\n", " ")
+                value = str(value)#.replace("\\n", " ")
                 text = self.normalize_text(value)
                 self.builder += "\n" + ("\t" * (value_tab))+f"{text}"
 

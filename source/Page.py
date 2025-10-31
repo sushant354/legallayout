@@ -80,16 +80,16 @@ class Page:
         try:
             textBoxes = get_sorted_textboxes(pg.findall(".//textbox"))
             # textBoxes = pg.findall(".//textbox") 
-            for tb in textBoxes:
-                try:
-                    for textline in tb.findall('.//textline'):
-                        tb_obj = Textline(textline)
-                        text = tb_obj.extract_text_from_tb()
-                        if text and text.strip():
-                            self.all_tbs[tb_obj] = None
-                except Exception as e:
-                    self.logger.warning("Failed to process a textbox: %s", e)
-                    continue
+            # for tb in textBoxes:
+            #     try:
+            #         # for textline in tb.findall('.//textline'):
+            #         #     # tb_obj = Textline(textline)
+            #         #     text = tb_obj.extract_text_from_tb()
+            #         #     if text and text.strip():
+            #         #         self.all_tbs[tb_obj] = None
+            #     except Exception as e:
+            #         self.logger.warning("Failed to process a textbox: %s", e)
+            #         continue
         except Exception as e:
             self.logger.exception("Failed to process textboxes for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
         
@@ -520,14 +520,38 @@ class Page:
         match = re.search(pattern, text)
         return bool(match)
     
+    def inner_group_assign(self, rest_text, sectionState, group_re, findtype):
+        match = group_re.match(rest_text)
+        if match:
+            if findtype == 'section':
+                group =match.group(1).strip()
+            elif findtype == 'article':
+                group = match.group("marker").strip() or match.group("marker_paren").strip()
+
+            valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth, sectionState.prev_value, group, sectionState.prev_type)
+            sectionState.curr_depth = sectionState.curr_depth - compValue
+            sectionState.prev_value = group
+            sectionState.prev_type = valueType2
+            self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
+    
+    def inner_sidenote_check(self, text, sectionState, main, group_re, findtype):
+        match = re.match(r"^(.*?)\.[\-\—]?\s*(.*)", text)
+        if match:
+            rest_text = match.group(2).strip()
+            main.section_shorttitle_notend_status = False
+            self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = findtype)
+
+    
     #original
     #--- func to find section, subsection, para, subpara ---
-    def get_section_para(self,sectionState): #,startPage,endPage):
+    def get_section_para(self,sectionState, main):  #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
         #original
-        section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
-        # group_re = re.compile(r'^\(([^\s\)]+)\)\s*\S*',re.IGNORECASE)
-        group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE)
+        # section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+         #original
+         # group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE)
+        group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)(.*)', re.IGNORECASE)
         try:
             page_num = int(self.pg_num)
         except Exception as e:
@@ -543,28 +567,28 @@ class Page:
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
-                if not isinstance(label,list) and section_re.match(texts): # does not consider amendments label
-                    if not side_note_status:
-                        continue
-                    section_number = section_re.match(texts).group().split('.')[0].strip()
+                if main.section_shorttitle_notend_status:
+                    self.inner_sidenote_check(text = texts, sectionState = sectionState, main = main, group_re = group_re, findtype = 'section')
+                    continue
+                
+                match1 = section_re.match(texts)
+                if not isinstance(label,list) and match1: # does not consider amendments label
+                    section_number = match1.group(1).split('.')[0].strip()
                     sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
                     sectionState.prev_value = section_number
                     sectionState.prev_type = ARTICLE
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
-                    
-                    if check_inside:
-                        rest_text = check_inside.group(2).strip()
-                        match = group_re.match(rest_text)
-                        if match:
-                            group =match.group(1).strip()
-                            valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth, sectionState.prev_value, group, sectionState.prev_type)
-                            sectionState.curr_depth = sectionState.curr_depth - compValue
-                            sectionState.prev_value = group
-                            sectionState.prev_type = valueType2
-                            self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
+                    # check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    rest_text = match1.group(2).strip()
+                    if  rest_text:#check_inside:
+                        # rest_text = check_inside.group(2).strip()
+                        if main.has_side_notes and not side_note_status:
+                            main.section_shorttitle_notend_status = True
+                            self.inner_sidenote_check(text = rest_text, sectionState = sectionState, main = main, group_re = group_re, findtype = 'section')
+                        else:
+                            self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = 'section')                    
                     continue
 
                 match = group_re.match(texts)
@@ -580,6 +604,11 @@ class Page:
                         sectionState.prev_value = group
                         sectionState.prev_type = valueType2
                         self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
+
+                    rest_text = match.group(2).strip()
+                    self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = 'section')
+
+
             
             except Exception as e:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
@@ -617,19 +646,23 @@ class Page:
             rf"(?:^\s*ARTICLE\s+{article_number}$)",
             re.IGNORECASE
         )
-
-        # group_re = re.compile(r'^\s*(?:\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*|\(\s*[^\s\)]+\s*\)\s*\S*)',
-        #                       re.IGNORECASE)
-
+        # group_re = re.compile(
+        #     r'^\s*(?:'
+        #     r'(\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # capture section
+        #     r'|'
+        #     r'\(\s*([^\s\)]+)\s*\)'           # capture group
+        #     r')',
+        #     re.IGNORECASE
+        # )
         group_re = re.compile(
-            r'^\s*(?:'
-            r'(\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # capture section
-            r'|'
-            r'\(\s*([^\s\)]+)\s*\)'           # capture group
-            r')',
+            r'^\s*'
+            r'(?:'
+                r'(?P<marker>\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'
+                r'|'
+                r'(?P<marker_paren>\(\s*[^\s\)]+\s*\))'
+            r')\s*(?P<text>.*)$',
             re.IGNORECASE
         )
-
         try:
             page_num = int(self.pg_num)
         except Exception as e:
@@ -673,7 +706,7 @@ class Page:
 
                 match = group_re.match(texts)
                 if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
-                    group =match.group(1) or match.group(2)
+                    group =match.group("marker") or match.group("marker_paren")
                     group = group.strip()
                     valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
                     sectionState.curr_depth = sectionState.curr_depth - compValue
@@ -685,6 +718,9 @@ class Page:
                         sectionState.prev_value = group
                         sectionState.prev_type = valueType2
                         self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
+                    
+                    rest_text = match.group("text").strip()
+                    self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = 'article')
             
             except Exception as e:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
