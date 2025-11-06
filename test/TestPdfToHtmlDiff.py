@@ -2,6 +2,7 @@ import os
 import unittest
 import tempfile
 import shutil
+import argparse
 from pathlib import Path
 import difflib
 import logging
@@ -112,7 +113,10 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     # end_page = int(end_page) if end_page.isdigit() else None
                     has_sidenotes = row.get('has_sidenotes', '').strip().lower() in ['true', 'yes', '1']
                     base_name = pdf_path.stem 
-
+                    if pdf_type == 'acts':
+                        expected_file = 'bluebell'
+                    else:
+                        expected_file = 'html'
                     cls.test_cases.append({
                         'pdf_path': str(pdf_path),
                         'pdf_name': base_name,
@@ -122,8 +126,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         # 'start_page': start_page,
                         # 'end_page': end_page,
                         'has_sidenotes' : has_sidenotes,
-                        'expected_html': cls.expected_output_dir / f"{base_name}.html",
-                        'actual_html': cls.actual_output_dir / f"{base_name}.html"
+                        'expected_html': cls.expected_output_dir / f"{base_name}.{expected_file}",
+                        'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
         except Exception as e:
             print(f"Error reading CSV file {cls.csv_file}: {e}")
@@ -274,11 +278,29 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         # if cls.actual_output_dir.exists():
         #     shutil.rmtree(cls.actual_output_dir)
 
+def update_golden_files(actual_dir, expected_dir):
+    if not actual_dir.exists():
+        print(f"[ERROR] Actual output directory not found: {actual_dir}")
+        return
+
+    expected_dir.mkdir(exist_ok=True)
+
+    copied_files = 0
+    for actual_file in actual_dir.iterdir():
+        if actual_file.is_file():
+            target_file = expected_dir / actual_file.name
+            shutil.copy2(actual_file, target_file)
+            copied_files += 1
+            print(f"[UPDATED] {target_file}")
+
+    print(f"\n✅ Updated {copied_files} golden file(s) in {expected_dir}")
+
 
 if __name__ == "__main__":
     # Create test directory structure if it doesn't exist
     test_dir = Path(__file__).parent
     test_pdfs_dir = test_dir / "test_pdfs"
+    actual_html_dir = test_dir / "actual_html"
     expected_html_dir = test_dir / "expected_html"
     csv_file = test_dir / "test_cases.csv"
 
@@ -287,6 +309,10 @@ if __name__ == "__main__":
         print(f"Created test PDFs directory: {test_pdfs_dir}")
         print("Please add PDF files to this directory for testing.")
 
+    if not actual_html_dir.exists():
+        actual_html_dir.mkdir()
+        print(f"Created actual HTML output directory: {actual_html_dir}")
+    
     if not expected_html_dir.exists():
         expected_html_dir.mkdir()
         print(f"Created expected HTML directory: {expected_html_dir}")
@@ -294,4 +320,16 @@ if __name__ == "__main__":
     if not csv_file.exists():
         print(f"CSV file not found. A sample will be created at: {csv_file}")
 
-    unittest.main()
+    parser = argparse.ArgumentParser(description="Run HTML diff tests or update golden files.")
+    parser.add_argument(
+        "--update-golden",
+        action="store_true",
+        help="If set, overwrites expected_html files with actual_html outputs."
+    )
+    args, remaining = parser.parse_known_args()
+
+    # If update flag is passed → update golden files directly
+    if args.update_golden:
+        update_golden_files(actual_html_dir, expected_html_dir)
+    else:
+        unittest.main()

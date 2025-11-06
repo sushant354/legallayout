@@ -1,5 +1,7 @@
 filename,pdf_type,is_amendment,has_sidenotes
-amendment.pdf,acts,true,true
+odisha_act.pdf,acts,false,true
+tnact2.pdf,acts,false,true
+tnact.pdf,acts,false,true
 act1.pdf,acts,false,true
 boilers_act.pdf,acts,false,true
 sebi1.pdf,sebi,false,false

@@ -13,6 +13,7 @@ from .HTMLBuilder import HTMLBuilder
 from .Acts import Acts
 from .Amendment import Amendment
 from .Utils import *
+from .FontMapper import DynamicFontMapper
 
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes): #start,end,is_amendment_pdf,output_dir, pdf_type):
@@ -36,13 +37,15 @@ class Main:
         self.article_state = SectionState()
         self.is_preamble_reached = False
         self.section_shorttitle_notend_status = False
-    
+        self.fontmapper = DynamicFontMapper(self.pdf_path, out_dir=self.output_dir)
+        # self.fontmapper.extract_fonts()
+        
     def get_htmlBuilder(self, pdf_type):
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
         elif pdf_type == 'acts':
-            sentence_completion_punctutation = ('.', ';', ':', '—')
+            sentence_completion_punctutation = ('.', ';', ':', '—', ':—')
             return Acts(sentence_completion_punctutation, pdf_type)
         else:
             sentence_completion_punctutation = ('.', ':')
@@ -103,6 +106,7 @@ class Main:
             page.get_width_ofTB_moreThan_Half_of_pg()
             page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
+            page.find_left_sidnote_end_coords()
             page.get_side_notes() #self.section_start_page,self.section_end_page)
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -113,6 +117,7 @@ class Main:
             page.get_section_para(self.section_state, self)#, self.section_start_page,self.section_end_page)
             page.get_titles(pdf_type)
             page.sort_all_boxes()
+            self.logger.info(f'page height - {page.pg_height}, page width - {page.pg_width}, body startX - {page.body_startX}, body endX - {page.body_endX}')
             page.print_all()
             # page.print_headers()
             # page.print_footers()
@@ -400,7 +405,7 @@ class Main:
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
 
-            page = Page(pg, self.pdf_path, base_name_of_file, output_dir, self.pdf_type, self.has_side_notes, self.is_amendment_pdf)
+            page = Page(pg, self.pdf_path, base_name_of_file, output_dir, self.pdf_type, self.has_side_notes, self.is_amendment_pdf, self.fontmapper)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes(pg)

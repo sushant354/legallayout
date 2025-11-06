@@ -21,14 +21,10 @@ class Acts:
     def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
-        self.pending_text = ""
-        self.pending_tag = None
         self.sentence_completion_punctuation = sentence_completion_punctuation
         self.stack_for_section = []
         self.hierarchy = []
         self.pending_table = None
-        self.is_real_sentence_end =LegalSentenceDetector().is_real_sentence_end
-        self.previous_sentence_end_status = True
         self.is_preamble_reached = False
         self.is_body_added = False
         self.normalize_text = NormalizeText().normalize_text
@@ -37,6 +33,7 @@ class Acts:
         self.builder = ""
         self.main_builder = ""
         self.is_schedule_open = False
+        self.previous_sentence_end_status = True
         self.curr_tab_level = 0
         self.is_act_ended = False
         self.roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
@@ -85,42 +82,104 @@ class Acts:
             return True, match.group(1)
         return False, None
 
+    # def is_schedule(self, text): original
+    #     ordinals = [
+    #     "first", "second", "third", "fourth", "fifth",
+    #     "sixth", "seventh", "eighth", "ninth", "tenth",
+    #     "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth",
+    #     "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth"
+    #     ]
+    #     ordinals_re = r"(?:{})".format("|".join(ordinals))
+
+    #     # Numbers 1–20
+    #     numbers_re = r"(?:[1-9]|1[0-9]|20)"
+
+    #     # Single regex with capturing group
+    #     pattern = rf"(?:^schedule\s*({ordinals_re}|{numbers_re}|{self.roman_re})|" \
+    #             rf"({ordinals_re}|{numbers_re}|{self.roman_re})\s*schedule$)"
+
+    #     match = re.search(pattern, text, re.IGNORECASE)
+    #     if match:
+    #         return True
+
+    #     return False
+
+    
     def is_schedule(self, text):
+        roman_re = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
+
         ordinals = [
-        "first", "second", "third", "fourth", "fifth",
-        "sixth", "seventh", "eighth", "ninth", "tenth",
-        "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth",
-        "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth"
+            "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+            "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
+            "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
+            "nineteenth", "twentieth"
         ]
         ordinals_re = r"(?:{})".format("|".join(ordinals))
 
-        # Numbers 1–20
-        numbers_re = r"(?:[1-9]|1[0-9]|20)"
+        numbers_re = r"(?:[1-9][0-9]?)"
 
-        # Single regex with capturing group
-        pattern = rf"(?:^schedule\s*({ordinals_re}|{numbers_re}|{self.roman_re})|" \
-                rf"({ordinals_re}|{numbers_re}|{self.roman_re})\s*schedule$)"
+        # pattern = rf"""(?ix)
+        #     ^
+        #     (?:the\s+)?
+        #     (?:
+        #         schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
+        #         |
+        #         (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
+        #     )
+        #     [\s\(\)\.\-]*$
+        # """
 
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return True
-
-        return False
-
+        pattern = rf"""(?ix)
+            ^
+            (?:the\s+)?
+            (?:
+                schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
+                |
+                (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
+                |
+                schedule\b
+            )
+            [\s\(\)\.\-]*$
+        """
+        
+        return bool(re.match(pattern, text))
 
     def addTitle(self, tb):
         try:
+          is_sentence_completed = tb.extract_text_from_tb().strip().endswith(self.sentence_completion_punctuation)
+          self.previous_sentence_end_status = True
           for textline in tb.tbox.findall('.//textline'):
                 line_texts = []
                 for text in textline.findall('.//text'):
                     if text.text:
                         line_texts.append(text.text)
                 line = ''.join(line_texts).replace("\n", " ").strip()
+                line = self.normalize_text(line)
 
                 if re.fullmatch(r'[—_]{3,}', line):
                         self.is_act_ended = True
                         break
                 
+                if self.section_shorttitle_notend_status:
+                    is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
+                    match = re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', line)
+                    if match:
+                        self.builder += " " + match.group(1).strip().rstrip("-—")
+                        rest_text = match.group(2).strip()
+                        rest_text_type, value, remain_text = self.findType(rest_text)
+                        if rest_text_type is None:
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                        else:
+                            self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                            self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
+                            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                        self.section_shorttitle_notend_status = False
+                        self.previous_sentence_end_status = is_sentence_completed
+                    else:
+                        self.builder += " " + line
+                        self.previous_sentence_end_status = is_sentence_completed
+                    continue
+
                 if self.is_preamble_reached and line:
                     matched = self.is_schedule(line)
                     if matched:
@@ -163,25 +222,48 @@ class Acts:
                             self.is_schedule_open = False
                             continue
                     
-                    
-                    
                     self.builder += " " + line
                 
                 else:
                     is_matched = self.check_preamble_start(line)
                     if is_matched:
                         self.is_preamble_reached = True
+                        if self.is_body_added:
+                            self.builder = ""
+                            self.is_body_added = False
                         tab_level = self.get_tab_level('PREAMBLE')
                         if tab_level is not None:
-                            self.builder += ("\t" * tab_level) + "PREAMBLE\n"
+                            self.builder +=  ("\t" * tab_level) + "PREAMBLE"
                             self.curr_tab_level = tab_level
-                            self.builder += ("\t" * (self.curr_tab_level+1) + line)
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + line)
                             continue
                         else:
                             self.curr_tab_level += 1
-                            self.builder += ("\t" * (self.curr_tab_level)) + "PREAMBLE\n"
-                            self.builder += ("\t" * (self.curr_tab_level+1) + line)
+                            self.builder +=   ("\t" * (self.curr_tab_level)) + "PREAMBLE"
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + line)
                             continue
+                    
+                    matched = self.is_schedule(line)
+                    if matched:
+                        if not self.is_body_added:
+                            tab_level = self.get_tab_level('BODY')
+                            if tab_level is not None:
+                                self.builder += "\n" + ("\t" * tab_level) + f"BODY"
+                                self.is_body_added = True
+                                self.curr_tab_level = tab_level
+
+                        tab_level = self.get_tab_level('SCHEDULE')
+                        if tab_level is not None:
+                            self.builder += "\n" + ("\t" * tab_level) + f"SCHEDULE {line}"
+                            self.curr_tab_level = tab_level
+                            self.hierarchy = ['SCHEDULE']
+                            self.is_schedule_open = True
+                            continue
+
+                    if self.is_schedule_open:
+                        self.curr_tab_level = self.get_hierarchy_level('SUBPART')
+                        self.builder += "\n" + ("\t" * self.curr_tab_level) + f"SUBPART - {line}"
+                        continue
 
                     matched, val = self.is_chapter(line)
                     if matched:
@@ -241,7 +323,11 @@ class Acts:
             return None
 
     def findType(self,text):
-        group_re = re.compile(r'^(\(\s*[^\s\)]+\s*\))\s*(.*)', re.IGNORECASE)
+        # group_re = re.compile(r'^(\(\s*[^\s\)]+\s*\))\s*(.*)', re.IGNORECASE)
+        group_re = re.compile(
+            r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+            re.IGNORECASE
+        )
     
         match = group_re.match(text.strip())
         if match:
@@ -280,20 +366,21 @@ class Acts:
     def addSection(self, tb, side_note_datas, page_height, has_side_notes):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
-            # if not self.is_body_added:
-            #     self.is_preamble_reached = True
-            #     tab_level = self.get_tab_level('BODY')
-            #     if tab_level is not None:
-            #         self.builder += "\n" + ("\t" * tab_level) + f"BODY"
-            #         self.is_body_added = True
-            #         self.curr_tab_level = tab_level
+            if not self.is_body_added:
+                self.is_preamble_reached = True
+                tab_level = self.get_tab_level('BODY')
+                if tab_level is not None:
+                    self.builder += "\n" + ("\t" * tab_level) + f"BODY"
+                    self.is_body_added = True
+                    self.curr_tab_level = tab_level
 
             self.curr_tab_level = self.get_hierarchy_level('SEC')
-            
+            is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
+            self.previous_sentence_end_status = is_sentence_completed
             side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
             self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
             if not has_side_notes:
-                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
                 prefix = match.group(1)
                 rest_text = match.group(2).strip()
                 rest_text_type, value, remain_text = self.findType(rest_text)
@@ -309,9 +396,10 @@ class Acts:
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                 else:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix}"
+                        self.previous_sentence_end_status = True
                 return
             if side_note_text:
-                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
                     short_title = self.normalize_text((side_note_text or "").strip()) or ""
@@ -329,12 +417,13 @@ class Acts:
                             self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                     else:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                        self.previous_sentence_end_status = True
                 
             else:
-                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*?(?:\.-|\.—|\.))(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*?(?:\.-|\.—|\.))(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
-                    short_title = match.group(2).strip()
+                    short_title = match.group(2).strip().rstrip("-—")
                     rest_text = match.group(3).strip()
                     rest_text_type, value, remain_text = self.findType(rest_text)
                     if rest_text_type is None:
@@ -347,44 +436,51 @@ class Acts:
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                     return
                 
-                match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
                     short_title = match.group(2).strip()
-                    self.section_shorttitle_notend_status = True
+                    # self.section_shorttitle_notend_status = True
                     if short_title:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
                     else:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} -"
+                        self.section_shorttitle_notend_status = True
                      
         except Exception as e:
             self.logger.exception("Error while adding section [%s]: %s",text, e)
     
     def addArticle(self, line):
-        if self.is_preamble_reached and line:
-            matched, val = self.is_article(line)
-            if matched:
-                if not self.is_body_added:
-                    tab_level = self.get_tab_level('BODY')
-                    if tab_level is not None:
-                        self.builder += "\n" + ("\t" * tab_level) + f"BODY\n"
-                        self.is_body_added = True
-                        self.curr_tab_level = tab_level
-
-                tab_level = self.get_tab_level('ART')
+        is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
+        # if self.is_preamble_reached and line:
+        matched, val = self.is_article(line)
+        if matched:
+            if not self.is_body_added:
+                tab_level = self.get_tab_level('BODY')
                 if tab_level is not None:
-                    if not self.is_schedule:
-                        self.builder += "\n" + ("\t" * tab_level) + f"ART {val}"
-                        self.curr_tab_level = tab_level
-                        self.hierarchy = ['ART']
-                        self.is_schedule_open = False
-                        
-                    else:
-                        self.clear_article_hierarchy(level = 'SUBPART')
-                        self.curr_tab_level = self.get_hierarchy_level('SUBPART')
-                        self.builder += "\n" + ("\t" * self.curr_tab_level) + f"ART {val}"
-            return
-        self.builder += " " + line
+                    self.builder += "\n" + ("\t" * tab_level) + f"BODY\n"
+                    self.is_body_added = True
+                    self.curr_tab_level = tab_level
+
+            tab_level = self.get_tab_level('ART')
+            if tab_level is not None:
+                if not self.is_schedule:
+                    self.builder += "\n" + ("\t" * tab_level) + f"ART {val}"
+                    self.curr_tab_level = tab_level
+                    self.hierarchy = ['ART']
+                    self.is_schedule_open = False
+                    
+                else:
+                    self.clear_article_hierarchy(level = 'SUBPART')
+                    self.curr_tab_level = self.get_hierarchy_level('SUBPART')
+                    self.builder += "\n" + ("\t" * self.curr_tab_level) + f"ART {val}"
+            self.previous_sentence_end_status = True
+        else:
+            if not self.previous_sentence_end_status:
+                self.builder += " " + line
+            else:
+                self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{line}"
+            self.previous_sentence_end_status = is_sentence_completed
     
     def clear_article_hierarchy(self, level):
         try:
@@ -394,8 +490,9 @@ class Acts:
         except Exception as e:
             self.logger.error(f'while try to clear article hierarchy- {e}')
 
-    def addSubsection(self, text, is_article_subsection):
+    def addSubsection(self, text):
         try:
+            self.previous_sentence_end_status = text.endswith(self.sentence_completion_punctuation)
             self.curr_tab_level = self.get_hierarchy_level('SUBSEC')
             value, remain_text = self.find_value_and_text(text)
             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBSEC {value}"
@@ -410,8 +507,9 @@ class Acts:
         except Exception as e:
             self.logger.exception("Error while adding subsection [%s]: %s",text, e)
     
-    def addPara(self, text, is_article_para):
+    def addPara(self, text):
         try:
+            self.previous_sentence_end_status = text.endswith(self.sentence_completion_punctuation)
             self.curr_tab_level = self.get_hierarchy_level('PARA')
             value, remain_text = self.find_value_and_text(text)
             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"PARA {value}"
@@ -427,8 +525,9 @@ class Acts:
             self.logger.exception("Error while adding para [%s]: %s",text, e)
 
 
-    def addSubpara(self, text, is_article_subpara):
+    def addSubpara(self, text):
         try:
+            self.previous_sentence_end_status = text.endswith(self.sentence_completion_punctuation)
             self.curr_tab_level = self.get_hierarchy_level('SUBPARA')
             value, remain_text = self.find_value_and_text(text)
             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBPARA {value}"
@@ -439,21 +538,26 @@ class Acts:
     
     def addUnlabelled(self, text):
         try:
+            is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
             if not self.is_preamble_reached and text:
                 is_matched = self.check_preamble_start(text)
                 if is_matched:
                     self.is_preamble_reached = True
+                    if self.is_body_added:
+                        self.builder = ""
+                        self.is_body_added = False
                     tab_level = self.get_tab_level('PREAMBLE')
                     if tab_level is not None:
-                        self.builder += ("\t" * tab_level) + "PREAMBLE\n"
+                        self.builder += ("\t" * tab_level) + "PREAMBLE"
                         self.curr_tab_level = tab_level
-                        self.builder += ("\t" * (self.curr_tab_level+1) + text)
+                        self.builder += "\n" +  ("\t" * (self.curr_tab_level+1) + text)
                         return
                     else:
                         self.curr_tab_level += 1
-                        self.builder += ("\t" * (self.curr_tab_level)) + "PREAMBLE\n"
-                        self.builder += ("\t" * (self.curr_tab_level+1) + text)
+                        self.builder +=  ("\t" * (self.curr_tab_level)) + "PREAMBLE"
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
                         return
+                return
             else:
                 if re.fullmatch(r'[— _]{3,}', text):
                     self.is_act_ended = True
@@ -462,9 +566,9 @@ class Acts:
                 if last_tag == 'SUBPART':
                     self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
                 elif self.section_shorttitle_notend_status:
-                    match = re.match(r'^(.*?\.(?:-)?)[\s]+(.*)$', text)
+                    match = re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', text)
                     if match:
-                        self.builder += " " + match.group(1).strip()
+                        self.builder += " " + match.group(1).strip().rstrip("-—")
                         rest_text = match.group(2).strip()
                         rest_text_type, value, remain_text = self.findType(rest_text)
                         if rest_text_type is None:
@@ -474,10 +578,18 @@ class Acts:
                             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
                             self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                         self.section_shorttitle_notend_status = False
+                        self.previous_sentence_end_status = is_sentence_completed
                     else:
                         self.builder += " " + text
+                        self.previous_sentence_end_status = is_sentence_completed
+
                 else:
-                    self.builder += " " + text
+                    if not self.previous_sentence_end_status:
+                        self.builder += " " + text      
+                    else:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{text}"
+                    self.previous_sentence_end_status = is_sentence_completed
+
         except Exception as e:
             self.logger.exception("Error while adding unlabelled [%s]: %s",text, e)
     
@@ -489,6 +601,7 @@ class Acts:
         
     def addTable(self, table):
         try:
+          self.previous_sentence_end_status = True
           table_tab = self.curr_tab_level + 1
           self.builder += "\n" + ("\t" * (table_tab))+f"TABLE"
 
@@ -520,7 +633,7 @@ class Acts:
             if idx + 1 < len(all_items):
                 next_tb, next_label = all_items[idx + 1]
                 
-                if next_label not in ("figure", "header", "footer"):
+                if next_label not in ("figure", "header", "footer", "side notes"):
                     next_text = self.normalize_text(next_tb.extract_text_from_tb())
                     next_text_tb = next_tb
 
@@ -567,19 +680,19 @@ class Acts:
                 if label[1] == "article":
                     self.addArticle(text)
                 elif label[1] == 'subsection':
-                    self.addSubsection(text, is_article_subsection = True)
+                    self.addSubsection(text)
                 elif  label[1] == 'para':
-                    self.addPara(text, is_article_para = True)
+                    self.addPara(text)
                 elif  label[1] == 'subpara':
-                    self.addSubpara(text, is_article_subpara = True)
+                    self.addSubpara(text)
             elif label == "section":
                 self.addSection(tb,page.side_notes_datas,page.pg_height, has_side_notes)
             elif label == "subsection":
-                self.addSubsection(text, is_article_subsection = False)
+                self.addSubsection(text)
             elif label == "para":
-                self.addPara(text, is_article_para = False)
+                self.addPara(text)
             elif label == "subpara":
-                self.addSubpara(text, is_article_subpara = False)
+                self.addSubpara(text)
             # elif label == "figure":
             #    self.addFigure(tb, page)
             elif label is None:

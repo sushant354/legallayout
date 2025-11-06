@@ -27,7 +27,7 @@ class SectionState:
 
 
 class Page:
-    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type, has_side_notes, is_amendment_pdf):
+    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type, has_side_notes, is_amendment_pdf, font_mapper):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
@@ -41,6 +41,8 @@ class Page:
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, output_dir)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
+        self.left_sidenote_end_coords = []
+        self.font_mapper = font_mapper
     
 
     # --- func for getting page coordinates, height, width ---
@@ -49,49 +51,6 @@ class Page:
         height = abs(coords[1] - coords[3])
         width = abs(coords[2] - coords[0])
         return width,height
-
-    # --- gather all textboxes of the page and store it in the list ---
-    def process_textlines(self,pg):
-        def parse_bbox(textbox):
-            try:
-                x0, y0, x1, y1 = map(float, textbox.attrib["bbox"].split(","))
-                return x0, y0, x1, y1
-            except (KeyError, ValueError) as e:
-                self.logger.warning("Skipping textbox due to bbox parsing error: %s", e)
-                return None
-        
-        def get_sorted_textboxes(tbs):
-            def sort_key(tb):
-                bbox = parse_bbox(tb)
-                if bbox is None:
-                    return (float('inf'), float('inf'), float('inf'), float('inf'))
-                x0, y0, x1, y1 = bbox
-                return (-y0, x0, -y1, x1)
-
-            return sorted(tbs, key=sort_key)
-    #         return sorted(tbs,
-    #     key=lambda tb: (
-    #         -float(parse_bbox(tb)[1]),  # y0: top to bottom (higher y lower)
-    #        float(parse_bbox(tb)[0]), #,   # x0: left to right
-    #         -float(parse_bbox(tb)[3]),  # y1: optional secondary vertical order
-    #         float(parse_bbox(tb)[2])    # x1: optional secondary horizontal order
-    #      )
-    # )
-        try:
-            textBoxes = get_sorted_textboxes(pg.findall(".//textbox"))
-            # textBoxes = pg.findall(".//textbox") 
-            # for tb in textBoxes:
-            #     try:
-            #         # for textline in tb.findall('.//textline'):
-            #         #     # tb_obj = Textline(textline)
-            #         #     text = tb_obj.extract_text_from_tb()
-            #         #     if text and text.strip():
-            #         #         self.all_tbs[tb_obj] = None
-            #     except Exception as e:
-            #         self.logger.warning("Failed to process a textbox: %s", e)
-            #         continue
-        except Exception as e:
-            self.logger.exception("Failed to process textboxes for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
         
     def process_textboxes(self,pg):
         def parse_bbox(textbox):
@@ -111,20 +70,11 @@ class Page:
                 return (-y0, x0, -y1, x1)
 
             return sorted(tbs, key=sort_key)
-    #         return sorted(tbs,
-    #     key=lambda tb: (
-    #         -float(parse_bbox(tb)[1]),  # y0: top to bottom (higher y lower)
-    #        float(parse_bbox(tb)[0]), #,   # x0: left to right
-    #         -float(parse_bbox(tb)[3]),  # y1: optional secondary vertical order
-    #         float(parse_bbox(tb)[2])    # x1: optional secondary horizontal order
-    #      )
-    # )
         try:
             textBoxes = get_sorted_textboxes(pg.findall(".//textbox"))
-            # textBoxes = pg.findall(".//textbox") 
             for tb in textBoxes:
                 try:
-                    tb_obj = TextBox(tb)
+                    tb_obj = TextBox(tb, self.font_mapper)
                     text = tb_obj.extract_text_from_tb()
                     if text and text.strip():
                         self.all_tbs[tb_obj] = None
@@ -148,37 +98,6 @@ class Page:
         except Exception as e:
             self.logger.exception("Failed to process figures for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
         
-    
-    # def sort_all_boxes(self):
-    #     # def bbox_key(item):
-    #     #     obj, _ = item
-    #     #     try:
-    #     #         # Both TextBox and Figure should have bbox as (x0, y0, x1, y1)
-    #     #         x0, y0, x1, y1 = obj.bbox
-    #     #         # top-to-bottom = higher y first (PDF coord: bottom-left origin)
-    #     #         return (-y1, x0)
-    #     #     except Exception:
-    #     #         return (float("inf"), float("inf"))
-    #     def parse_bbox(textbox):
-    #         try:
-    #             x0, y0, x1, y1 = textbox.coords
-    #             return x0, y0, x1, y1
-    #         except (KeyError, ValueError) as e:
-    #             self.logger.warning("Skipping textbox due to bbox parsing error: %s", e)
-    #             return None
-        
-    #     def get_sorted_textboxes(tbs):
-    #         def sort_key(tb):
-    #             bbox = parse_bbox(tb)
-    #             if bbox is None:
-    #                 return (float('inf'), float('inf'), float('inf'), float('inf'))
-    #             x0, y0, x1, y1 = bbox
-    #             return (-y0, x0, -y1, x1)
-
-    #         return sorted(tbs, key=sort_key)
-    #     self.all_tbs.update(self.all_figbox)
-    #     self.all_tbs = get_sorted_textboxes(self.all_tbs)
-
     def sort_all_boxes(self):
             def parse_bbox(obj):
                 try:
@@ -197,13 +116,48 @@ class Page:
                 return (-y0, x0, -y1, x1)
 
             # Merge text + figures
+            if self.pdf_type == 'acts':
+                return
             self.all_tbs.update(self.all_figbox)
 
             # Sort while preserving mapping
             self.all_tbs = dict(sorted(self.all_tbs.items(), key=sort_key))
 
-        
+    #original     
     # --- func for gathering the sidenotes textboxes ---
+    # def get_side_notes(self): #,startPage,endPage):
+    #     try:
+    #         # if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
+    #         if self.has_side_notes:
+    #             if not hasattr(self, 'body_startX') and not hasattr(self, 'body_endX'):
+    #                 self.logger.warning("Body boundaries (body_startX, body_endX) are not defined for page %s", self.pg_num)
+    #                 return  # Skip if body region not defined
+                
+    #             pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.\s*\d+\s+of\s+\d+\.)$')
+    #             for tb in list(self.all_tbs.keys()):
+    #                 try:
+    #                     if (tb.coords[2]< (self.body_startX ) or tb.coords[0] > (self.body_endX) ) \
+    #                         and (self.all_tbs[tb] is None ) \
+    #                         and tb.height < 0.25 * self.pg_height \
+    #                         and tb.width < 0.25 * self.pg_width \
+    #                         and tb.width > 0.04 * self.pg_width:
+    #                         texts = tb.extract_text_from_tb()
+    #                         if  texts.strip() and not pattern.match(texts.strip()):
+    #                             # if not texts.strip().endswith("."):
+    #                             #     continue 
+    #                             self.all_tbs[tb]="side notes"
+    #                             try:
+    #                                 tb.get_side_note_datas(self.side_notes_datas)
+    #                             except Exception as e:
+    #                                 self.logger.warning("Failed to preprocess side note data from textbox on page %s: %s", self.pg_num, e)
+    #                         else:
+    #                             del self.all_tbs[tb]
+    #                 except Exception as e:
+    #                     self.logger.warning("Error processing textbox in page %s: %s", self.pg_num, e)
+    #                     continue
+    #     except Exception as e:
+    #         self.logger.exception("Failed in get_side_notes for page %s: %s", self.pg_num, e)
+
     def get_side_notes(self): #,startPage,endPage):
         try:
             # if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
@@ -212,7 +166,15 @@ class Page:
                     self.logger.warning("Body boundaries (body_startX, body_endX) are not defined for page %s", self.pg_num)
                     return  # Skip if body region not defined
                 
-                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.\s*\d+\s+of\s+\d+\.)$')
+                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+
+                left_previous_text = ""
+                right_previous_text = ""
+                left_tb_coords = None
+                left_sn_start_coords = None
+                right_tb_coords = None
+                right_sn_start_coords = None
+
                 for tb in list(self.all_tbs.keys()):
                     try:
                         if (tb.coords[2]< (self.body_startX ) or tb.coords[0] > (self.body_endX) ) \
@@ -223,12 +185,46 @@ class Page:
                             texts = tb.extract_text_from_tb()
                             if  texts.strip() and not pattern.match(texts.strip()):
                                 if not texts.strip().endswith("."):
-                                    continue 
-                                self.all_tbs[tb]="side notes"
-                                try:
-                                    tb.get_side_note_datas(self.side_notes_datas)
-                                except Exception as e:
-                                    self.logger.warning("Failed to preprocess side note data from textbox on page %s: %s", self.pg_num, e)
+                                    if tb.coords[2] < self.body_startX:
+                                        # Left side note
+                                        if left_tb_coords:#and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts = left_previous_text + " " + texts.strip()
+                                        else:
+                                            left_sn_start_coords = tb.coords
+                                        left_previous_text = texts.strip()
+                                        left_tb_coords = tb.coords
+                                    elif tb.coords[0] > self.body_endX:
+                                        # Right side note
+                                        if right_tb_coords:# and abs(tb.coords[1] - right_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts = right_previous_text + " " + texts.strip()
+                                        else:
+                                            right_sn_start_coords = tb.coords
+                                        right_previous_text = texts.strip()
+                                        right_tb_coords = tb.coords
+                                    self.all_tbs[tb]="side notes"
+                                else:
+                                    if left_tb_coords and tb.coords[2] < self.body_startX:
+                                        #and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts = left_previous_text + " " + texts.strip()
+                                            self.all_tbs[tb]="side notes"
+                                            self.side_notes_datas[left_sn_start_coords] = texts.strip()
+                                            left_previous_text = ""
+                                            left_tb_coords = None
+                                            left_sn_start_coords = None
+                                    elif right_tb_coords and tb.coords[0] > self.body_endX:
+                                        # and abs(tb.coords[1] - right_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts = right_previous_text + " " + texts.strip()
+                                            self.all_tbs[tb]="side notes"
+                                            self.side_notes_datas[right_sn_start_coords] = texts.strip()
+                                            right_previous_text = ""
+                                            right_tb_coords = None
+                                            right_sn_start_coords = None
+                                    else:
+                                        try:
+                                            tb.get_side_note_datas(self.side_notes_datas)
+                                            self.all_tbs[tb]="side notes"
+                                        except Exception as e:
+                                            self.logger.warning("Failed to preprocess side note data from textbox on page %s: %s", self.pg_num, e)
                             else:
                                 del self.all_tbs[tb]
                     except Exception as e:
@@ -236,6 +232,7 @@ class Page:
                         continue
         except Exception as e:
             self.logger.exception("Failed in get_side_notes for page %s: %s", self.pg_num, e)
+
 
     # -- func for getting the title boxes --- 
     def get_titles(self, pdf_type):
@@ -245,7 +242,6 @@ class Page:
         max_tb_height_ratio = 0.3      # Slightly taller allowed for multiline headings
         min_tb_height_ratio = 0.01       # Avoid tiny noise lines
         bad_end_re = re.compile(r'[\.\,\;\:\?\-]\s*$') 
-        bad_end_re_sebi = re.compile(r'[\?\.]\s*$')
         if hasattr(self, 'body_startX') and hasattr(self, 'body_endX'):
             body_cx = (self.body_startX + self.body_endX) / 2
         else:
@@ -333,7 +329,6 @@ class Page:
     
     def print_all(self):
         for tb,label in self.all_tbs.items():
-            # print("i'm from ",label,": ",tb.extract_text_from_tb())
             if label != "figure":
                 self.logger.info(f"i'm from {label} : {tb.extract_text_from_tb()}")
             else:
@@ -508,7 +503,19 @@ class Page:
         except Exception as e:
             self.logger.exception("Error finding closest side note for TB BBox %s: %s", tb_bbox, e)
             return False
-    
+        
+    def find_left_sidnote_end_coords(self):
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        for tb, label in self.all_tbs.items():
+            texts = tb.extract_text_from_tb().strip()
+            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            match = section_re.match(texts)
+            if match:
+                self.left_sidenote_end_coords.append(tb.coords[0])
+        average = sum(self.left_sidenote_end_coords)/len(self.left_sidenote_end_coords) if self.left_sidenote_end_coords else 0
+        if average > 0:
+            self.body_startX = round(average, 2)
+
     def check_preamble_start(self, text):
         # pattern = re.compile(r'^\s*(?:A\s+)?An\s+Act\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?', re.I)
 
@@ -547,11 +554,14 @@ class Page:
     def get_section_para(self,sectionState, main):  #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
         #original
-        # section_re = re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE)
-        section_re = re.compile(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
-         #original
-         # group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE)
-        group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)(.*)', re.IGNORECASE)
+        # section_re = re.compile(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        #original
+        # group_re = re.compile(r'^\(\s*([^\s\)]+)\s*\)(.*)', re.IGNORECASE)
+        group_re = re.compile(
+            r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+            re.IGNORECASE
+        )
         try:
             page_num = int(self.pg_num)
         except Exception as e:
@@ -580,10 +590,8 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    # check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
                     rest_text = match1.group(2).strip()
-                    if  rest_text:#check_inside:
-                        # rest_text = check_inside.group(2).strip()
+                    if  rest_text:
                         if main.has_side_notes and not side_note_status:
                             main.section_shorttitle_notend_status = True
                             self.inner_sidenote_check(text = rest_text, sectionState = sectionState, main = main, group_re = group_re, findtype = 'section')
@@ -615,26 +623,43 @@ class Page:
                 continue
     
     def is_schedule(self, text):
-        roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
+        roman_re = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
+
         ordinals = [
-        "first", "second", "third", "fourth", "fifth",
-        "sixth", "seventh", "eighth", "ninth", "tenth",
-        "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth",
-        "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth"
+            "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+            "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
+            "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
+            "nineteenth", "twentieth"
         ]
         ordinals_re = r"(?:{})".format("|".join(ordinals))
 
-        # Numbers 1–20
-        numbers_re = r"(?:[1-9]|1[0-9]|20)"
+        numbers_re = r"(?:[1-9][0-9]?)"
 
-        # Single regex with capturing group
-        pattern = rf"(?:^schedule\s*({ordinals_re}|{numbers_re}|{roman_re})|" \
-                rf"({ordinals_re}|{numbers_re}|{roman_re})\s*schedule$)"
+        # pattern = rf"""(?ix)
+        #     ^
+        #     (?:the\s+)?
+        #     (?:
+        #         schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
+        #         |
+        #         (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
+        #     )
+        #     [\s\(\)\.\-]*$
+        # """
 
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return True
-        return False
+        pattern = rf"""(?ix)
+            ^
+            (?:the\s+)?
+            (?:
+                schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
+                |
+                (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
+                |
+                schedule\b
+            )
+            [\s\(\)\.\-]*$
+        """
+        return bool(re.match(pattern, text))
+
     
     def get_article(self,sectionState, main): #,startPage,endPage):
         hierarchy_type = ("article","subsection","para","subpara","subsubpara")
@@ -647,11 +672,12 @@ class Page:
             re.IGNORECASE
         )
         # group_re = re.compile(
-        #     r'^\s*(?:'
-        #     r'(\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # capture section
-        #     r'|'
-        #     r'\(\s*([^\s\)]+)\s*\)'           # capture group
-        #     r')',
+        #     r'^\s*'
+        #     r'(?:'
+        #         r'(?P<marker>\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'
+        #         r'|'
+        #         r'(?P<marker_paren>\(\s*[^\s\)]+\s*\))'
+        #     r')\s*(?P<text>.*)$',
         #     re.IGNORECASE
         # )
         group_re = re.compile(
@@ -659,7 +685,7 @@ class Page:
             r'(?:'
                 r'(?P<marker>\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'
                 r'|'
-                r'(?P<marker_paren>\(\s*[^\s\)]+\s*\))'
+                r'\(\s*(?P<marker_paren>[^\s\)]+)\s*\)'
             r')\s*(?P<text>.*)$',
             re.IGNORECASE
         )
@@ -758,31 +784,13 @@ class Page:
         normalize_text = NormalizeText().normalize_text
         hierarchy_type = ("level1","level2","level3","level4","level5")
         
-        # section_re = re.compile(r'^\s*\d+[A-Z]*\s*\.\s+.*$', re.IGNORECASE)
-        # group_re = re.compile(r'^\s*((?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|(?:[IVXLCDM]+\)|\([IVXLCDM]+\))|(?:\(?\d+(?:\.\d+)*\)?[.\)]))', re.IGNORECASE)
         # original
         section_re = re.compile(
             r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
-            # re.IGNORECASE
+            re.IGNORECASE
         )
-        # group_re = re.compile( r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*(' 
-        #     r'(?:[A-Za-z]{1,3}\)|\([A-Za-z]{1,3}\))|' # a), aa), (a), etc. 
-        #     r'(?:[IVXLCDM]{1,3}\)|\([IVXLCDM]{1,3}\))|' # i), ii), (iv), etc. 
-        #     r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # 1, 1.1, 1.1.1, 1.1.1.1 (max 4 levels, no leading zeros) 
-        #     r')', 
-        #     re.IGNORECASE )
-        #original
-        # group_re = re.compile(
-        #         r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})'  # reject long dotted decimals
-        #         r'\s*('
-        #             r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'          # a., a), (a), AA., (AA)
-        #             r'(?:[IVXLCDMivxlcdm]{1,3}[.\)]|\([IVXLCDMivxlcdm]{1,3}\))|'  # i., i), IX., (IX)
-        #             r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?[.\)])' # numeric 1., 1.1., 1.1.1.1
-        #         r')',
-        #        # re.IGNORECASE
-        #     )
+
         group_re = re.compile(
-            # r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})'  # reject long dotted decimals
             r'\s*('
                 r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
