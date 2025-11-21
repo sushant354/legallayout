@@ -30,6 +30,7 @@ class Page:
     def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type, has_side_notes, is_amendment_pdf, font_mapper):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
+        self.page_in_xml = pg
         self.pg_width, self.pg_height = self.get_pg_coords(pg)
         self.pg_num = pg.attrib["id"]
         self.logger.debug(f"page: {self.pg_num} --- page_height: {self.pg_height} , page_width: {self.pg_width}")
@@ -41,7 +42,6 @@ class Page:
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, output_dir)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
-        self.left_sidenote_end_coords = []
         self.font_mapper = font_mapper
     
 
@@ -52,7 +52,8 @@ class Page:
         width = abs(coords[2] - coords[0])
         return width,height
         
-    def process_textboxes(self,pg):
+    def process_textboxes(self):#,pg):
+        pg = self.page_in_xml
         def parse_bbox(textbox):
             try:
                 x0, y0, x1, y1 = map(float, textbox.attrib["bbox"].split(","))
@@ -84,7 +85,8 @@ class Page:
         except Exception as e:
             self.logger.exception("Failed to process textboxes for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
         
-    def get_figures(self, pg):
+    def get_figures(self): #, pg):
+        pg = self.page_in_xml
         try:
             figBoxes = pg.findall(".//figure")
             for figbox in figBoxes:
@@ -504,21 +506,33 @@ class Page:
             self.logger.exception("Error finding closest side note for TB BBox %s: %s", tb_bbox, e)
             return False
         
-    def find_left_sidnote_end_coords(self):
+    def find_sidenote_leftend_rightstart_coords(self):
         section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        left_sidenote_end_coords = []
+        right_sidenote_start_coords = []
         for tb, label in self.all_tbs.items():
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             match = section_re.match(texts)
+            tb_width = round(tb.width,2)
+            pg_width_35 = round(0.35 * self.pg_width, 2)
+            if tb_width >= pg_width_35:
+                right_sidenote_start_coords.append(round(tb.coords[2],2))
             if match:
-                self.left_sidenote_end_coords.append(tb.coords[0])
-        average = sum(self.left_sidenote_end_coords)/len(self.left_sidenote_end_coords) if self.left_sidenote_end_coords else 0
-        if average > 0:
-            self.body_startX = round(average, 2)
+                left_sidenote_end_coords.append(tb.coords[0])
+        average_left = sum(left_sidenote_end_coords)/len(left_sidenote_end_coords) if left_sidenote_end_coords else 0
+        if average_left > 0:
+            self.body_startX = max(round(average_left, 2), self.body_startX)
+        
+        average_right = sum(right_sidenote_start_coords) / len(right_sidenote_start_coords) if right_sidenote_start_coords else 0
+        if average_right > 0:
+            if self.body_endX < 0:
+                self.body_endX = round(average_right, 2)
+            else:
+                self.body_endX = min(self.body_endX, round(average_right, 2))
+        
 
     def check_preamble_start(self, text):
-        # pattern = re.compile(r'^\s*(?:A\s+)?An\s+Act\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?', re.I)
-
         pattern = re.compile(
             r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
             re.IGNORECASE
@@ -542,7 +556,8 @@ class Page:
             self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
     
     def inner_sidenote_check(self, text, sectionState, main, group_re, findtype):
-        match = re.match(r"^(.*?)\.[\-\—]?\s*(.*)", text)
+        match = re.match(r"^(.*?[.:]\s*(?:-|—)?)(?:\s*)(.*)$", text)
+        #re.match(r"^(.*?)\.[\-\—]?\s*(.*)", text)
         if match:
             rest_text = match.group(2).strip()
             main.section_shorttitle_notend_status = False
@@ -642,22 +657,38 @@ class Page:
         #         schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
         #         |
         #         (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
+        #         |
+        #         schedule\b
         #     )
         #     [\s\(\)\.\-]*$
         # """
 
         pattern = rf"""(?ix)
-            ^
-            (?:the\s+)?
-            (?:
-                schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
-                |
-                (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
-                |
-                schedule\b
-            )
-            [\s\(\)\.\-]*$
-        """
+                ^
+                (?:the\s+)?                     # optional 'the'
+
+                (?:
+                    # schedule + optional separators + number/ordinal/roman
+                    schedule
+                    [\s\-–—:.\u2013\u2014]*     # optional separators
+                    (?:{ordinals_re}|{numbers_re}|{roman_re})
+                    \b
+                    |
+
+                    # number/ordinal/roman + optional separators + schedule
+                    (?:{ordinals_re}|{numbers_re}|{roman_re})
+                    [\s\-–—:.\u2013\u2014]*
+                    schedule
+                    \b
+                    |
+
+                    # just 'schedule'
+                    schedule
+                    \b
+                )
+
+                [\s\(\)\.\-–—:]*$               # optional trailing punctuation
+            """
         return bool(re.match(pattern, text))
 
     
@@ -671,15 +702,7 @@ class Page:
             rf"(?:^\s*ARTICLE\s+{article_number}$)",
             re.IGNORECASE
         )
-        # group_re = re.compile(
-        #     r'^\s*'
-        #     r'(?:'
-        #         r'(?P<marker>\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'
-        #         r'|'
-        #         r'(?P<marker_paren>\(\s*[^\s\)]+\s*\))'
-        #     r')\s*(?P<text>.*)$',
-        #     re.IGNORECASE
-        # )
+  
         group_re = re.compile(
             r'^\s*'
             r'(?:'
@@ -752,29 +775,27 @@ class Page:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
                 continue
     
+    def bbox_satisfies(self, tb_box,table_box,x_tolerance = 8, y_tolerance = 5):
+        try:
+            x_min_table, y_min_table, x_max_table, y_max_table = table_box
+            x_min_textbox, y_min_textbox, x_max_textbox, y_max_textbox = tb_box
+
+            return (
+                    round(x_min_textbox, 2) >= round(x_min_table, 2) - x_tolerance and
+                    round(y_min_textbox, 2) >= round(y_min_table, 2) - y_tolerance and
+                    round(x_max_textbox, 2) <= round(x_max_table, 2) + x_tolerance and
+                    round(y_max_textbox, 2) <= round(y_max_table, 2) + y_tolerance
+                )
+        except Exception as e:
+            self.logger.warning(f"Error comparing bounding boxes: {tb_box} vs {table_box} -- {e}")
+            return False
+    
     # --- func to label the textboxes comes in table layout ---
     def label_table_tbs(self):
-        def bbox_satisfies(tb_box,table_box,x_tolerance = 8, y_tolerance = 5):
-            try:
-                x_min_table, y_min_table, x_max_table, y_max_table = table_box
-                x_min_textbox, y_min_textbox, x_max_textbox, y_max_textbox = tb_box
-
-                return (
-                        round(x_min_textbox, 2) >= round(x_min_table, 2) - x_tolerance and
-                        round(y_min_textbox, 2) >= round(y_min_table, 2) - y_tolerance and
-                        round(x_max_textbox, 2) <= round(x_max_table, 2) + x_tolerance and
-                        round(y_max_textbox, 2) <= round(y_max_table, 2) + y_tolerance
-                    )
-            except Exception as e:
-                self.logger.warning(f"Error comparing bounding boxes: {tb_box} vs {table_box} -- {e}")
-                return False
-        
-
-
         for idx,tab_bbox in self.tabular_datas.table_bbox.items():
             for tb in self.all_tbs.keys():
                 try:
-                    if self.all_tbs[tb] is None and bbox_satisfies(tb.coords,tab_bbox):
+                    if self.all_tbs[tb] is None and self.bbox_satisfies(tb.coords,tab_bbox):
                         self.all_tbs[tb] = ("table",idx)
                     self.logger.debug(f"Page {self.pg_num}: Labelled textbox within table {idx}")
                 except Exception as e:
@@ -856,3 +877,96 @@ class Page:
         for tb,label in self.all_tbs.items():
             if label and isinstance(label, str) and label[:-1] == 'level':
                 print(tb.extract_text_from_tb(), label)
+    
+    def line_based_header_footer_detection(self):
+        probable_lines = []
+        for line in self.page_in_xml.findall('.//line'):
+            coords = tuple(map(float, line.attrib["bbox"].split(",")))
+            x0, y0, x1, y1 = coords
+            
+            if (y0 == y1) and not self.is_table_line(coords):
+                probable_lines.append(y1)
+        if not probable_lines:
+            return
+        probable_lines.sort(reverse=True)
+        if len(probable_lines) >= 2:
+            self.label_header_zone_tbs(probable_lines[0])
+            self.label_footer_zone_tbs(probable_lines[-1])
+        else:
+            line = probable_lines[0]
+            if line > self.pg_height * 0.5:
+                self.label_header_zone_tbs(probable_lines[0])
+            else:
+                self.label_footer_zone_tbs(probable_lines[-1])
+   
+    def label_header_zone_tbs(self, header_y):
+        tol = self.pg_height * 0.01
+        tbs_sorted = sorted(self.all_tbs.keys(), key=lambda tb: tb.coords[3], reverse=True)
+        same_line_header_zone_tbs= []
+        unique_header_tbs = []
+        last_y = None
+
+        for tb in tbs_sorted:
+            x0, y0, x1, y1 = tb.coords
+
+            if y1 < header_y:
+                continue
+
+            if last_y is None:
+                unique_header_tbs.append(tb)
+                last_y = y1
+                continue
+
+            if abs(y1 - last_y) <= tol:
+                same_line_header_zone_tbs.append(tb)
+                continue
+
+            unique_header_tbs.append(tb)
+            last_y = y1
+        
+        tbs_height = self.calculate_height_of_tbs(unique_header_tbs)
+        if tbs_height < 0.08 * self.pg_height:
+            for tb in (unique_header_tbs + same_line_header_zone_tbs):
+                self.all_tbs[tb] = 'header'
+    
+    def label_footer_zone_tbs(self, footer_y):
+        tol = self.pg_height * 0.01
+        tbs_sorted = sorted(self.all_tbs.keys(), key=lambda tb: tb.coords[3])
+        same_line_footer_zone_tbs = []
+        unique_footer_tbs = []
+        last_y = None
+
+        for tb in tbs_sorted:
+            x0, y0, x1, y1 = tb.coords
+
+            if y1 > footer_y:
+                continue
+
+            if last_y is None:
+                unique_footer_tbs.append(tb)
+                last_y = y1
+                continue
+
+            if abs(y1 - last_y) <= tol:
+                same_line_footer_zone_tbs.append(tb)
+                continue
+
+            unique_footer_tbs.append(tb)
+            last_y = y1
+
+        tbs_height = self.calculate_height_of_tbs(unique_footer_tbs)
+        if tbs_height < 0.08 * self.pg_height:
+            for tb in (unique_footer_tbs + same_line_footer_zone_tbs):
+                self.all_tbs[tb] = 'footer'
+    
+    def calculate_height_of_tbs(self, tbs):
+        total_height = 0
+        for tb in tbs:
+            total_height += tb.height
+        return round(total_height, 2)
+    
+    def is_table_line(self, coords):
+        for idx,tab_bbox in self.tabular_datas.table_bbox.items():
+            if self.bbox_satisfies(coords,tab_bbox):
+                return True
+        return False

@@ -6,19 +6,17 @@ import logging
 import pandas as pd
 from difflib import SequenceMatcher
 from sklearn.cluster import DBSCAN
-from bs4 import BeautifulSoup
-import copy
 
-from .SentenceEndDetector import LegalSentenceDetector
+from .Table import TableBuilder
 from .NormalizeText import NormalizeText
 
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
 VOID_TAGS = {"br"}
 
-class Acts:
-    
+class Acts(TableBuilder):
     def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
+        TableBuilder.__init__(self)
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
         self.sentence_completion_punctuation = sentence_completion_punctuation
@@ -49,8 +47,6 @@ class Acts:
         return None
     
     def check_preamble_start(self, text):
-        # pattern = re.compile(r'^\s*(?:A\s+)?An\s+Act\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?', re.I)
-
         pattern = re.compile(
             r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
             re.IGNORECASE
@@ -69,42 +65,34 @@ class Acts:
         return self.close_bluebell()
     
     def is_chapter(self, text):
-        pattern = rf"^\s*chapter\s+(\d+|{self.roman_re})"
-        match = re.match(pattern, text, re.IGNORECASE)
+        # pattern = rf"^\s*chapter\s+(\d+|{self.roman_re})"
+        pattern = rf"""
+            ^\s*chapter              # word 'chapter'
+            \s*                      # optional spaces
+            [\-–—:.\u2013\u2014]?    # one optional separator
+            \s*                      # optional spaces
+            (\d+|{self.roman_re})    # number or roman
+        """
+        match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
         if match:
             return True, match.group(1)  # Return True and the number/roman
         return False, None
 
     def is_article(self, text):
-        pattern = rf"^\s*article\s+(\d+|{self.roman_re})"
-        match = re.match(pattern, text, re.IGNORECASE)
+        # pattern = rf"^\s*article\s+(\d+|{self.roman_re})"
+        pattern = rf"""
+            ^\s*article              # word 'article'
+            \s*                      # optional spaces
+            [\-–—:.\u2013\u2014]?    # one optional separator
+            \s*                      # optional spaces
+            (\d+|{self.roman_re})    # number or roman
+        """
+        match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
         if match:
             return True, match.group(1)
         return False, None
 
-    # def is_schedule(self, text): original
-    #     ordinals = [
-    #     "first", "second", "third", "fourth", "fifth",
-    #     "sixth", "seventh", "eighth", "ninth", "tenth",
-    #     "eleventh", "twelfth", "thirteenth", "fourteenth", "fifteenth",
-    #     "sixteenth", "seventeenth", "eighteenth", "nineteenth", "twentieth"
-    #     ]
-    #     ordinals_re = r"(?:{})".format("|".join(ordinals))
 
-    #     # Numbers 1–20
-    #     numbers_re = r"(?:[1-9]|1[0-9]|20)"
-
-    #     # Single regex with capturing group
-    #     pattern = rf"(?:^schedule\s*({ordinals_re}|{numbers_re}|{self.roman_re})|" \
-    #             rf"({ordinals_re}|{numbers_re}|{self.roman_re})\s*schedule$)"
-
-    #     match = re.search(pattern, text, re.IGNORECASE)
-    #     if match:
-    #         return True
-
-    #     return False
-
-    
     def is_schedule(self, text):
         roman_re = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
 
@@ -125,23 +113,37 @@ class Acts:
         #         schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
         #         |
         #         (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
+        #         |
+        #         schedule\b
         #     )
         #     [\s\(\)\.\-]*$
         # """
-
         pattern = rf"""(?ix)
-            ^
-            (?:the\s+)?
-            (?:
-                schedule[\s\-:]*(?:{ordinals_re}|{numbers_re}|{roman_re})\b
-                |
-                (?:{ordinals_re}|{numbers_re}|{roman_re})[\s\-:]*schedule\b
-                |
-                schedule\b
-            )
-            [\s\(\)\.\-]*$
-        """
-        
+                ^
+                (?:the\s+)?                     # optional 'the'
+
+                (?:
+                    # schedule + optional separators + number/ordinal/roman
+                    schedule
+                    [\s\-–—:.\u2013\u2014]*     # optional separators
+                    (?:{ordinals_re}|{numbers_re}|{roman_re})
+                    \b
+                    |
+
+                    # number/ordinal/roman + optional separators + schedule
+                    (?:{ordinals_re}|{numbers_re}|{roman_re})
+                    [\s\-–—:.\u2013\u2014]*
+                    schedule
+                    \b
+                    |
+
+                    # just 'schedule'
+                    schedule
+                    \b
+                )
+
+                [\s\(\)\.\-–—:]*$               # optional trailing punctuation
+            """
         return bool(re.match(pattern, text))
 
     def addTitle(self, tb):
@@ -162,7 +164,10 @@ class Acts:
                 
                 if self.section_shorttitle_notend_status:
                     is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
-                    match = re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', line)
+                    match = re.match(
+                                r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$',
+                                line
+                            )#re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', line)
                     if match:
                         self.builder += " " + match.group(1).strip().rstrip("-—")
                         rest_text = match.group(2).strip()
@@ -323,7 +328,6 @@ class Acts:
             return None
 
     def findType(self,text):
-        # group_re = re.compile(r'^(\(\s*[^\s\)]+\s*\))\s*(.*)', re.IGNORECASE)
         group_re = re.compile(
             r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
             re.IGNORECASE
@@ -338,7 +342,6 @@ class Acts:
         return None, "", text
     
     def find_value_and_text(self,text):
-        # group_re = re.compile(r'^(\(\s*[^\s\)]+\s*\))\s*(.*)', re.IGNORECASE)
         group_re = re.compile(
                 r'^\s*('
                 r'(?:\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # section: 1. , 2A. , 3A-B.
@@ -420,7 +423,14 @@ class Acts:
                         self.previous_sentence_end_status = True
                 
             else:
-                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*?(?:\.-|\.—|\.))(.*)', text.strip())
+                # match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*?(?:\.-|\.—|\.))(.*)', text.strip())
+                match = re.match(
+                        r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)'          # Group 1: Number/marker
+                        r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'           # Group 2: Text up to . or : optionally followed by - or —
+                        r'(.*)$',                                        # Group 3: Remainder
+                        text.strip()
+                    )
+
                 if match:
                     prefix = match.group(1)
                     short_title = match.group(2).strip().rstrip("-—")
@@ -440,7 +450,6 @@ class Acts:
                 if match:
                     prefix = match.group(1)
                     short_title = match.group(2).strip()
-                    # self.section_shorttitle_notend_status = True
                     if short_title:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
                     else:
@@ -452,7 +461,6 @@ class Acts:
     
     def addArticle(self, line):
         is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
-        # if self.is_preamble_reached and line:
         matched, val = self.is_article(line)
         if matched:
             if not self.is_body_added:
@@ -464,7 +472,7 @@ class Acts:
 
             tab_level = self.get_tab_level('ART')
             if tab_level is not None:
-                if not self.is_schedule:
+                if not self.is_schedule_open:
                     self.builder += "\n" + ("\t" * tab_level) + f"ART {val}"
                     self.curr_tab_level = tab_level
                     self.hierarchy = ['ART']
@@ -566,7 +574,8 @@ class Acts:
                 if last_tag == 'SUBPART':
                     self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
                 elif self.section_shorttitle_notend_status:
-                    match = re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', text)
+                    match = re.match(r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$', text)
+                    # re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', text)
                     if match:
                         self.builder += " " + match.group(1).strip().rstrip("-—")
                         rest_text = match.group(2).strip()
@@ -616,7 +625,7 @@ class Acts:
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
                 value_tab = cell_tab + 1
                 value = row[col]
-                value = str(value)#.replace("\\n", " ")
+                value = str(value).replace("\\n", "")
                 text = self.normalize_text(value)
                 self.builder += "\n" + ("\t" * (value_tab))+f"{text}"
 
@@ -664,7 +673,7 @@ class Acts:
                         
                         else:
                             if self.is_table_continuation(table_obj, table_width):
-                                self.merge_tables(table_obj, table_width)
+                                self.merge_tables(table_obj, table_width)#, html_builder=self)
                                
                             else:
                                 self.addTable(self.pending_table[0])
@@ -696,194 +705,10 @@ class Acts:
             # elif label == "figure":
             #    self.addFigure(tb, page)
             elif label is None:
-                # if not self.is_preamble_reached:
-                #     continue
                 self.addUnlabelled(text)
     
-    def is_sequential(self, text1, text2):
-        try:
-            s1, s2 = str(text1).strip(), str(text2).strip()
-            if s1.isdigit() and s2.isdigit():
-                return int(s2) == int(s1) + 1
-            n1, n2 = re.findall(r"\d+", s1), re.findall(r"\d+", s2)
-            if n1 and n2:
-                return int(n2[0]) == int(n1[0]) + 1
-            return False
-        except:
-            return False
-
-    def row_similarity(self, row1, row2):
-        s1, s2 = " ".join(str(x) for x in row1), " ".join(str(x) for x in row2)
-        return SequenceMatcher(None, s1, s2).ratio()
-
-    def _has_serial_number(self, cell):
-        text = str(cell).strip().lower()
-        if not text or text in ["nan", ""]:
-            return False
-
-        # Digits
-        if text.isdigit():
-            return True
-
-        # Roman numerals
-        if re.fullmatch(r"(m{0,3})(cm|cd|d?c{0,3})"
-                        r"(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})", text):
-            return True
-
-        # Alphanumeric IDs
-        if re.fullmatch(r"[a-z]\d+(\.\d+)?", text):
-            return True
-        if re.fullmatch(r"\d+(\.\d+)?[a-z]", text):
-            return True
-        if re.fullmatch(r"(sec|art|clause)[\-\s]?\d+", text):
-            return True
-
-        # Ends with a dot, like "1." or "ii."
-        if re.fullmatch(r"\d+\.", text) or re.fullmatch(r"[ivxlcdm]+\.", text):
-            return True
-
-        return False
-
-    def _is_numeric_or_symbolic(self, cell):
-        text = str(cell).strip().lower()
-        if not text or text in ["-", "—", "–", "na", "n/a", "nil", "none", "✓", "x"]:
-            return True
-        if re.fullmatch(r"\d+(\.\d+)?(\s?(kg|g|mg|cm|mm|m|km|%|hrs?|days?|years?))?", text):
-            return True
-        return False
-
-    def _looks_like_continuation(self, prev_text, curr_text, curr_row):
-        prev_text, curr_text = str(prev_text).strip(), str(curr_text).strip()
-
-        # Guard: numeric/measurement-only rows should not merge
-        numeric_like = sum(self._is_numeric_or_symbolic(c) for c in curr_row[1:])
-        if numeric_like >= len(curr_row) - 2:  # all except maybe one col
-            return False
-
-        # Rule 1: prev doesn’t end with punctuation + curr starts lowercase
-        if prev_text and prev_text[-1] not in self.table_terminators and curr_text and curr_text[0].islower():
-            return True
-
-        # Rule 2: curr row is sparse (only 1 column filled beyond first col)
-        non_empty_cols = sum(bool(str(c).strip()) for c in curr_row[1:])
-        if non_empty_cols == 1:
-            return True
-
-        # Rule 3: curr row very short (few words)
-        if len(curr_text.split()) < self.min_word_threshold_tableRows:
-            return True
-
-        return False
-
-    def merge_broken_rows(self, table):
-        merged = []
-        for idx, row in table.iterrows():
-            row_list = list(row)
-
-            if not merged:
-                merged.append(row_list)
-                continue
-
-            prev = merged[-1]
-            first_cell = str(row_list[0]).strip()
-            # Case 1: Explicit serial number → new row
-            if self._has_serial_number(first_cell):
-                merged.append(row_list)
-                continue
-
-            # Case 2: Camelot-style continuation → col1 text, col2 empty
-            prev_text = str(prev[1]) if len(prev) > 1 else ""
-            curr_text = str(row_list[1]) if len(row_list) > 1 else ""
-            col2_text = str(row_list[2]) if len(row_list) > 2 else ""
-
-            if curr_text and not col2_text.strip():
-                prev[1] = (str(prev[1]).rstrip() + " " + curr_text.lstrip()).strip()
-                continue
-
-            # Case 3: Heuristic continuation
-            if self._looks_like_continuation(prev_text, curr_text, row_list):
-                for c in range(1, len(row_list)):
-                    if str(row_list[c]).strip() and str(row_list[c]).lower() not in ["nan", ""]:
-                        prev[c] = (str(prev[c]).rstrip() + " " +
-                                   str(row_list[c]).lstrip()).strip()
-            else:
-                merged.append(row_list)
-
-        return pd.DataFrame(merged, columns=table.columns)
-
-    def is_table_continuation(self, table2, table2_width):
-      table1, table1_width = self.pending_table
-
-      # 1. Width similarity check
-      width_ratio = min(table1_width, table2_width) / max(table1_width, table2_width)
-      if width_ratio < 0.95:
-          return False
-
-      # 2. Column count check
-      if table1.shape[1] != table2.shape[1]:
-          return False
-      if table2.shape[1] == table1.shape[1] and table2.iloc[0].isnull().sum() >= table2.shape[1] - 1:
-          return True
-      # 3. Check for serial restart (likely new table)
-      first_col_prev_last = str(table1.iloc[-1, 0]).strip()
-      first_col_curr_first = str(table2.iloc[0, 0]).strip()
-      
-      # If first column of next table is 1, A, or (a) → new table
-      first_col_pattern = re.compile(
-          r"^(\(?[1aAiI]\)?[\.\)]?|[\[\(]?[1aAiI][\]\)]?)$",
-          re.IGNORECASE
-      )
-
-      # Example usage
-      first_col_curr_first = table2.iloc[0, 0]  # first cell of next table
-      if first_col_pattern.match(str(first_col_curr_first).strip()):
-          return False
-
-      # 4. Sequential numbering check (only if not restarting)
-      if self.is_sequential(first_col_prev_last, first_col_curr_first):
-          return True
-
-      # 5. Header similarity check
-      header_sim = self.row_similarity(table1.iloc[0], table2.iloc[0])
-      if header_sim > 0.9:
-          return True
-
-      # 6. Fallback: treat as new table
-      return False
-
-
-    def merge_tables(self, table2, table2_width):
-        table1, table1_width = self.pending_table
-
-        # Step 1: Header similarity → skip duplicate header
-        header_sim = self.row_similarity(table1.iloc[0], table2.iloc[0])
-        if header_sim > 0.9:
-            table2 = table2.iloc[1:].reset_index(drop=True)
-
-        # Step 2: Align columns if mismatch
-        if table2.shape[1] != table1.shape[1]:
-            if table2.shape[1] < table1.shape[1]:
-                for i in range(table1.shape[1] - table2.shape[1]):
-                    table2[f"_pad{i}"] = ""
-            else:
-                table2 = table2.iloc[:, :table1.shape[1]]
-
-        table2.columns = table1.columns
-
-        # Step 3: Merge and handle broken rows
-        merged_table = pd.concat([table1, table2], ignore_index=True)
-        merged_table = self.merge_broken_rows(merged_table)
-
-        # Step 4: Update average width
-        avg_width = (table1_width + table2_width) / 2.0
-        self.pending_table = [merged_table, avg_width]
-
-
     def flushTables(self):
         """Flush pending_table into final storage."""
         if self.pending_table is not None and len(self.pending_table) <= 2:
             self.addTable(self.pending_table[0])
             self.pending_table = None
-
-
-    

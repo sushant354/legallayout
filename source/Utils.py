@@ -1,41 +1,74 @@
-import re
+import numpy as np
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTChar
+from sklearn.mixture import GaussianMixture
 
-#used in
-#htmlbuilder.py
-RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
-                 "h4", "center", "li"}
+def compute_optimal_char_margin(pdf_path):
 
-VOID_TAGS = {"br"}
+    char_gaps = []
 
-sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
+    # ---------------------------------------------------------
+    # Recursively collect LTChar
+    # ---------------------------------------------------------
+    def walk(obj, chars):
+        if isinstance(obj, LTChar):
+            chars.append(obj)
+        if hasattr(obj, "_objs"):
+            for child in obj._objs:
+                walk(child, chars)
 
-token_end_continuation_check = ('.','?','!',';',':',":-", "---", "...", '—',':','."', ".'",';"',";'", '…', '-')
+    def baseline(c):
+        return (c.y0 + c.y1) / 2
 
-side_note_text_split = r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)'
+    # ---------------------------------------------------------
+    # Extract char gaps
+    # ---------------------------------------------------------
+    try:
+        for layout in extract_pages(pdf_path):
 
-section_subsection_split = r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)'
+            chars = []
+            for obj in layout:
+                walk(obj, chars)
 
-find_type_re = r'^\(\s*([^\s\)]+)\s*\)\s*\S*'
+            if not chars:
+                continue
 
-is_section_re = r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*'
+            chars.sort(key=lambda c: (-baseline(c), c.x0))
+            prev = None
 
+            for c in chars:
+                if prev:
+                    # adaptive baseline threshold
+                    if abs(baseline(prev) - baseline(c)) < c.height * 0.65:
+                        gap = c.x0 - prev.x1
+                        if gap > 0:
+                            char_gaps.append(gap)
+                prev = c
 
+            if len(char_gaps) > 6000:
+                break
 
+    except Exception:
+        return 2.0   # safe fallback
 
-#main.py 
-sentence_end_sebi_re = ("'.",'".',".'", '."', "';", ";'", ';"','";')
+    if len(char_gaps) < 10:
+        return 2.0   # insufficient data
 
-sentence_end_acts_re = ('.', ';', ':', '—')
+    # ---------------------------------------------------------
+    # Fit Gaussian Mixture to find small-gap cluster = char spacing
+    # ---------------------------------------------------------
+    data = np.array(char_gaps).reshape(-1, 1)
 
-sentence_end_general_re = ('.', ':')
+    gmm = GaussianMixture(n_components=2, random_state=0)
+    gmm.fit(data)
 
-HEADER_ZONE_THRESHOLD = 0.15  
+    means = gmm.means_.flatten()
+    char_spacing_mean = min(means)
 
-FOOTER_ZONE_THRESHOLD = 0.15 
+    # scale down slightly for pdfminer
+    char_margin = char_spacing_mean * 0.75
 
-SIMILARITY_THRESHOLD =  0.8 
+    # clamp reasonable bounds
+    char_margin = max(2.0, min(3.5, round(char_margin, 2)))
 
-MIN_OCCURRENCE_RATE =   0.4
-
-LINE_TOLERANCE = 0.02   
-
+    return char_margin

@@ -112,8 +112,6 @@ class Amendment:
 
                 try:
                     # Check for self-contained quotes
-                    # if ((text.startswith('"') and (text.endswith('".') or text.endswith('";'))) or \
-                    # (text.startswith("'") and (text.endswith("'.") or text.endswith("';")))):
                     if (
                             (
                                  text.startswith('"') and (
@@ -175,8 +173,6 @@ class Amendment:
                         self.isAmendmentPDF = True
                         page.all_tbs[tb] = 'blockquote'
             
-                    # elif self.quote_stack and (text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";")\
-                    #                            or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1])):
                     # Check for closing quote
                     elif self.quote_stack and self.quote_stack[-1] == '"' and doubleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
                                                text.lower().endswith(self.quote_stack[-1] + "." + " (emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + " (emphasis supplied)") or\

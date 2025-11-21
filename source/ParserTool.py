@@ -5,28 +5,31 @@ import logging
 class ParserTool:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-    def convert_to_xml(self,pdf_path, xml_path, pdf_type):
-        if pdf_type == "sebi":
-            cmd = [
+    
+    def add_opt(self, cmd, flag, value, pdf_type):
+        if value is not None:
+            cmd.append(flag)
+            cmd.append(value)
+            return 
+        if pdf_type == 'sebi' and value is None:
+            cmd.append("--char-margin")
+            cmd.append("25.0")
+            return
+
+    def convert_to_xml(self,pdf_path, xml_path, pdf_type, \
+                       char_margin, word_margin, line_margin):
+        cmd = [
             "pdf2txt.py",
             "-A",
             "-t", "xml",
             "-o", xml_path,
-            # "--char-margin", "15.0",
-            # "--word-margin", "5.0",
-            # "--line-margin", "0.5",
-            "--char-margin", "25.0",
-            # "--line-margin", "0.08",
-            pdf_path
         ]
-        else:
-            cmd = [
-            "pdf2txt.py",
-            "-A",
-            "-t", "xml",
-            "-o", xml_path,
-            pdf_path
-        ]
+
+        self.add_opt(cmd, '--char-margin', char_margin, pdf_type)
+        self.add_opt(cmd, '--word-margin', word_margin, pdf_type)
+        self.add_opt(cmd, '--line-margin', line_margin, pdf_path)
+        cmd.append(pdf_path)
+            
         try:
             subprocess.run(cmd, check=True)
             self.logger.info(f"[✔] Parse completed: {xml_path}")
