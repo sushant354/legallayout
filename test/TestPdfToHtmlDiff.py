@@ -66,6 +66,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     char_margin = test_case.get('char_margin',None),
                     word_margin = test_case.get('word_margin', None),
                     line_margin = test_case.get('line_margin',None),
+                    start_page  = test_case.get('start_page', None),
+                    end_page = test_case.get('end_page', None),
                     # output_dir = test_case.get('output_dir',''),
                     is_amendment=test_case.get('is_amendment', False)
                 )
@@ -153,7 +155,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         return f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
 
     def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
-                     char_margin = None, word_margin = None, line_margin = None):
+                     char_margin = None, word_margin = None, line_margin = None, 
+                     start_page = None, end_page = None):
         """Process a single PDF file and generate HTML output."""
         try:
             # Create Main instance
@@ -168,7 +171,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             )
 
             # Parse PDF
-            parse_success = main.parsePDF(pdf_type, char_margin, word_margin, line_margin)
+            parse_success = main.parsePDF(pdf_type, char_margin, word_margin, line_margin,\
+                                          start_page, end_page)
             if not parse_success:
                 return False
 
@@ -272,7 +276,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 has_side_notes = False
             )
             success = main.parsePDF(None, char_margin = None, word_margin = None, \
-                                    line_margin = None)
+                                    line_margin = None, start_page = None, end_page = None)
             self.assertFalse(success)
 
     @classmethod

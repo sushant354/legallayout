@@ -3,6 +3,7 @@ import math
 from collections import OrderedDict
 import numpy as np
 import logging
+import textwrap
 import pandas as pd
 from difflib import SequenceMatcher
 from sklearn.cluster import DBSCAN
@@ -22,22 +23,21 @@ class Acts(TableBuilder):
         self.sentence_completion_punctuation = sentence_completion_punctuation
         self.stack_for_section = []
         self.hierarchy = []
-        self.pending_table = None
         self.is_preamble_reached = False
         self.is_body_added = False
         self.normalize_text = NormalizeText().normalize_text
-        self.min_word_threshold_tableRows = 2
-        self.table_terminators = {".", "?", "!"} #";", ":",
         self.builder = ""
+        self.an_or_act = ""
         self.main_builder = ""
         self.is_schedule_open = False
         self.previous_sentence_end_status = True
         self.curr_tab_level = 0
         self.is_act_ended = False
+        self.table_visited_lastly = False
         self.roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
         self.section_shorttitle_notend_status = False
         self.tab_level = {
-            0 : ['PREFACE', 'PREAMBLE', 'CHAP', 'BODY', 'SCHEDULE', 'ART']
+            0 : ['PREFACE', 'PREAMBLE', 'CHAP', 'BODY', 'SCHEDULE', 'ART', 'PART']
         }
     
     def get_tab_level(self, category):
@@ -47,11 +47,26 @@ class Acts(TableBuilder):
         return None
     
     def check_preamble_start(self, text):
-        pattern = re.compile(
-            r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
-            re.IGNORECASE
-        )
+        # pattern = re.compile(
+        #     r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
+        #     re.IGNORECASE
+        # )
 
+        pattern = re.compile(
+                r'''
+                ^\s*(
+                    (?:A\s+)?An\s+Act\b                      # An Act / A An Act
+                    (?:\s*\|\s*BE\s+it\s+enacted\s+by\b)?    # optional pipe + BE it enacted by
+                    |
+                    BE\s+it\s+enacted\s+by\b                 # BE it enacted by
+                    |
+                    preamble\b                               # preamble
+                    |
+                    hereby\s+it\s+is\s+enacted\s+by\b        # hereby it is enacted by
+                )
+                ''',
+                re.IGNORECASE | re.VERBOSE
+            )
         match = re.search(pattern, text)
         return bool(match)
     
@@ -72,6 +87,20 @@ class Acts(TableBuilder):
             [\-–—:.\u2013\u2014]?    # one optional separator
             \s*                      # optional spaces
             (\d+|{self.roman_re})    # number or roman
+        """
+        match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
+        if match:
+            return True, match.group(1)  # Return True and the number/roman
+        return False, None
+    
+    def is_part(self, text):
+        # pattern = rf"^\s*chapter\s+(\d+|{self.roman_re})"
+        pattern = rf"""
+            ^\s*part              # word 'chapter'
+            \s*                      # optional spaces
+            [\-–—:.\u2013\u2014]?    # one optional separator
+            \s*                      # optional spaces
+            (\d+|[A-Z]+|{self.roman_re})\b    # number or roman
         """
         match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
         if match:
@@ -227,11 +256,36 @@ class Acts(TableBuilder):
                             self.is_schedule_open = False
                             continue
                     
+                    matched, val = self.is_part(line)
+                    if matched:
+                        if not self.is_body_added:
+                            tab_level = self.get_tab_level('BODY')
+                            if tab_level is not None:
+                                self.builder += "\n" + ("\t" * tab_level) + f"BODY"
+                                self.is_body_added = True
+                                self.curr_tab_level = tab_level
+
+                        tab_level = self.get_tab_level('PART')
+                        if tab_level is not None:
+                            self.builder += "\n" + ("\t" * tab_level) + f"PART {val} -"
+                            self.curr_tab_level = tab_level
+                            self.hierarchy = ['PART']
+                            self.is_schedule_open = False
+                            continue
+
+                    if self.table_visited_lastly:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + line
+                        self.table_visited_lastly = False
+                        continue
+                    
                     self.builder += " " + line
                 
                 else:
+                    if self.check_for_an_or_act(line):
+                        continue
                     is_matched = self.check_preamble_start(line)
                     if is_matched:
+                        is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
                         self.is_preamble_reached = True
                         if self.is_body_added:
                             self.builder = ""
@@ -241,11 +295,13 @@ class Acts(TableBuilder):
                             self.builder +=  ("\t" * tab_level) + "PREAMBLE"
                             self.curr_tab_level = tab_level
                             self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + line)
+                            self.previous_sentence_end_status = is_sentence_completed
                             continue
                         else:
                             self.curr_tab_level += 1
                             self.builder +=   ("\t" * (self.curr_tab_level)) + "PREAMBLE"
                             self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + line)
+                            self.previous_sentence_end_status = is_sentence_completed
                             continue
                     
                     matched = self.is_schedule(line)
@@ -285,11 +341,61 @@ class Acts(TableBuilder):
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['CHAP']
                             self.is_schedule_open = False
+                            continue 
+                    
+                    matched, val = self.is_part(line)
+                    if matched:
+                        if not self.is_body_added:
+                            tab_level = self.get_tab_level('BODY')
+                            if tab_level is not None:
+                                self.builder += "\n" + ("\t" * tab_level) + f"BODY"
+                                self.is_body_added = True
+                                self.curr_tab_level = tab_level
+
+                        tab_level = self.get_tab_level('PART')
+                        if tab_level is not None:
+                            self.builder += "\n" + ("\t" * tab_level) + f"PART {val} -"
+                            self.curr_tab_level = tab_level
+                            self.hierarchy = ['PART']
+                            self.is_schedule_open = False
                             continue
                     
         except Exception as e:
           self.logger.exception("Error while adding title - [%s] in html: %s",tb.extract_text_from_tb(),e)
     
+    def check_for_an_or_act(self, text):
+        pattern = re.compile(r'^\s*(An|Act)\s*$', re.IGNORECASE)
+        if re.match(pattern, text):
+            if text.lower().strip() == 'act' and self.an_or_act.lower().strip() == 'an':
+                temp = self.an_or_act + ' ' + text
+                self.add_preamble(temp)
+                self.an_or_act = ""
+                return True
+            else:
+                self.an_or_act += text.strip()
+                return True
+        return False
+    
+    def add_preamble(self, text):
+        self.is_preamble_reached = True
+        tab_level = self.get_tab_level('PREAMBLE')
+        is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
+        if self.is_body_added:
+            self.builder = ""
+            self.is_body_added = False
+        if tab_level is not None:
+            self.builder += ("\t" * tab_level) + "PREAMBLE"
+            self.curr_tab_level = tab_level
+            self.builder += "\n" +  ("\t" * (self.curr_tab_level+1) + text)
+            self.previous_sentence_end_status = is_sentence_completed
+            return
+        else:
+            self.curr_tab_level += 1
+            self.builder +=  ("\t" * (self.curr_tab_level)) + "PREAMBLE"
+            self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
+            self.previous_sentence_end_status = is_sentence_completed
+            return
+
     def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05):
         try:
             tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
@@ -328,15 +434,20 @@ class Acts(TableBuilder):
             return None
 
     def findType(self,text):
+        # group_re = re.compile(
+        #     r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+        #     re.IGNORECASE
+        # )
         group_re = re.compile(
-            r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
-            re.IGNORECASE
-        )
+                r'^\s*(\(\s*(?:[1-9]\d{0,2}|[A-Z]{1,3}|(?:CM|CD|D?C{0,3})?'
+                r'(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3}))\s*\))\s*(.*)',
+                re.IGNORECASE
+            )
     
         match = group_re.match(text.strip())
         if match:
             value_with_paren = match.group(1)  
-            rest_text = match.group(2)         
+            rest_text = match.group(2)     
             return "SUBSEC", value_with_paren, rest_text
         
         return None, "", text
@@ -360,11 +471,9 @@ class Acts(TableBuilder):
         return "", text  
 
     def get_hierarchy_level(self, category):
-        try:
-            return self.hierarchy.index(category)
-        except Exception as e:
+        if category not in self.hierarchy:
             self.hierarchy.append(category)
-            return self.hierarchy.index(category)
+        return self.hierarchy.index(category)
         
     def addSection(self, tb, side_note_datas, page_height, has_side_notes):
         try:
@@ -452,6 +561,7 @@ class Acts(TableBuilder):
                     short_title = match.group(2).strip()
                     if short_title:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                        self.section_shorttitle_notend_status = True
                     else:
                         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} -"
                         self.section_shorttitle_notend_status = True
@@ -559,20 +669,25 @@ class Acts(TableBuilder):
                         self.builder += ("\t" * tab_level) + "PREAMBLE"
                         self.curr_tab_level = tab_level
                         self.builder += "\n" +  ("\t" * (self.curr_tab_level+1) + text)
+                        self.previous_sentence_end_status = is_sentence_completed
                         return
                     else:
                         self.curr_tab_level += 1
                         self.builder +=  ("\t" * (self.curr_tab_level)) + "PREAMBLE"
                         self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
+                        self.previous_sentence_end_status = is_sentence_completed
                         return
                 return
             else:
-                if re.fullmatch(r'[— _]{3,}', text):
+                if re.fullmatch(r'[— _-]{3,}', text):
                     self.is_act_ended = True
                     return
                 last_tag = self.get_last_hierarchy_tag()
                 if last_tag == 'SUBPART':
                     self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
+                elif self.table_visited_lastly:
+                    self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
+                    self.table_visited_lastly = False
                 elif self.section_shorttitle_notend_status:
                     match = re.match(r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$', text)
                     # re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', text)
@@ -607,10 +722,11 @@ class Acts(TableBuilder):
             return ""
         else:
             return self.hierarchy[-1]
-        
+    
     def addTable(self, table):
         try:
           self.previous_sentence_end_status = True
+          self.table_visited_lastly = True
           table_tab = self.curr_tab_level + 1
           self.builder += "\n" + ("\t" * (table_tab))+f"TABLE"
 
@@ -625,9 +741,10 @@ class Acts(TableBuilder):
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
                 value_tab = cell_tab + 1
                 value = row[col]
-                value = str(value).replace("\\n", "")
+                indent =  ("\t" * (value_tab))
+                value = str(value)
                 text = self.normalize_text(value)
-                self.builder += "\n" + ("\t" * (value_tab))+f"{text}"
+                self.builder += "\n" + textwrap.indent(text, indent)
 
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n",e, table.head().to_string(index=False))
@@ -682,10 +799,12 @@ class Acts(TableBuilder):
                     visited_for_table.add(table_id)
 
             elif isinstance(label,list) and label[0] == "amendment":
+               self.table_visited_lastly = False
                self.addAmendment(label,tb,page.side_notes_datas,page.pg_height)
             elif label == "title":
                 self.addTitle(tb)
             elif isinstance(label, tuple) and label[0] == "article":
+                self.table_visited_lastly = False
                 if label[1] == "article":
                     self.addArticle(text)
                 elif label[1] == 'subsection':
@@ -695,12 +814,16 @@ class Acts(TableBuilder):
                 elif  label[1] == 'subpara':
                     self.addSubpara(text)
             elif label == "section":
+                self.table_visited_lastly = False
                 self.addSection(tb,page.side_notes_datas,page.pg_height, has_side_notes)
             elif label == "subsection":
+                self.table_visited_lastly = False
                 self.addSubsection(text)
             elif label == "para":
+                self.table_visited_lastly = False
                 self.addPara(text)
             elif label == "subpara":
+                self.table_visited_lastly = False
                 self.addSubpara(text)
             # elif label == "figure":
             #    self.addFigure(tb, page)

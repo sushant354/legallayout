@@ -20,8 +20,6 @@ class Main:
         self.logger = logging.getLogger('source.Main')
         self.pdf_path = pdfPath
         self.output_dir = output_dir
-        # self.section_start_page = start
-        # self.section_end_page = end
         self.parserTool = ParserTool()
         self.total_pgs = 0
         self.all_pgs = {}
@@ -194,8 +192,10 @@ class Main:
                     
                 page_obj = self.all_pgs[page_num]
                 
-                for tb in page_obj.all_tbs.keys():
+                for tb, label in page_obj.all_tbs.items():
                     try:
+                        if label is not None:
+                            continue
                         text = tb.extract_text_from_tb().strip()
                         if not text or text.isspace():
                             continue
@@ -837,7 +837,8 @@ class Main:
             return False
 
     # --- parse pdf using pdfminer to convert to XML ---       
-    def parsePDF(self, pdf_type, char_margin, word_margin, line_margin):
+    def parsePDF(self, pdf_type, char_margin, word_margin, line_margin, \
+                start_page, end_page):
         try:
             if not os.path.exists(self.pdf_path):
                 self.logger.error(f"[✖] Input file not found: {self.pdf_path}")
@@ -861,7 +862,7 @@ class Main:
                 return False
 
             self.logger.debug("Parsing pages from XML: %s", self.xml_path)
-            pages = self.parserTool.get_pages_from_xml(self.xml_path)
+            pages = self.parserTool.get_pages_from_xml(self.xml_path, start_page, end_page)
             self.logger.debug("Extracting header and footer info...")
             self.get_page_header_footer(pages, base_name_of_file, self.output_dir)
             self.logger.debug("Processing content from pages...")
@@ -972,10 +973,10 @@ def get_arg_parser():
     parser = argparse.ArgumentParser(description="To automate pdf Parse and Convert to structured", add_help=True)
     parser.add_argument('-i','--input-filePath',dest='input_file_path',action='store',\
                         required=True,help='mention input file path')
-    # parser.add_argument('-s','--section-startPage',dest='section_start_page', action='store',\
-    #                     type=int,required=False,help='mention section start page if exists')
-    # parser.add_argument('-e','--section-endPage',dest='section_end_page', action='store',\
-    #                     type=int,required=False,help='mention section end page if exists')
+    parser.add_argument('-fp','--start-page',dest='start_page', action='store',\
+                        type=int,required=False, default=None, help='mention start page')
+    parser.add_argument('-lp','--end-page',dest='end_page', action='store',\
+                        type=int,required=False, default = None, help='mention end page')
     parser.add_argument('-s', '--sidenotes', dest = 'has_sidenotes', action = 'store_true', \
                         required = False, default = False, help = 'mention if pdf has sidenotes')
     parser.add_argument('-a','--amendments',dest= "is_amendment_pdf",action = "store_true",\
@@ -1039,10 +1040,14 @@ if __name__ == "__main__":
     setup_logging(args.loglevel, filename = args.logfile)
     pdf_path = args.input_file_path
     logger.debug(f"Input PDF path attached to process-{pdf_path}")
-    # start = args.section_start_page
-    # logger.debug(f"Mentioned section start page-{start}")
-    # end = args.section_end_page
-    # logger.debug(f"Mentioned section end page-{end}")
+    start_page = None
+    if args.start_page:
+        start_page = int(args.start_page)
+    logger.debug(f"Mentioned section start page-{start_page}")
+    end_page = None
+    if args.end_page:
+        end_page = int(args.end_page)
+        logger.debug(f"Mentioned section end page-{end_page}")
     is_amendment_pdf = args.is_amendment_pdf
     logger.debug(f"Is the pdf contains amendments - {"Yes" if is_amendment_pdf else "No"}")
     has_sidenotes = args.has_sidenotes
@@ -1054,7 +1059,8 @@ if __name__ == "__main__":
     word_margin = args.word_margin # str(margins['word_margin'])
     line_margin = args.line_margin # str(margins['line_margin'])
     logger.info(f'char_margin : {char_margin}, word_margin: {word_margin}, line_margin: {line_margin}')
-    is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin)
+    is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin, \
+                               start_page, end_page)
     if is_success:
         main.buildHTML() #end)
     main.clear_cache_pdf()

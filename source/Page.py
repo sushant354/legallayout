@@ -533,11 +533,25 @@ class Page:
         
 
     def check_preamble_start(self, text):
+        # pattern = re.compile(
+        #     r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
+        #     re.IGNORECASE
+        # )
         pattern = re.compile(
-            r'^\s*(?:(?:A\s+)?An\s+Act\b\s*(?:\|\s*BE\s+it\s+enacted\s+by\b)?|BE\s+it\s+enacted\s+by\b)',
-            re.IGNORECASE
-        )
-
+                r'''
+                ^\s*(
+                    (?:A\s+)?An\s+Act\b                      # An Act / A An Act
+                    (?:\s*\|\s*BE\s+it\s+enacted\s+by\b)?    # optional pipe + BE it enacted by
+                    |
+                    BE\s+it\s+enacted\s+by\b                 # BE it enacted by
+                    |
+                    preamble\b                               # preamble
+                    |
+                    hereby\s+it\s+is\s+enacted\s+by\b        # hereby it is enacted by
+                )
+                ''',
+                re.IGNORECASE | re.VERBOSE
+            )
         match = re.search(pattern, text)
         return bool(match)
     
@@ -562,6 +576,7 @@ class Page:
             rest_text = match.group(2).strip()
             main.section_shorttitle_notend_status = False
             self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = findtype)
+            return 
 
     
     #original
@@ -588,7 +603,8 @@ class Page:
             side_note_status = self.find_closest_side_note(tb_bbox = tb.coords, side_note_datas = self.side_notes_datas, page_height = self.pg_height)
             if label is not None and isinstance(label, tuple) and label[0] == 'article' and not side_note_status:
                 continue
-
+            elif label is not None and isinstance(label,tuple) and label[0] == 'table':
+                continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
@@ -720,6 +736,8 @@ class Page:
 
         # if startPage is not None and endPage is not None and startPage <= page_num <= endPage:
         for tb,label in self.all_tbs.items():
+            if label is not None and isinstance(label,tuple) and label[0] == 'table':
+                continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
@@ -775,10 +793,38 @@ class Page:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
                 continue
     
-    def bbox_satisfies(self, tb_box,table_box,x_tolerance = 8, y_tolerance = 5):
+    # def bbox_satisfies(self, tb_box,table_box,x_tolerance = 8, y_tolerance = 5):
+    #     try:
+    #         x_min_table, y_min_table, x_max_table, y_max_table = table_box
+    #         x_min_textbox, y_min_textbox, x_max_textbox, y_max_textbox = tb_box
+
+    #         return (
+    #                 round(x_min_textbox, 2) >= round(x_min_table, 2) - x_tolerance and
+    #                 round(y_min_textbox, 2) >= round(y_min_table, 2) - y_tolerance and
+    #                 round(x_max_textbox, 2) <= round(x_max_table, 2) + x_tolerance and
+    #                 round(y_max_textbox, 2) <= round(y_max_table, 2) + y_tolerance
+    #             )
+    #     except Exception as e:
+    #         self.logger.warning(f"Error comparing bounding boxes: {tb_box} vs {table_box} -- {e}")
+    #         return False
+
+    def bbox_satisfies(self, tb_box, table_box,
+                   width_threshold=0.4, y_tolerance_pct=0.01,
+                   x_tolerance=8, y_tolerance=5):
+
         try:
             x_min_table, y_min_table, x_max_table, y_max_table = table_box
             x_min_textbox, y_min_textbox, x_max_textbox, y_max_textbox = tb_box
+            table_width = y_max_table - y_min_table
+            width_ratio = round(table_width / self.pg_width , 2)
+
+            # --- CASE 1: wide table ---
+            if width_ratio >= width_threshold:
+                tol_y = self.pg_height * y_tolerance_pct
+
+                cy = (y_min_textbox + y_max_textbox) / 2  # vertical center of textbox
+
+                return (y_min_table - tol_y) <= cy <= (y_max_table + tol_y)
 
             return (
                     round(x_min_textbox, 2) >= round(x_min_table, 2) - x_tolerance and
@@ -786,9 +832,9 @@ class Page:
                     round(x_max_textbox, 2) <= round(x_max_table, 2) + x_tolerance and
                     round(y_max_textbox, 2) <= round(y_max_table, 2) + y_tolerance
                 )
-        except Exception as e:
-            self.logger.warning(f"Error comparing bounding boxes: {tb_box} vs {table_box} -- {e}")
+        except Exception:
             return False
+
     
     # --- func to label the textboxes comes in table layout ---
     def label_table_tbs(self):
@@ -880,24 +926,50 @@ class Page:
     
     def line_based_header_footer_detection(self):
         probable_lines = []
-        for line in self.page_in_xml.findall('.//line'):
-            coords = tuple(map(float, line.attrib["bbox"].split(",")))
-            x0, y0, x1, y1 = coords
-            
-            if (y0 == y1) and not self.is_table_line(coords):
+        for line in self.page_in_xml.findall(".//line"):
+            bbox = tuple(map(float, line.attrib["bbox"].split(",")))
+            x0, y0, x1, y1 = bbox
+
+            if (y0 == y1) and not self.is_table_line(bbox):
                 probable_lines.append(y1)
+
+        for curve in self.page_in_xml.findall(".//curve"):
+            bbox = tuple(map(float, curve.attrib["bbox"].split(",")))
+
+            if self.is_line_like(bbox) and not self.is_table_line(bbox):
+                _, y0, _, y1 = bbox
+                probable_lines.append(max(y0, y1))
+
+        for rect in self.page_in_xml.findall(".//rect"):
+            bbox = tuple(map(float, rect.attrib["bbox"].split(",")))
+
+            if self.is_line_like(bbox) and not self.is_table_line(bbox):
+                _, y0, _, y1 = bbox
+                probable_lines.append(max(y0, y1))
+
         if not probable_lines:
             return
+
         probable_lines.sort(reverse=True)
+
         if len(probable_lines) >= 2:
             self.label_header_zone_tbs(probable_lines[0])
             self.label_footer_zone_tbs(probable_lines[-1])
         else:
             line = probable_lines[0]
             if line > self.pg_height * 0.5:
-                self.label_header_zone_tbs(probable_lines[0])
+                self.label_header_zone_tbs(line)
             else:
-                self.label_footer_zone_tbs(probable_lines[-1])
+                self.label_footer_zone_tbs(line)
+    
+    def is_line_like(self, bbox, thickness_threshold=2.0):
+        x0, y0, x1, y1 = bbox
+        width  = abs(x1 - x0)
+        height = abs(y1 - y0)
+
+        if height < thickness_threshold:
+            return True
+        return False
    
     def label_header_zone_tbs(self, header_y):
         tol = self.pg_height * 0.01

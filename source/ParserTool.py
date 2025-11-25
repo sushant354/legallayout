@@ -36,16 +36,40 @@ class ParserTool:
         except subprocess.CalledProcessError as e:
             self.logger.error(f"[✖] Parse failed: {e}")
     
-    def get_pages_from_xml(self,xml_path):
+    def get_pages_from_xml(self,xml_path,start_page,end_page):
         try:
             tree = ET.parse(xml_path)
             root = tree.getroot()
             pages = root.findall(".//page")
             if not pages:
-                self.logger.warning(f"No <page> elements found in XML file: {xml_path}")
-            else:
-                self.logger.debug(f"Collected {len(pages)} page(s) from XML: {xml_path}")
-            return pages
+                self.logger.warning(f"No <page> elements found: {xml_path}")
+                return []
+            
+            filtered = []
+            if start_page and end_page and start_page > end_page:
+                self.logger.warning(f"start_page ({start_page}) > end_page ({end_page}), swapping.")
+                start_page, end_page = end_page, start_page
+
+            for p in pages:
+                num_attr = p.get("id")
+                if num_attr is None:
+                    continue  
+
+                try:
+                    num = int(num_attr)
+                except ValueError:
+                    continue 
+
+                if (start_page is None or num >= start_page) and \
+                            (end_page is None or num <= end_page):
+                    filtered.append(p)
+
+            self.logger.debug(
+                f"Collected {len(filtered)} page(s) from XML: {xml_path} "
+                f"(start={start_page}, end={end_page})"
+            )
+
+            return filtered
         except ET.ParseError as e:
             self.logger.error(f"XML parsing error in file {xml_path}: {e}")
             raise
