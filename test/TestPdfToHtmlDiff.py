@@ -177,7 +177,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 return False
 
             # Build HTML
-            main.buildHTML()
+            main.buildHTML(start_page, end_page)
 
             # Clean up cache
             main.clear_cache_pdf()

@@ -43,14 +43,17 @@ class Main:
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
         elif pdf_type == 'acts':
-            sentence_completion_punctutation = ('.', ';', ':', '—', ':—')
+            sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
+                                                ': or', '; and', ': and', ':––', ';––',\
+                                                '––', '."', '.\'', ';"', ';\'' , \
+                                                '.”', '.’', ';”' , ';’', ':-')
             return Acts(sentence_completion_punctutation, pdf_type)
         else:
             sentence_completion_punctutation = ('.', ':')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
-    def buildHTML(self): #, section_page_end):
+    def buildHTML(self, start_page, end_page): #, section_page_end):
         for page in self.all_pgs.values():
             self.logger.info(f"HTML build starts for page num-{page.pg_num}")
             self.html_builder.build(page, self.has_side_notes) #, section_page_end)
@@ -61,7 +64,7 @@ class Main:
             self.write_html(html_content)
         else:
             content = self.html_builder.get_content()
-            self.write_bluebell(content)
+            self.write_bluebell(content, start_page, end_page)
 
     # --- classify the page texboxes sidenotes, section, para, titles(headings) ---
     def process_pages_acts(self, pdf_type):
@@ -906,11 +909,21 @@ class Main:
         except Exception as e:
             self.logger.exception("Failed to write HTML content: %s", e)
 
-    def write_bluebell(self, content):
+    def write_bluebell(self, content, start_page, end_page):
         if not content:
-            self.logger.warning('Bluebell content not available to save')
+            self.logger.warning('Content not available to save')
             return
-        filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".bluebell"
+        try:
+            if start_page or end_page:
+                if start_page is None:
+                    start_page = 1
+                elif end_page is None:
+                    end_page = self.total_pgs - 1 + int(start_page)
+                filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +f"pg:{start_page}_pg:{end_page}.bluebell"
+            else:
+                filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".bluebell"
+        except Exception as e:
+            filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".bluebell"
         try:
             output_dir = Path(self.output_dir)
 
@@ -1062,7 +1075,7 @@ if __name__ == "__main__":
     is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin, \
                                start_page, end_page)
     if is_success:
-        main.buildHTML() #end)
+        main.buildHTML(start_page, end_page) #end)
     main.clear_cache_pdf()
     if not args.keep_xml:
         main.clear_cache()

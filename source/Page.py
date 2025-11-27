@@ -548,6 +548,10 @@ class Page:
                     preamble\b                               # preamble
                     |
                     hereby\s+it\s+is\s+enacted\s+by\b        # hereby it is enacted by
+                    |
+                    A\s+Bill\b                             # A Bill
+                    |
+                    Whereas\b                             # Whereas
                 )
                 ''',
                 re.IGNORECASE | re.VERBOSE
@@ -601,10 +605,13 @@ class Page:
         # if startPage is not None and endPage is not None and startPage <= page_num <= endPage:
         for tb,label in self.all_tbs.items():
             side_note_status = self.find_closest_side_note(tb_bbox = tb.coords, side_note_datas = self.side_notes_datas, page_height = self.pg_height)
-            if label is not None and isinstance(label, tuple) and label[0] == 'article' and not side_note_status:
-                continue
-            elif label is not None and isinstance(label,tuple) and label[0] == 'table':
-                continue
+            if label is not None:
+                if isinstance(label, tuple) and label[0] == 'article' and not side_note_status:
+                    continue
+                elif isinstance(label,tuple) and label[0] == 'table':
+                    continue
+                elif isinstance(label,list) and label[0] == 'amendment':
+                    continue
             texts = tb.extract_text_from_tb().strip()
             texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
             try:
@@ -613,7 +620,7 @@ class Page:
                     continue
                 
                 match1 = section_re.match(texts)
-                if not isinstance(label,list) and match1: # does not consider amendments label
+                if match1:
                     section_number = match1.group(1).split('.')[0].strip()
                     sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
                     sectionState.prev_value = section_number
@@ -631,7 +638,7 @@ class Page:
                     continue
 
                 match = group_re.match(texts)
-                if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
+                if sectionState.compare_obj != None and  match :
                     group =match.group(1).strip()
                     valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
                     sectionState.curr_depth = sectionState.curr_depth - compValue

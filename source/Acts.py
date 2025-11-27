@@ -11,10 +11,6 @@ from sklearn.cluster import DBSCAN
 from .Table import TableBuilder
 from .NormalizeText import NormalizeText
 
-RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
-                 "h4", "center", "li"}
-VOID_TAGS = {"br"}
-
 class Acts(TableBuilder):
     def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
         TableBuilder.__init__(self)
@@ -34,6 +30,7 @@ class Acts(TableBuilder):
         self.curr_tab_level = 0
         self.is_act_ended = False
         self.table_visited_lastly = False
+        self.act_end_re = r'[— _-]{3,}'
         self.roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
         self.section_shorttitle_notend_status = False
         self.tab_level = {
@@ -63,6 +60,10 @@ class Acts(TableBuilder):
                     preamble\b                               # preamble
                     |
                     hereby\s+it\s+is\s+enacted\s+by\b        # hereby it is enacted by
+                    |
+                    A\s+Bill\b                             # A Bill
+                    |
+                    Whereas\b                             # Whereas
                 )
                 ''',
                 re.IGNORECASE | re.VERBOSE
@@ -187,7 +188,7 @@ class Acts(TableBuilder):
                 line = ''.join(line_texts).replace("\n", " ").strip()
                 line = self.normalize_text(line)
 
-                if re.fullmatch(r'[—_]{3,}', line):
+                if re.fullmatch(self.act_end_re, line):
                         self.is_act_ended = True
                         break
                 
@@ -279,6 +280,12 @@ class Acts(TableBuilder):
                         continue
                     
                     self.builder += " " + line
+                    # if not self.previous_sentence_end_status:
+                    #     self.builder += " " + line
+                    #     self.previous_sentence_end_status = is_sentence_completed
+                    # else:
+                    #     self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{line}"
+                    #     self.previous_sentence_end_status = is_sentence_completed
                 
                 else:
                     if self.check_for_an_or_act(line):
@@ -287,9 +294,11 @@ class Acts(TableBuilder):
                     if is_matched:
                         is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
                         self.is_preamble_reached = True
+                        self.table_visited_lastly = False
                         if self.is_body_added:
                             self.builder = ""
                             self.is_body_added = False
+                            self.set_empty_hierarchy()
                         tab_level = self.get_tab_level('PREAMBLE')
                         if tab_level is not None:
                             self.builder +=  ("\t" * tab_level) + "PREAMBLE"
@@ -364,9 +373,11 @@ class Acts(TableBuilder):
           self.logger.exception("Error while adding title - [%s] in html: %s",tb.extract_text_from_tb(),e)
     
     def check_for_an_or_act(self, text):
-        pattern = re.compile(r'^\s*(An|Act)\s*$', re.IGNORECASE)
+        pattern = re.compile(r'^\s*(An|Act|A|Bill)\s*$', re.IGNORECASE)
         if re.match(pattern, text):
-            if text.lower().strip() == 'act' and self.an_or_act.lower().strip() == 'an':
+            if (text.lower().strip() == 'act' or text.lower().strip() == 'bill') \
+                and (self.an_or_act.lower().strip() == 'an' 
+                     or self.an_or_act.lower().strip() == 'a'):
                 temp = self.an_or_act + ' ' + text
                 self.add_preamble(temp)
                 self.an_or_act = ""
@@ -378,11 +389,13 @@ class Acts(TableBuilder):
     
     def add_preamble(self, text):
         self.is_preamble_reached = True
+        self.table_visited_lastly = False
         tab_level = self.get_tab_level('PREAMBLE')
         is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
         if self.is_body_added:
             self.builder = ""
             self.is_body_added = False
+            self.set_empty_hierarchy()
         if tab_level is not None:
             self.builder += ("\t" * tab_level) + "PREAMBLE"
             self.curr_tab_level = tab_level
@@ -479,7 +492,7 @@ class Acts(TableBuilder):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
             if not self.is_body_added:
-                self.is_preamble_reached = True
+                # self.is_preamble_reached = True
                 tab_level = self.get_tab_level('BODY')
                 if tab_level is not None:
                     self.builder += "\n" + ("\t" * tab_level) + f"BODY"
@@ -661,9 +674,11 @@ class Acts(TableBuilder):
                 is_matched = self.check_preamble_start(text)
                 if is_matched:
                     self.is_preamble_reached = True
+                    self.table_visited_lastly = False
                     if self.is_body_added:
                         self.builder = ""
                         self.is_body_added = False
+                        self.set_empty_hierarchy()
                     tab_level = self.get_tab_level('PREAMBLE')
                     if tab_level is not None:
                         self.builder += ("\t" * tab_level) + "PREAMBLE"
@@ -679,7 +694,7 @@ class Acts(TableBuilder):
                         return
                 return
             else:
-                if re.fullmatch(r'[— _-]{3,}', text):
+                if re.fullmatch(self.act_end_re, text):
                     self.is_act_ended = True
                     return
                 last_tag = self.get_last_hierarchy_tag()
@@ -748,8 +763,79 @@ class Acts(TableBuilder):
 
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n",e, table.head().to_string(index=False))
-  
+    
+    def addAmendment(self, label, tb, side_note_datas, page_height):
+        try:
+            text = self.normalize_text(tb.extract_text_from_tb())
+            if re.fullmatch(self.act_end_re, text):
+                    self.is_act_ended = True
+                    return
+            is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
+            if len(label) > 1:
+                if label[1]=="title":
+                    self.logger.debug("The text [%s] is a title block of Amendments.",text)
+                    if self.is_section_amended(text):
+                        self.add_section_amendment(text, tb, side_note_datas, page_height)
+                        return
+                    if not self.previous_sentence_end_status:
+                        self.builder += " " + text
+                    else:
+                        self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{text}"
+                    self.previous_sentence_end_status = is_sentence_completed  
+                    return
+            if self.is_section_amended(text):
+                self.add_section_amendment(text, tb, side_note_datas, page_height)
+                return
+            else:
+                if not self.previous_sentence_end_status:
+                    self.builder += " " + text      
+                else:
+                    self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{text}"
+                self.previous_sentence_end_status = is_sentence_completed
+        except Exception as e:
+            self.logger.warning("Exception while adding amendment [%s]: %s",text, e)
+
+    def add_section_amendment(self, text, tb, side_note_datas, page_height):
+        try:
+            is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
+            side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
+            self.logger.debug("Side note matched for amendment text [%s] : %s",text, side_note_text)
+            if side_note_text:
+                self.curr_tab_level = self.get_hierarchy_level('SUBSEC')
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBSEC - {side_note_text}"
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{text}"
+                self.previous_sentence_end_status = is_sentence_completed
+            else:
+                self.curr_tab_level = self.get_hierarchy_level('SUBSEC')
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBSEC"
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{text}"
+                self.previous_sentence_end_status = is_sentence_completed
+        except Exception as e:
+            self.logger.warning("Exception while adding section amendment [%s]: %s",text, e)
+    
+    def is_section_amended(self, text):
+        match = re.match(
+                r'''^\s*['"]?              # optional leading ' or "
+                    (\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)   # your numbering token
+                    (.*)                   # rest of the text
+                ''',
+                text.strip(),
+                re.VERBOSE
+            )
+        return match
+
+    def remove_unwanted_sidenotes(self, side_note_datas):
+        pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+        for sn_bbox, sn_text in list(side_note_datas.items()):
+            if pattern.search(sn_text.strip()):
+                try:
+                    del side_note_datas[sn_bbox]
+                    self.logger.debug("Removed unwanted side note: %s", sn_text)
+                except Exception as e:
+                    self.logger.warning("Exception while removing unwanted side notes: %s", e)
+
     def build(self, page, has_side_notes) :
+        self.remove_unwanted_sidenotes(page.side_notes_datas)
         visited_for_table = set()
        
         all_items = list(page.all_tbs.items())
@@ -800,7 +886,7 @@ class Acts(TableBuilder):
 
             elif isinstance(label,list) and label[0] == "amendment":
                self.table_visited_lastly = False
-               self.addAmendment(label,tb,page.side_notes_datas,page.pg_height)
+               self.addAmendment(label, tb, page.side_notes_datas, page.pg_height)
             elif label == "title":
                 self.addTitle(tb)
             elif isinstance(label, tuple) and label[0] == "article":
@@ -828,10 +914,46 @@ class Acts(TableBuilder):
             # elif label == "figure":
             #    self.addFigure(tb, page)
             elif label is None:
-                self.addUnlabelled(text)
+                if not self.is_pg_num(tb,page.pg_width):
+                    self.addUnlabelled(text)
     
     def flushTables(self):
-        """Flush pending_table into final storage."""
         if self.pending_table is not None and len(self.pending_table) <= 2:
             self.addTable(self.pending_table[0])
             self.pending_table = None
+
+    def set_empty_hierarchy(self):
+        self.hierarchy = []
+        self.curr_tab_level = 0
+
+    def is_pg_num(self,tb,pg_width):
+        if  tb.width < 0.04 * pg_width and self.check_isDigit(tb):
+            self.logger.debug("The unlabelled textbox [%s] is classified as pg_num",tb.extract_text_from_tb())
+            return True
+        return False
+    
+    def check_isDigit(self, tb):
+      text = tb.extract_text_from_tb()
+      if not text:
+          return False
+
+      raw = text.strip()
+      cleaned = raw.lower()
+
+      # --- Reject common bullet forms: 'i.', 'ii)', '1.' followed by text ---
+      if re.match(r"^\(?[ivxlcdm0-9]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
+          return False
+
+      # Remove enclosing brackets/parentheses/braces only if whole thing is wrapped
+      stripped = re.sub(r"^[\(\[\{]\s*|\s*[\)\]\}]$", "", cleaned)
+
+      # Case 1: Arabic numbers
+      if re.fullmatch(r"\d{1,4}", stripped):
+          return True
+
+      # Case 2: Roman numerals (valid strict form, 1–3999)
+      roman_pattern = r"^(m{0,3})(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$"
+      if re.fullmatch(roman_pattern, stripped, flags=re.IGNORECASE):
+          return True
+      
+      return False
