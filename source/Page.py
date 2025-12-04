@@ -51,7 +51,21 @@ class Page:
         height = abs(coords[1] - coords[3])
         width = abs(coords[2] - coords[0])
         return width,height
-        
+    
+    def remove_out_of_page_tb(self, textboxes):
+        valid_tbs = []
+        for tb in textboxes:
+            try:
+                x0, y0, x1, y1 = map(float, tb.attrib["bbox"].split(","))
+                if 0 <= x0 <= self.pg_width and 0 <= x1 <= self.pg_width and 0 <= y0 <= self.pg_height and 0 <= y1 <= self.pg_height:
+                    valid_tbs.append(tb)
+                else:
+                    self.logger.warning("Skipping textbox with out-of-bounds bbox: %s", tb.attrib["bbox"])
+            except Exception as e:
+                self.logger.warning("Skipping textbox due to bbox parsing error: %s", e)
+        return valid_tbs
+    
+     # --- func for gathering all the textboxes ---
     def process_textboxes(self):#,pg):
         pg = self.page_in_xml
         def parse_bbox(textbox):
@@ -72,7 +86,8 @@ class Page:
 
             return sorted(tbs, key=sort_key)
         try:
-            textBoxes = get_sorted_textboxes(pg.findall(".//textbox"))
+            tbs = self.remove_out_of_page_tb(pg.findall(".//textbox"))
+            textBoxes = get_sorted_textboxes(tbs)
             for tb in textBoxes:
                 try:
                     tb_obj = TextBox(tb, self.font_mapper)
@@ -550,8 +565,8 @@ class Page:
                     hereby\s+it\s+is\s+enacted\s+by\b        # hereby it is enacted by
                     |
                     A\s+Bill\b                             # A Bill
-                    |
-                    Whereas\b                             # Whereas
+                    # |
+                    # Whereas\b                             # Whereas
                 )
                 ''',
                 re.IGNORECASE | re.VERBOSE

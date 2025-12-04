@@ -355,3 +355,123 @@ class LegalSentenceDetector:
                 return True
 
             return False
+
+
+class SentenceMaker:
+    def clean_text(self, raw_text):
+        lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+        merged = self._merge_lines(lines)
+        return [self._normalize_punctuation(line) for line in merged]
+    
+    def _is_list_marker(self, line: str) -> bool:
+        l = line.strip()
+
+        bullet_patterns = [
+            r"^[\-•●▪♦▫]{1,3}$",
+            r"^[\-•●▪♦▫]{1,3}\s+.+"
+        ]
+        for p in bullet_patterns:
+            if re.match(p, l):
+                return True
+
+        numeric_patterns = [
+            r"^\d+$",                     # 1
+            r"^\d+\.$",                   # 1.
+            r"^\d+\)$",                   # 1)
+            r"^\(\d+\)$",                 # (1)
+            r"^\d+\.\d+$",                # 1.1
+            r"^\d+(?:\.\d+){2,}$",        # 1.1.1, 2.4.10.3
+            r"^\(\d+(?:\.\d+)+\)$",       # (1.1.1)
+        ]
+        for p in numeric_patterns:
+            if re.match(p, l):
+                return True
+
+
+        alpha_patterns = [
+            r"^[A-Za-z]\.$",              # a., A.
+            r"^[A-Za-z]\)$",              # a), A)
+            r"^\([A-Za-z]\)$",            # (a), (A)
+        ]
+        for p in alpha_patterns:
+            if re.match(p, l):
+                return True
+
+        roman = r"(?:i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx|xl|l|c|d|m)"
+        roman_patterns = [
+            rf"^{roman}\.$",
+            rf"^{roman}\)$",
+            rf"^\({roman}\)$"
+        ]
+        for p in roman_patterns:
+            if re.match(p, l, re.IGNORECASE):
+                return True
+
+        return False
+
+    def _ends_sentence(self, line: str) -> bool:
+        return bool(re.search(r"[.!?]$", line.strip()))
+
+    def _is_title_like(self, line: str) -> bool:
+        words = line.split()
+        if not words:
+            return False
+        count = sum(1 for w in words if w[:1].isupper())
+        return count >= len(words) * 0.6
+
+    def _is_fragment(self, line: str) -> bool:
+        if len(line.split()) <= 2:
+            return True
+        if not re.search(r"[,.!?;:]", line):
+            return True
+        return False
+
+    def _should_merge(self, prev: str, curr: str) -> bool:
+        prev = prev.strip()
+        curr = curr.strip()
+
+        if self._is_list_marker(curr):
+            return False
+
+        if self._ends_sentence(prev):
+            return False
+
+        if curr[:1].islower():
+            return True
+
+        if self._is_fragment(prev):
+            return True
+
+        if self._is_title_like(prev) and self._is_title_like(curr):
+            return True
+
+        if re.search(r"[a-zA-Z]", prev) and not self._ends_sentence(prev):
+            return True
+
+        return False
+
+    def _merge_lines(self, lines):
+        merged = []
+        buffer = ""
+
+        for line in lines:
+            if not buffer:
+                buffer = line
+                continue
+
+            if self._should_merge(buffer, line):
+                buffer += " " + line
+            else:
+                merged.append(buffer)
+                buffer = line
+
+        if buffer:
+            merged.append(buffer)
+
+        return merged
+
+    def _normalize_punctuation(self, text: str) -> str:
+        text = re.sub(r"\s+", " ", text)        # collapse spaces
+        text = re.sub(r"\s+([,.;:])", r"\1", text)  # remove space before punctuation
+        text = re.sub(r",(\S)", r", \1", text)  # ensure space after commas
+        return text.strip()

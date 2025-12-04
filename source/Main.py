@@ -61,7 +61,7 @@ class Main:
         self.logger.debug("Fetching Full HTML content")
         if self.pdf_type != "acts":
             html_content = self.html_builder.get_html()
-            self.write_html(html_content)
+            self.write_html(html_content, start_page, end_page)
         else:
             content = self.html_builder.get_content()
             self.write_bluebell(content, start_page, end_page)
@@ -884,11 +884,21 @@ class Main:
 
     
     # --- func for writing the html content to the desired output file ---
-    def write_html(self, content):
+    def write_html(self, content, start_page, end_page):
         if not content:
             self.logger.warning('HTML content not available to save')
             return
-        filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".html"
+        try:
+            if start_page or end_page:
+                if start_page is None:
+                    start_page = 1
+                elif end_page is None:
+                    end_page = self.total_pgs - 1 + int(start_page)
+                filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +f"pg:{start_page}_pg:{end_page}.html"
+            else:
+                filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".html"
+        except Exception as e:
+            filename =  os.path.splitext(os.path.basename(self.pdf_path))[0] +".html"
         try:
             output_dir = Path(self.output_dir)
 
@@ -904,8 +914,7 @@ class Main:
             with output_path.open("w", encoding="utf-8") as f:
                 f.write(content)
 
-            self.logger.info("HTML written successfully to %s", output_path)
-
+            self.logger.info("content written successfully to %s", output_path)
         except Exception as e:
             self.logger.exception("Failed to write HTML content: %s", e)
 

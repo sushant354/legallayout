@@ -10,8 +10,9 @@ from sklearn.cluster import DBSCAN
 
 from .Table import TableBuilder
 from .NormalizeText import NormalizeText
+from .SentenceEndDetector import SentenceMaker
 
-class Acts(TableBuilder):
+class Acts(TableBuilder, SentenceMaker):
     def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
         TableBuilder.__init__(self)
         self.logger = logging.getLogger(__name__)
@@ -62,8 +63,8 @@ class Acts(TableBuilder):
                     hereby\s+it\s+is\s+enacted\s+by\b        # hereby it is enacted by
                     |
                     A\s+Bill\b                             # A Bill
-                    |
-                    Whereas\b                             # Whereas
+                    # |
+                    # Whereas\b                             # Whereas
                 )
                 ''',
                 re.IGNORECASE | re.VERBOSE
@@ -737,7 +738,7 @@ class Acts(TableBuilder):
             return ""
         else:
             return self.hierarchy[-1]
-    
+         
     def addTable(self, table):
         try:
           self.previous_sentence_end_status = True
@@ -754,16 +755,19 @@ class Acts(TableBuilder):
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TH"
                 else:
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
-                value_tab = cell_tab + 1
                 value = row[col]
-                indent =  ("\t" * (value_tab))
                 value = str(value)
                 text = self.normalize_text(value)
+                text = self.clean_text(text)
+                value_tab = cell_tab + 1
+                indent =  ("\t" * (value_tab))
+                if isinstance(text, list):
+                    text = "\n".join(text)
                 self.builder += "\n" + textwrap.indent(text, indent)
 
         except Exception as e:
-            self.logger.exception("Error while adding table in html - %s .\nTable preview\n",e, table.head().to_string(index=False))
-    
+            self.logger.exception("Error while adding table in html - %s .\nTable preview\n %s",e, table.head().to_string(index=False))
+
     def addAmendment(self, label, tb, side_note_datas, page_height):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
@@ -840,17 +844,6 @@ class Acts(TableBuilder):
        
         all_items = list(page.all_tbs.items())
         for idx, (tb, label) in enumerate(all_items):
-            next_text = None
-            next_text_tb = None
-            if idx + 1 < len(all_items):
-                next_tb, next_label = all_items[idx + 1]
-                
-                if next_label not in ("figure", "header", "footer", "side notes"):
-                    next_text = self.normalize_text(next_tb.extract_text_from_tb())
-                    next_text_tb = next_tb
-
-            at_page_end = (idx == len(all_items) - 1)
-
             if self.is_act_ended:
                 break
             if label == "header" or label == "footer" :
