@@ -180,7 +180,8 @@ class Page:
             # if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
             if self.has_side_notes:
                 if not hasattr(self, 'body_startX') and not hasattr(self, 'body_endX'):
-                    self.logger.warning("Body boundaries (body_startX, body_endX) are not defined for page %s", self.pg_num)
+                    self.logger.warning("Body boundaries (body_startX, body_endX) \
+                                        are not defined for page %s", self.pg_num)
                     return  # Skip if body region not defined
                 
                 pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
@@ -241,12 +242,145 @@ class Page:
                                             tb.get_side_note_datas(self.side_notes_datas)
                                             self.all_tbs[tb]="side notes"
                                         except Exception as e:
-                                            self.logger.warning("Failed to preprocess side note data from textbox on page %s: %s", self.pg_num, e)
+                                            self.logger.warning("Failed to preprocess \
+                                                                side note data from textbox on page %s: %s", self.pg_num, e)
                             else:
                                 del self.all_tbs[tb]
                     except Exception as e:
                         self.logger.warning("Error processing textbox in page %s: %s", self.pg_num, e)
                         continue
+
+            if not self.side_notes_datas:
+                self.fallback_side_notes()
+            
+            if not self.side_notes_datas:
+                if left_previous_text:
+                    self.side_notes_datas[left_sn_start_coords] = left_previous_text
+                    left_previous_text = ""
+                    left_tb_coords = None
+                    left_sn_start_coords = None
+                if right_previous_text:
+                    self.side_notes_datas[right_sn_start_coords] = right_previous_text
+                    right_previous_text = ""
+                    right_tb_coords = None
+                    right_sn_start_coords = None
+        except Exception as e:
+            self.logger.exception("Failed in get_side_notes for page %s: %s", self.pg_num, e)
+
+    def fallback_side_notes(self): #,startPage,endPage):
+        try:
+            if self.has_side_notes:
+                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+
+                left_previous_text = ""
+                right_previous_text = ""
+                left_tb_coords = None
+                left_sn_start_coords = None
+                right_tb_coords = None
+                right_sn_start_coords = None
+
+                for tb, label in list(self.all_tbs.items()):
+                    if label != 'side notes':
+                        continue
+                    try:
+                        if (tb.coords[2]< (self.body_startX ) or tb.coords[0] > (self.body_endX)):
+                            texts = tb.extract_text_from_tb()
+                            if  texts.strip() and not pattern.match(texts.strip()):
+                                texts = texts.strip()
+                                if not texts.endswith("."):
+                                    if not re.match(r'\s*[A-Z]', texts):
+                                        if tb.coords[2] < self.body_startX:
+                                            # Left side note
+                                            if left_tb_coords:#and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
+                                                texts = left_previous_text + " " + texts
+                                            else:
+                                                left_sn_start_coords = tb.coords
+                                            left_previous_text = texts
+                                            left_tb_coords = tb.coords
+                                        elif tb.coords[0] > self.body_endX:
+                                            # Right side note
+                                            if right_tb_coords:# and abs(tb.coords[1] - right_tb_coords[3]) < 0.05 * self.pg_height:
+                                                texts = right_previous_text + " " + texts
+                                            else:
+                                                right_sn_start_coords = tb.coords
+                                            right_previous_text = texts
+                                            right_tb_coords = tb.coords
+
+                                    elif re.match(r'\s*[A-Z]', texts) and\
+                                        not (left_previous_text or right_previous_text):
+                                        if tb.coords[2] < self.body_startX:
+                                            # Left side note
+                                            if left_tb_coords:#and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
+                                                texts = left_previous_text + " " + texts
+                                            else:
+                                                left_sn_start_coords = tb.coords
+                                            left_previous_text = texts
+                                            left_tb_coords = tb.coords
+                                        elif tb.coords[0] > self.body_endX:
+                                            # Right side note
+                                            if right_tb_coords:# and abs(tb.coords[1] - right_tb_coords[3]) < 0.05 * self.pg_height:
+                                                texts = right_previous_text + " " + texts
+                                            else:
+                                                right_sn_start_coords = tb.coords
+                                            right_previous_text = texts
+                                            right_tb_coords = tb.coords
+                                    else:
+                                        if left_tb_coords and tb.coords[2] < self.body_startX:
+                                        #and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts1 = left_previous_text
+                                            self.side_notes_datas[left_sn_start_coords] = texts1.strip()
+                                            left_previous_text = texts
+                                            left_tb_coords = tb.coords
+                                            left_sn_start_coords = tb.coords
+                                        elif right_tb_coords and tb.coords[0] > self.body_endX:
+                                            # and abs(tb.coords[1] - right_tb_coords[3]) < 0.05 * self.pg_height:
+                                                texts1 = right_previous_text
+                                                self.side_notes_datas[right_sn_start_coords] = texts1.strip()
+                                                right_previous_text = texts
+                                                right_tb_coords = tb.coords
+                                                right_sn_start_coords = tb.coords
+
+                                    self.all_tbs[tb]="side notes"
+                                else:
+                                    if left_tb_coords and tb.coords[2] < self.body_startX:
+                                        #and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts = left_previous_text + " " + texts
+                                            self.all_tbs[tb]="side notes"
+                                            self.side_notes_datas[left_sn_start_coords] = texts.strip()
+                                            left_previous_text = ""
+                                            left_tb_coords = None
+                                            left_sn_start_coords = None
+                                    elif right_tb_coords and tb.coords[0] > self.body_endX:
+                                        # and abs(tb.coords[1] - right_tb_coords[3]) < 0.05 * self.pg_height:
+                                            texts = right_previous_text + " " + texts
+                                            self.all_tbs[tb]="side notes"
+                                            self.side_notes_datas[right_sn_start_coords] = texts.strip()
+                                            right_previous_text = ""
+                                            right_tb_coords = None
+                                            right_sn_start_coords = None
+                                    else:
+                                        try:
+                                            tb.get_side_note_datas(self.side_notes_datas)
+                                            self.all_tbs[tb]="side notes"
+                                        except Exception as e:
+                                            self.logger.warning("Failed to preprocess side note data \
+                                                                from textbox on page %s: %s", self.pg_num, e)
+                            else:
+                                del self.all_tbs[tb]
+                    except Exception as e:
+                        self.logger.warning("Error processing textbox in page %s: %s", self.pg_num, e)
+                        continue
+            if left_previous_text:
+                self.side_notes_datas[left_sn_start_coords] = left_previous_text
+                left_previous_text = ""
+                left_tb_coords = None
+                left_sn_start_coords = None
+            if right_previous_text:
+                self.side_notes_datas[right_sn_start_coords] = right_previous_text
+                right_previous_text = ""
+                right_tb_coords = None
+                right_sn_start_coords = None
+
         except Exception as e:
             self.logger.exception("Failed in get_side_notes for page %s: %s", self.pg_num, e)
 
@@ -487,7 +621,7 @@ class Page:
         self.logger.debug(f"page: {self.pg_num} --- Calculated body-startx: {self.body_startX} ,body-endX: {self.body_endX}")
         return round(self.body_endX - self.body_startX, 2)
     
-    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05):
+    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05): #0.05
         try:
             tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
             vertical_threshold = page_height * vertical_threshold_ratio
@@ -589,13 +723,53 @@ class Page:
             self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
     
     def inner_sidenote_check(self, text, sectionState, main, group_re, findtype):
-        match = re.match(r"^(.*?[.:]\s*(?:-|—)?)(?:\s*)(.*)$", text)
-        #re.match(r"^(.*?)\.[\-\—]?\s*(.*)", text)
-        if match:
-            rest_text = match.group(2).strip()
+        # match = re.match(r"^(.*?[.:]\s*(?:-|—)?)(?:\s*)(.*)$", text)
+        
+        check_re = re.compile(
+                r"""
+                ^\s*
+                (?:
+                    (?P<bullet>\([^)]*\))          # FIRST priority: (A), (1), (i)
+                    |
+                    (?P<title>.*?[.:]\s*(?:-|—)?)  # SECOND priority: title.
+                )
+                \s*
+                (?P<rest>.*)
+                $
+                """,
+                re.VERBOSE
+            )
+        match = check_re.match(text)
+        if not match:
+            return
+        
+        if match.group("bullet"):
             main.section_shorttitle_notend_status = False
-            self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = findtype)
-            return 
+            self.inner_group_assign(
+                rest_text=text,
+                sectionState=sectionState,
+                group_re=group_re,
+                findtype=findtype
+            )
+            return
+
+        if match.group("title"):
+            rest_text = match.group("rest").strip()
+            main.section_shorttitle_notend_status = False
+            self.inner_group_assign(
+                rest_text=rest_text,
+                sectionState=sectionState,
+                group_re=group_re,
+                findtype=findtype
+            )
+            return
+
+
+        # if match:
+        #     rest_text = match.group(2).strip()
+        #     main.section_shorttitle_notend_status = False
+        #     self.inner_group_assign(rest_text = rest_text, sectionState = sectionState, group_re = group_re, findtype = findtype)
+        #     return 
 
     
     #original
@@ -637,6 +811,7 @@ class Page:
                 match1 = section_re.match(texts)
                 if match1:
                     section_number = match1.group(1).split('.')[0].strip()
+                    self.section_boundaries[section_number] = tb.coords
                     sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
                     sectionState.prev_value = section_number
                     sectionState.prev_type = ARTICLE

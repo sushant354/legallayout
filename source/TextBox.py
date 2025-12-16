@@ -225,7 +225,7 @@ class TextBox:
 
                 current_sentence.append(line)
 
-                if '.' in line:
+                if line.endswith('.'): # if '.' in line
                     sentence = ' '.join(current_sentence).strip()
                     coord_key = tuple(map(float,sentence_start_coords.get('bbox').split(",")))
                     if sentence and sentence not in set(side_note_datas.values()):

@@ -12,6 +12,21 @@ from .Table import TableBuilder
 from .NormalizeText import NormalizeText
 from .SentenceEndDetector import SentenceMaker
 
+COMBINED_RE = re.compile(
+                r"""
+                ^\s*
+                (?:
+                    (?P<bullet>\([^)]*\))          # FIRST priority: (A), (1), (i)
+                    |
+                    (?P<title>.*?[.:]\s*(?:-|—)?)  # SECOND priority: title.
+                )
+                \s*
+                (?P<rest>.*)
+                $
+                """,
+                re.VERBOSE
+            )
+
 class Acts(TableBuilder, SentenceMaker):
     def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
         TableBuilder.__init__(self)
@@ -193,28 +208,99 @@ class Acts(TableBuilder, SentenceMaker):
                         self.is_act_ended = True
                         break
                 
+                # if self.section_shorttitle_notend_status:
+                #     is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
+                #     match = re.match(
+                #                 r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$',
+                #                 line
+                #             )#re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', line)
+                #     if match:
+                #         self.builder += " " + match.group(1).strip().rstrip("-—")
+                #         rest_text = match.group(2).strip()
+                #         rest_text_type, value, remain_text = self.findType(rest_text)
+                #         if rest_text_type is None:
+                #             self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                #         else:
+                #             self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                #             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
+                #             self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                #         self.section_shorttitle_notend_status = False
+                #         self.previous_sentence_end_status = is_sentence_completed
+                #     else:
+                #         self.builder += " " + line
+                #         self.previous_sentence_end_status = is_sentence_completed
+                #     continue
+
                 if self.section_shorttitle_notend_status:
                     is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
-                    match = re.match(
-                                r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$',
-                                line
-                            )#re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', line)
-                    if match:
-                        self.builder += " " + match.group(1).strip().rstrip("-—")
-                        rest_text = match.group(2).strip()
+
+                    match = COMBINED_RE.match(line)
+
+                    if match and match.group("bullet"):
+                        rest_text = line.strip()   # FULL line goes to findType
+
                         rest_text_type, value, remain_text = self.findType(rest_text)
+
                         if rest_text_type is None:
-                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                            self.builder += (
+                                "\n"
+                                + ("\t" * (self.curr_tab_level + 1))
+                                + f"{remain_text}"
+                            )
                         else:
                             self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
-                            self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
-                            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                            self.builder += (
+                                "\n"
+                                + ("\t" * self.curr_tab_level)
+                                + f"{rest_text_type} {value}"
+                            )
+                            self.builder += (
+                                "\n"
+                                + ("\t" * (self.curr_tab_level + 1))
+                                + f"{remain_text}"
+                            )
+
                         self.section_shorttitle_notend_status = False
                         self.previous_sentence_end_status = is_sentence_completed
-                    else:
-                        self.builder += " " + line
+                        continue
+
+                    # ---------- SECOND PRIORITY: TITLE SPLIT ----------
+                    if match and match.group("title"):
+                        title_part = match.group("title").strip().rstrip("-—")
+                        rest_text = match.group("rest").strip()
+
+                        self.builder += " " + title_part
+
+                        rest_text_type, value, remain_text = self.findType(rest_text)
+
+                        if rest_text_type is None:
+                            self.builder += (
+                                "\n"
+                                + ("\t" * (self.curr_tab_level + 1))
+                                + f"{remain_text}"
+                            )
+                        else:
+                            self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                            self.builder += (
+                                "\n"
+                                + ("\t" * self.curr_tab_level)
+                                + f"{rest_text_type} {value}"
+                            )
+                            self.builder += (
+                                "\n"
+                                + ("\t" * (self.curr_tab_level + 1))
+                                + f"{remain_text}"
+                            )
+
+                        self.section_shorttitle_notend_status = False
                         self.previous_sentence_end_status = is_sentence_completed
+                        continue
+
+                    # ---------- FALLBACK ----------
+                    self.builder += " " + line
+                    self.previous_sentence_end_status = is_sentence_completed
                     continue
+
 
                 if self.is_preamble_reached and line:
                     matched = self.is_schedule(line)
@@ -410,7 +496,7 @@ class Acts(TableBuilder, SentenceMaker):
             self.previous_sentence_end_status = is_sentence_completed
             return
 
-    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05):
+    def find_closest_side_note(self, tb_bbox, side_note_datas, page_height, vertical_threshold_ratio=0.05): # 0.05
         try:
             tb_x0, tb_y0, tb_x1, tb_y1 = tb_bbox
             vertical_threshold = page_height * vertical_threshold_ratio
@@ -547,13 +633,23 @@ class Acts(TableBuilder, SentenceMaker):
                 
             else:
                 # match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*?(?:\.-|\.—|\.))(.*)', text.strip())
-                match = re.match(
-                        r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)'          # Group 1: Number/marker
-                        r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'           # Group 2: Text up to . or : optionally followed by - or —
-                        r'(.*)$',                                        # Group 3: Remainder
-                        text.strip()
-                    )
+                # below is the last used
+                # match = re.match(
+                #         r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)'          # Group 1: Number/marker
+                #         r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'           # Group 2: Text up to . or : optionally followed by - or —
+                #         r'(.*)$',                                        # Group 3: Remainder
+                #         text.strip()
+                #     )
 
+                check_re = re.compile(
+                        r'^'
+                        r'(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)'   # Group 1: Number/marker like '13.'
+                        r'(?!\s*\([^)]+\))'                       # Negative lookahead: fail if second group starts with anything in parentheses
+                        r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'   # Group 2: Text up to first . or : optionally followed by -/—
+                        r'(.*)$',                                 # Group 3: Rest of text
+                        re.DOTALL
+                    )
+                match = re.match(check_re, text.strip())
                 if match:
                     prefix = match.group(1)
                     short_title = match.group(2).strip().rstrip("-—")
@@ -569,17 +665,75 @@ class Acts(TableBuilder, SentenceMaker):
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                     return
                 
-                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                # match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                # if match:
+                #     prefix = match.group(1)
+                #     short_title = match.group(2).strip()
+                #     if short_title:
+                #         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
+                #         self.section_shorttitle_notend_status = True
+                #     else:
+                #         self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} -"
+                #         self.section_shorttitle_notend_status = True
+
+                match = re.match(
+                                r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)',
+                                text.strip()
+                            )
+
                 if match:
-                    prefix = match.group(1)
+                    prefix = match.group(1).strip()
                     short_title = match.group(2).strip()
-                    if short_title:
-                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} - {short_title}"
-                        self.section_shorttitle_notend_status = True
+
+                    # ---------- CASE 1: short_title starts with bullet ----------
+                    if short_title and re.match(r'^\s*\([^)]*\)', short_title):
+                        # Build section header without consuming bullet text
+                        self.builder += (
+                            "\n"
+                            + ("\t" * self.curr_tab_level)
+                            + f"SEC {prefix} -"
+                        )
+                        # Treat bullet text as rest_text
+                        rest_text_type, value, remain_text = self.findType(short_title)
+
+                        if rest_text_type is None:
+                            self.builder += (
+                                "\n"
+                                + ("\t" * (self.curr_tab_level + 1))
+                                + f"{remain_text}"
+                            )
+                        else:
+                            self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                            self.builder += (
+                                "\n"
+                                + ("\t" * self.curr_tab_level)
+                                + f"{rest_text_type} {value}"
+                            )
+                            self.builder += (
+                                "\n"
+                                + ("\t" * (self.curr_tab_level + 1))
+                                + f"{remain_text}"
+                            )
+
+                        self.section_shorttitle_notend_status = False
+
+                    # ---------- CASE 2: normal short title ----------
                     else:
-                        self.builder += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {prefix} -"
+                        if short_title:
+                            self.builder += (
+                                "\n"
+                                + ("\t" * self.curr_tab_level)
+                                + f"SEC {prefix} - {short_title}"
+                            )
+                        else:
+                            self.builder += (
+                                "\n"
+                                + ("\t" * self.curr_tab_level)
+                                + f"SEC {prefix} -"
+                            )
+
                         self.section_shorttitle_notend_status = True
-                     
+    
         except Exception as e:
             self.logger.exception("Error while adding section [%s]: %s",text, e)
     
@@ -704,21 +858,58 @@ class Acts(TableBuilder, SentenceMaker):
                 elif self.table_visited_lastly:
                     self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
                     self.table_visited_lastly = False
+                # elif self.section_shorttitle_notend_status:
+                #     match = re.match(r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$', text)
+                #     # re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', text)
+                #     if match:
+                #         self.builder += " " + match.group(1).strip().rstrip("-—")
+                #         rest_text = match.group(2).strip()
+                #         rest_text_type, value, remain_text = self.findType(rest_text)
+                #         if rest_text_type is None:
+                #             self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                #         else:
+                #             self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                #             self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
+                #             self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                #         self.section_shorttitle_notend_status = False
+                #         self.previous_sentence_end_status = is_sentence_completed
+                #     else:
+                #         self.builder += " " + text
+                #         self.previous_sentence_end_status = is_sentence_completed
                 elif self.section_shorttitle_notend_status:
-                    match = re.match(r'^(.*?[.:]\s*(?:-|—)?)\s+(.*)$', text)
-                    # re.match(r'^(.*?\.[\-\—]?)[\s]+(.*)$', text)
-                    if match:
-                        self.builder += " " + match.group(1).strip().rstrip("-—")
-                        rest_text = match.group(2).strip()
+                    match = COMBINED_RE.match(text)
+
+                    if match and match.group("bullet"):
+                        rest_text = text.strip()
+
                         rest_text_type, value, remain_text = self.findType(rest_text)
+
                         if rest_text_type is None:
-                            self.builder += "\n" + ("\t" * (self.curr_tab_level+1)) + f"{remain_text}"  #<br>  
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level + 1)) + f"{remain_text}"
                         else:
                             self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
-                            self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"{rest_text_type} {value}"
-                            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
+                            self.builder += "\n" + ("\t" * self.curr_tab_level) + f"{rest_text_type} {value}"
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level + 1)) + f"{remain_text}"
+
                         self.section_shorttitle_notend_status = False
                         self.previous_sentence_end_status = is_sentence_completed
+
+                    elif match and match.group("title"):
+                        self.builder += " " + match.group("title").strip().rstrip("-—")
+
+                        rest_text = match.group("rest").strip()
+                        rest_text_type, value, remain_text = self.findType(rest_text)
+
+                        if rest_text_type is None:
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level + 1)) + f"{remain_text}"
+                        else:
+                            self.curr_tab_level = self.get_hierarchy_level(rest_text_type)
+                            self.builder += "\n" + ("\t" * self.curr_tab_level) + f"{rest_text_type} {value}"
+                            self.builder += "\n" + ("\t" * (self.curr_tab_level + 1)) + f"{remain_text}"
+
+                        self.section_shorttitle_notend_status = False
+                        self.previous_sentence_end_status = is_sentence_completed
+
                     else:
                         self.builder += " " + text
                         self.previous_sentence_end_status = is_sentence_completed
