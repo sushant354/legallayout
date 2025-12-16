@@ -811,7 +811,6 @@ class Page:
                 match1 = section_re.match(texts)
                 if match1:
                     section_number = match1.group(1).split('.')[0].strip()
-                    self.section_boundaries[section_number] = tb.coords
                     sectionState.compare_obj = CompareLevel(section_number, ARTICLE)
                     sectionState.prev_value = section_number
                     sectionState.prev_type = ARTICLE
