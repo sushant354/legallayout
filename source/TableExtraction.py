@@ -2,8 +2,9 @@ import camelot
 import logging 
 
 class TableExtraction:
-    def __init__(self,pdf_path,pg_num):
+    def __init__(self,pdf_path,pg_num, pdf_type):
         self.logger = logging.getLogger(__name__)
+        self.pdf_type = pdf_type
         self.tables, self.table_bbox = self.get_table_and_bbox(pdf_path,pg_num)
     
     # --- func to find the table contents and their coordinates ---

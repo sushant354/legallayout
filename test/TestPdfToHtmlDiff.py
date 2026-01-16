@@ -2,6 +2,7 @@ import os
 import unittest
 import tempfile
 import shutil
+import argparse
 from pathlib import Path
 import difflib
 import logging
@@ -59,8 +60,15 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 success = self._process_pdf(
                     test_case,
                     pdf_type=test_case.get('pdf_type'),
-                    start_page=test_case.get('start_page'),
-                    end_page=test_case.get('end_page'),
+                    # start_page=test_case.get('start_page'),
+                    # end_page=test_case.get('end_page'),
+                    has_sidenotes = test_case.get('has_sidenotes'),
+                    char_margin = test_case.get('char_margin',None),
+                    word_margin = test_case.get('word_margin', None),
+                    line_margin = test_case.get('line_margin',None),
+                    start_page  = test_case.get('start_page', None),
+                    end_page = test_case.get('end_page', None),
+                    # output_dir = test_case.get('output_dir',''),
                     is_amendment=test_case.get('is_amendment', False)
                 )
                 self.assertTrue(success, f"Failed to process PDF: {test_case['pdf_name']}")
@@ -77,6 +85,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     'pdf_name': test_case['pdf_name'],
                     'pdf_type': test_case.get('pdf_type', 'default'),
                     'is_amendment': test_case.get('is_amendment', False),
+                    'has_sidenotes' : test_case.get('has_sidenotes', False),
                     'status': 'PASS' if diff_result['is_match'] else 'DIFF',
                     'diff_file': diff_result.get('diff_file')
                 })
@@ -102,63 +111,73 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     # Parse optional parameters
                     pdf_type = row.get('pdf_type', '').strip() or None
                     is_amendment = row.get('is_amendment', '').strip().lower() in ['true', 'yes', '1']
-                    start_page = row.get('start_page', '').strip()
-                    end_page = row.get('end_page', '').strip()
+                    # start_page = row.get('start_page', '').strip()
+                    # end_page = row.get('end_page', '').strip()
 
-                    start_page = int(start_page) if start_page.isdigit() else None
-                    end_page = int(end_page) if end_page.isdigit() else None
-
+                    # start_page = int(start_page) if start_page.isdigit() else None
+                    # end_page = int(end_page) if end_page.isdigit() else None
+                    has_sidenotes = row.get('has_sidenotes', '').strip().lower() in ['true', 'yes', '1']
                     base_name = pdf_path.stem 
-
+                    if pdf_type == 'acts':
+                        expected_file = 'bluebell'
+                    else:
+                        expected_file = 'html'
                     cls.test_cases.append({
                         'pdf_path': str(pdf_path),
                         'pdf_name': base_name,
                         'filename': filename,
                         'pdf_type': pdf_type,
                         'is_amendment': is_amendment,
-                        'start_page': start_page,
-                        'end_page': end_page,
-                        'expected_html': cls.expected_output_dir / f"{base_name}.html",
-                        'actual_html': cls.actual_output_dir / f"{base_name}.html"
+                        # 'start_page': start_page,
+                        # 'end_page': end_page,
+                        'has_sidenotes' : has_sidenotes,
+                        'expected_html': cls.expected_output_dir / f"{base_name}.{expected_file}",
+                        'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
         except Exception as e:
             print(f"Error reading CSV file {cls.csv_file}: {e}")
 
     @classmethod
-    def _generate_config_suffix(cls, pdf_type, is_amendment, start_page, end_page):
+    def _generate_config_suffix(cls, pdf_type, is_amendment, has_sidenotes):#start_page, end_page):
         """Generate a suffix based on configuration parameters."""
         suffix_parts = []
         if pdf_type:
             suffix_parts.append(f"type-{pdf_type}")
         if is_amendment:
             suffix_parts.append("amendment")
-        if start_page is not None:
-            suffix_parts.append(f"start-{start_page}")
-        if end_page is not None:
-            suffix_parts.append(f"end-{end_page}")
+        # if start_page is not None:
+        #     suffix_parts.append(f"start-{start_page}")
+        # if end_page is not None:
+        #     suffix_parts.append(f"end-{end_page}")
+        if has_sidenotes:
+            suffix_parts.append("has_sidenotes")
 
         return f"_{'_'.join(suffix_parts)}" if suffix_parts else ""
 
-    def _process_pdf(self, test_case, pdf_type=None, start_page=None, end_page=None, is_amendment=False):
+    def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
+                     char_margin = None, word_margin = None, line_margin = None, 
+                     start_page = None, end_page = None):
         """Process a single PDF file and generate HTML output."""
         try:
             # Create Main instance
             main = Main(
                 pdfPath=test_case['pdf_path'],
-                start=start_page,
-                end=end_page,
+                # start=start_page,
+                # end=end_page,
                 is_amendment_pdf=is_amendment,
                 output_dir=str(self.actual_output_dir),
-                pdf_type=pdf_type
+                pdf_type=pdf_type,
+                has_side_notes = has_sidenotes
             )
 
             # Parse PDF
-            parse_success = main.parsePDF(pdf_type)
+            parse_success = main.parsePDF(pdf_type, char_margin, word_margin, line_margin,\
+                                          start_page, end_page)
             if not parse_success:
                 return False
 
             # Build HTML
-            main.buildHTML(end_page)
+            main.buildHTML(start_page, end_page)
 
             # Clean up cache
             main.clear_cache_pdf()
@@ -235,6 +254,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 f.write(f"PDF: {result['pdf_name']}\n")
                 f.write(f"Type: {result.get('pdf_type', 'default')}\n")
                 f.write(f"Amendment: {result.get('is_amendment', False)}\n")
+                f.write(f"Sidenotes: {result.get('has_sidenotes', False)}\n")
                 f.write(f"Status: {result['status']}\n")
                 if result.get('diff_file'):
                     f.write(f"Diff file: {result['diff_file']}\n")
@@ -248,13 +268,15 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         with self.assertLogs(level='ERROR'):
             main = Main(
                 pdfPath="non_existent.pdf",
-                start=None,
-                end=None,
+                # start=None,
+                # end=None,
                 is_amendment_pdf=False,
                 output_dir=str(self.actual_output_dir),
-                pdf_type=None
+                pdf_type=None,
+                has_side_notes = False
             )
-            success = main.parsePDF(None)
+            success = main.parsePDF(None, char_margin = None, word_margin = None, \
+                                    line_margin = None, start_page = None, end_page = None)
             self.assertFalse(success)
 
     @classmethod
@@ -265,11 +287,29 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         # if cls.actual_output_dir.exists():
         #     shutil.rmtree(cls.actual_output_dir)
 
+def update_golden_files(actual_dir, expected_dir):
+    if not actual_dir.exists():
+        print(f"[ERROR] Actual output directory not found: {actual_dir}")
+        return
+
+    expected_dir.mkdir(exist_ok=True)
+
+    copied_files = 0
+    for actual_file in actual_dir.iterdir():
+        if actual_file.is_file():
+            target_file = expected_dir / actual_file.name
+            shutil.copy2(actual_file, target_file)
+            copied_files += 1
+            print(f"[UPDATED] {target_file}")
+
+    print(f"\n✅ Updated {copied_files} golden file(s) in {expected_dir}")
+
 
 if __name__ == "__main__":
     # Create test directory structure if it doesn't exist
     test_dir = Path(__file__).parent
     test_pdfs_dir = test_dir / "test_pdfs"
+    actual_html_dir = test_dir / "actual_html"
     expected_html_dir = test_dir / "expected_html"
     csv_file = test_dir / "test_cases.csv"
 
@@ -278,6 +318,10 @@ if __name__ == "__main__":
         print(f"Created test PDFs directory: {test_pdfs_dir}")
         print("Please add PDF files to this directory for testing.")
 
+    if not actual_html_dir.exists():
+        actual_html_dir.mkdir()
+        print(f"Created actual HTML output directory: {actual_html_dir}")
+    
     if not expected_html_dir.exists():
         expected_html_dir.mkdir()
         print(f"Created expected HTML directory: {expected_html_dir}")
@@ -285,4 +329,16 @@ if __name__ == "__main__":
     if not csv_file.exists():
         print(f"CSV file not found. A sample will be created at: {csv_file}")
 
-    unittest.main()
+    parser = argparse.ArgumentParser(description="Run HTML diff tests or update golden files.")
+    parser.add_argument(
+        "--update-golden",
+        action="store_true",
+        help="If set, overwrites expected_html files with actual_html outputs."
+    )
+    args, remaining = parser.parse_known_args()
+
+    # If update flag is passed → update golden files directly
+    if args.update_golden:
+        update_golden_files(actual_html_dir, expected_html_dir)
+    else:
+        unittest.main()

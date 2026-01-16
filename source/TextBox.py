@@ -4,13 +4,13 @@ import logging
 
 class TextBox:
     
-    def __init__(self, tb):
+    def __init__(self, tb, font_mapper):
         self.logger = logging.getLogger(__name__)
         self.tbox = tb
         self.coords = tuple(map(float, tb.attrib["bbox"].split(",")))
         self.height = self.coords[3] - self.coords[1]
         self.width = self.coords[2] - self.coords[0]
-        
+        self.font_mapper = font_mapper
 
     # --- get texts from the textbox ---
     def extract_text_from_tb(self):
@@ -19,6 +19,11 @@ class TextBox:
             for textline in self.tbox.findall('.//textline'):
                 line_texts = []
                 for text in textline.findall('.//text'):
+                    # font = text.attrib.get("font", "")
+                    # raw_text = text.text or ""
+                    # if font and text.text:
+                    #     resolved_text = self.font_mapper.resolve_char(font, raw_text)
+                    #     line_texts.append(resolved_text)
                     if text.text:
                         line_texts.append(text.text)
                 
@@ -54,7 +59,7 @@ class TextBox:
             if pdf_type == 'sebi':
                 return (no_of_bold_chars / no_of_chars) > 0.50
             elif pdf_type == 'acts':
-                return (no_of_bold_chars / no_of_chars) > 0.1
+                return (no_of_bold_chars / no_of_chars) > 0.50#0.1
             else:
                 return (no_of_bold_chars / no_of_chars) > 0.75
             
@@ -83,7 +88,7 @@ class TextBox:
             if pdf_type == 'sebi':
                 return (no_of_italic_chars / no_of_chars) > 0.7
             elif pdf_type == 'acts':
-                return (no_of_italic_chars / no_of_chars) > 0.1
+                return (no_of_italic_chars / no_of_chars) > 0.50 #0.1
             else:
                 return (no_of_italic_chars / no_of_chars) > 0.75
         except Exception as e:
@@ -95,6 +100,9 @@ class TextBox:
     def is_uppercase(self, pdf_type = None):
         total_letters = 0
         total_uppercase = 0
+
+        if pdf_type == 'sebi':
+            return False
         try:
             for textline in self.tbox.findall(".//textline"):
                 for text in textline.findall(".//text"):
@@ -108,10 +116,10 @@ class TextBox:
             if total_letters == 0:
                 return False  # Avoid division by zero
 
-            if pdf_type == 'sebi':
-                return (total_uppercase / total_letters) >= 0.70
-            elif pdf_type == 'acts':
-                return (total_uppercase / total_letters) >= 0.25  
+            # if pdf_type == 'sebi':
+            #     return (total_uppercase / total_letters) >= 0.70
+            if pdf_type == 'acts':
+                return (total_uppercase / total_letters) >= 0.40  #0.25
             else:
                 return (total_uppercase / total_letters) >= 0.75 
 
@@ -123,6 +131,8 @@ class TextBox:
     # --- func to detect the textbox having texts font in Title Case for heading/title detection ---
     def is_titlecase(self, pdf_type = None):
         words = []
+        if pdf_type == 'sebi':
+            return False
         try:
             for textline in self.tbox.findall(".//textline"):
                 for text in textline.findall(".//text"):
@@ -163,10 +173,10 @@ class TextBox:
                 return False
 
             # Return True if at least 25% of words are titlecase
-            if pdf_type == 'sebi':
-                return (titlecase_count / valid_word_count) >= 0.70
-            elif pdf_type == 'acts':
-                return (titlecase_count / valid_word_count) >= 0.25
+            # if pdf_type == 'sebi':
+            #     return (titlecase_count / valid_word_count) >= 0.70
+            if pdf_type == 'acts':
+                return (titlecase_count / valid_word_count) >= 0.40#0.25
             else:
                 return (titlecase_count / valid_word_count) >= 0.75
         
@@ -215,7 +225,7 @@ class TextBox:
 
                 current_sentence.append(line)
 
-                if '.' in line:
+                if line.endswith('.'): # if '.' in line
                     sentence = ' '.join(current_sentence).strip()
                     coord_key = tuple(map(float,sentence_start_coords.get('bbox').split(",")))
                     if sentence and sentence not in set(side_note_datas.values()):
@@ -231,10 +241,6 @@ class TextBox:
     
 
     def get_first_char_coords(self):
-        """
-        Get full coordinates (x0, y0, x1, y1) of the first character in the textbox.
-        Returns None if not found.
-        """
         try:
             for textline in self.tbox.findall('.//textline'):
                 for text in textline.findall('.//text'):
@@ -256,10 +262,6 @@ class TextBox:
 
 
     def get_last_char_coords(self):
-        """
-        Get full coordinates (x0, y0, x1, y1) of the last character in the textbox.
-        Returns None if not found.
-        """
         try:
             last_coords = None
             for textline in self.tbox.findall('.//textline'):

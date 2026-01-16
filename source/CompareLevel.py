@@ -187,7 +187,7 @@ class CompareLevel:
 
         return compval
 
-
+#original
 class CompareLevelSebi:
     """
     CompareLevel: robust hierarchical comparator and section depth helper.
@@ -210,16 +210,11 @@ class CompareLevelSebi:
 
     def __init__(self, val=None, depthType=None):
         self.logger = logging.getLogger(__name__)
-        # mirror your original internal state arrays (6 entries)
         self.depthTypes = [depthType, -1, -1, -1, -1, -1]
         self.valnum     = [val, None, None, None, None, None]
         self.nextvals   = self._get_next_vals()
 
-    # ------------------------
-    # utilities / lookups
-    # ------------------------
     def _get_next_vals(self):
-        """Create lookup maps for "is next" checks (keeps behavior you had)."""
         nextvals = {}
         try:
             nextvals[DECIMAL] = {str(i): i - 1 for i in range(1, 201)}
@@ -235,12 +230,6 @@ class CompareLevelSebi:
         return nextvals
 
     def _normalize(self, token: str) -> str:
-        """Normalize tokens:
-           - strip whitespace
-           - remove surrounding parentheses like '(a)' -> 'a'
-           - remove trailing '.' or ')' e.g. '11.1.' -> '11.1'
-           - remove leading '(' if present
-        """
         if token is None:
             return ''
         t = token.strip()
@@ -259,7 +248,6 @@ class CompareLevelSebi:
         return re.fullmatch(r'\d+(?:\.\d+)*', token) is not None
 
     def is_decimal(self, value: str) -> bool:
-        """Matches simple integers (no dots) possibly followed by letters in your original code."""
         # keep your original-ish behavior for detection
         try:
             return re.match(r'^\d+[a-zA-Z]*$', value) is not None
@@ -267,7 +255,6 @@ class CompareLevelSebi:
             return False
 
     def is_roman(self, number: str) -> bool:
-        """Roman detection (keeps your special exceptions as well)."""
         if not number:
             return False
         n = str(number).lower()
@@ -281,7 +268,6 @@ class CompareLevelSebi:
             return False
 
     def value_type(self, value: str) -> int:
-        """Return the token type constant (DECIMAL / ROMAN / SMALLSTRING / GENSTRING)"""
         try:
             if value is None:
                 return GENSTRING
@@ -299,18 +285,7 @@ class CompareLevelSebi:
             self.logger.error(f"Failed to determine value type for {value}: {e}")
             return GENSTRING
 
-    # ------------------------
-    # section-level helper
-    # ------------------------
     def get_section_level(self, raw_value: str) -> int:
-        """
-        Return 0-based section level index for dotted numeric sections.
-          '11'       -> 0 (level1)
-          '11.1'     -> 1 (level2)
-          '11.1.1'   -> 2 (level3)
-        Alphabets / roman -> 3 (level4)
-        Non-detectable -> 0 (fallback)
-        """
         v = self._normalize(raw_value)
         if self._is_dotted_decimal(v):
             parts = [p for p in v.split('.') if p != '']
@@ -322,11 +297,7 @@ class CompareLevelSebi:
             return 3  # level4 index
         return 0
 
-    # ------------------------
-    # original comparison helpers (kept & slightly hardened)
-    # ------------------------
     def comp_special_nums(self, value1, value2):
-        """Existing special-case mapping preserved."""
         self.logger.debug(f"Checking special comparison: {value1} vs {value2}")
         if value1 == 'i' and value2 == 'j':
             retval = (SMALLSTRING, 0)
@@ -349,10 +320,6 @@ class CompareLevelSebi:
         return retval
 
     def prev_level_match(self, value, valueType, depth):
-        """
-        Find a previous depth that matches this valueType and is either a direct
-        successor (if possible) or the most recent match.
-        """
         self.logger.debug(f"Searching previous match for: {value} type {valueType} at depth {depth}")
         matches = []
         for i in range(0, depth):
@@ -376,14 +343,12 @@ class CompareLevelSebi:
         return depth - depthmatch
 
     def is_next_val(self, nextval, value1, value2):
-        """same as your original helper"""
         try:
             return value1 in nextval and value2 in nextval and nextval[value2] == nextval[value1] + 1
         except Exception:
             return False
 
     def comp_level(self, depth, value1, value2, valueType1, valueType2):
-        """Fallback comparison logic unchanged in semantics."""
         if valueType1 == valueType2:
             return 0
         # special case starting things
@@ -392,20 +357,7 @@ class CompareLevelSebi:
         compval = self.prev_level_match(value2, valueType2, depth)
         return compval if compval is not None else -1
 
-    # ------------------------
-    # MAIN: comp_nums (keeps your signature)
-    # ------------------------
     def comp_nums(self, depth, value1, value2, valueType1):
-        """
-        Compare two section/group tokens and determine movement in hierarchy.
-
-        - depth: current depth index (0-based; 0 == level1)
-        - value1: previous token string (raw)
-        - value2: current token string (raw)
-        - valueType1: previous token's type (use your constants)
-
-        Returns: (valueType2, compVal) where compVal == depth - new_depth
-        """
         try:
             v1 = self._normalize(str(value1)) if value1 is not None else ''
             v2 = self._normalize(str(value2)) if value2 is not None else ''
@@ -426,9 +378,6 @@ class CompareLevelSebi:
 
             # 3) alphabetic bullets: a, aa, (a) etc. -> treat as deeper level
             elif re.fullmatch(r'[A-Za-z]+', v2):
-                # valueType2 = SMALLSTRING
-                # new_depth = depth + 1
-                # compval = depth - new_depth
                 valueType2 = SMALLSTRING
                 if valueType1 == SMALLSTRING:
                     # Stay on the same level (siblings)

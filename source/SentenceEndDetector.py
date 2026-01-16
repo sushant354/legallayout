@@ -77,7 +77,7 @@ class LegalSentenceDetector:
               return False
         
       # Continuation punctuation (:-, ---, ...)
-      continuation_punct = [":-", "---", "...", '—'] #'".','."',"'.",".'"]
+      continuation_punct = [":-", "---", "...", '—', '…'] #'".','."',"'.",".'"]
       for cp in continuation_punct:
           if s.endswith(cp):
               return False if at_page_end else True
@@ -302,18 +302,6 @@ class LegalSentenceDetector:
             return True
 
     def _normalize_bbox(self, box: BBox):
-        """
-        Normalize a bounding box to the form (x0, y0, x1, y1)
-        where:
-            x0 <= x1
-            y0 <= y1
-
-        Args:
-            box: A tuple (x0, y0, x1, y1) that may be unordered.
-
-        Returns:
-            Normalized BBox
-        """
         if not box or len(box) != 4:
             raise ValueError(f"Invalid BBox: {box}")
 
@@ -335,22 +323,7 @@ class LegalSentenceDetector:
         return False
 
 
-    def indent_check(self, text_tb, next_text_tb, pg_width: float) -> bool:
-            """
-            Determines whether two text boxes on different lines indicate an indent pattern.
-
-            Conditions:
-            - First box ends ≥ 30% of page width away from right margin.
-            - Second box starts ≥ 40% of page width from left margin.
-
-            Args:
-                text_tb: First textbox object.
-                next_text_tb: Second textbox object.
-                pg_width: Width of the page.
-
-            Returns:
-                bool: True if indent pattern is detected, False otherwise.
-            """
+    def indent_check(self, text_tb, next_text_tb, pg_width):
             # Attempt to get character-level bounding boxes
             box1 = getattr(text_tb, "get_last_char_coords", lambda: None)() \
                 or getattr(text_tb, "coords", None) \
@@ -360,15 +333,21 @@ class LegalSentenceDetector:
                 or getattr(next_text_tb, "coords", None) \
                 or getattr(next_text_tb, "bbox", None)
 
-            if not box1 or not box2:
+            if not box1:
                 return False
-
+            
+            if not box2:
+                text = text_tb.extract_text_from_tb().strip()
+                if text.endswith((":-", "---", "...", '—', '…','.','?','!',':',';')):
+                    return True
+                return False
+            
             x0a, _, x1a, _ = self._normalize_bbox(box1)
             x0b, _, _, _ = self._normalize_bbox(box2)
 
             # Condition 1: First box ends ≥ 30% of page width from right margin
             right_gap_a = pg_width - x1a
-            if right_gap_a >= 0.3 * pg_width:
+            if right_gap_a >= 0.2 * pg_width:
                 return True
 
             # Condition 2: Second box starts ≥ 40% of page width from left margin
@@ -378,4 +357,121 @@ class LegalSentenceDetector:
             return False
 
 
-   
+class SentenceMaker:
+    def clean_text(self, raw_text):
+        lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+        merged = self._merge_lines(lines)
+        return [self._normalize_punctuation(line) for line in merged]
+    
+    def _is_list_marker(self, line: str) -> bool:
+        l = line.strip()
+
+        bullet_patterns = [
+            r"^[\-•●▪♦▫]{1,3}$",
+            r"^[\-•●▪♦▫]{1,3}\s+.+"
+        ]
+        for p in bullet_patterns:
+            if re.match(p, l):
+                return True
+
+        numeric_patterns = [
+            r"^\d+$",                     # 1
+            r"^\d+\.$",                   # 1.
+            r"^\d+\)$",                   # 1)
+            r"^\(\d+\)$",                 # (1)
+            r"^\d+\.\d+$",                # 1.1
+            r"^\d+(?:\.\d+){2,}$",        # 1.1.1, 2.4.10.3
+            r"^\(\d+(?:\.\d+)+\)$",       # (1.1.1)
+        ]
+        for p in numeric_patterns:
+            if re.match(p, l):
+                return True
+
+
+        alpha_patterns = [
+            r"^[A-Za-z]\.$",              # a., A.
+            r"^[A-Za-z]\)$",              # a), A)
+            r"^\([A-Za-z]\)$",            # (a), (A)
+        ]
+        for p in alpha_patterns:
+            if re.match(p, l):
+                return True
+
+        roman = r"(?:i|ii|iii|iv|v|vi|vii|viii|ix|x|xi|xii|xiii|xiv|xv|xvi|xvii|xviii|xix|xx|xl|l|c|d|m)"
+        roman_patterns = [
+            rf"^{roman}\.$",
+            rf"^{roman}\)$",
+            rf"^\({roman}\)$"
+        ]
+        for p in roman_patterns:
+            if re.match(p, l, re.IGNORECASE):
+                return True
+
+        return False
+
+    def _ends_sentence(self, line: str) -> bool:
+        return bool(re.search(r"[.!?]$", line.strip()))
+
+    def _is_title_like(self, line: str) -> bool:
+        words = line.split()
+        if not words:
+            return False
+        count = sum(1 for w in words if w[:1].isupper())
+        return count >= len(words) * 0.6
+
+    def _is_fragment(self, line: str) -> bool:
+        if len(line.split()) <= 2:
+            return True
+        if not re.search(r"[,.!?;:]", line):
+            return True
+        return False
+
+    def _should_merge(self, prev: str, curr: str) -> bool:
+        prev = prev.strip()
+        curr = curr.strip()
+
+        if self._is_list_marker(curr):
+            return False
+
+        if self._ends_sentence(prev):
+            return False
+
+        if curr[:1].islower():
+            return True
+
+        if self._is_fragment(prev):
+            return True
+
+        if self._is_title_like(prev) and self._is_title_like(curr):
+            return True
+
+        if re.search(r"[a-zA-Z]", prev) and not self._ends_sentence(prev):
+            return True
+
+        return False
+
+    def _merge_lines(self, lines):
+        merged = []
+        buffer = ""
+
+        for line in lines:
+            if not buffer:
+                buffer = line
+                continue
+
+            if self._should_merge(buffer, line):
+                buffer += " " + line
+            else:
+                merged.append(buffer)
+                buffer = line
+
+        if buffer:
+            merged.append(buffer)
+
+        return merged
+
+    def _normalize_punctuation(self, text: str) -> str:
+        text = re.sub(r"\s+", " ", text)        # collapse spaces
+        text = re.sub(r"\s+([,.;:])", r"\1", text)  # remove space before punctuation
+        text = re.sub(r",(\S)", r", \1", text)  # ensure space after commas
+        return text.strip()
