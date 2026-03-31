@@ -28,7 +28,7 @@ COMBINED_RE = re.compile(
             )
 
 class Acts(TableBuilder, SentenceMaker):
-    def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None):
+    def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None, docend_symbol = False):
         TableBuilder.__init__(self)
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
@@ -45,6 +45,7 @@ class Acts(TableBuilder, SentenceMaker):
         self.previous_sentence_end_status = True
         self.curr_tab_level = 0
         self.is_act_ended = False
+        self.docend_symbol = docend_symbol
         self.table_visited_lastly = False
         self.act_end_re = r'[— _-]{3,}'
         self.roman_re  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
@@ -206,7 +207,10 @@ class Acts(TableBuilder, SentenceMaker):
 
                 if re.fullmatch(self.act_end_re, line):
                         self.is_act_ended = True
-                        break
+                        if self.docend_symbol and self.is_act_ended:
+                                break
+                        else:
+                                continue
                 
                 # if self.section_shorttitle_notend_status:
                 #     is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
@@ -851,7 +855,8 @@ class Acts(TableBuilder, SentenceMaker):
             else:
                 if re.fullmatch(self.act_end_re, text):
                     self.is_act_ended = True
-                    return
+                    if self.docend_symbol and self.is_act_ended:
+                        return
                 last_tag = self.get_last_hierarchy_tag()
                 if last_tag == 'SUBPART':
                     self.builder += "\n" + ("\t" * (self.curr_tab_level+1) + text)
@@ -964,7 +969,8 @@ class Acts(TableBuilder, SentenceMaker):
             text = self.normalize_text(tb.extract_text_from_tb())
             if re.fullmatch(self.act_end_re, text):
                     self.is_act_ended = True
-                    return
+                    if self.docend_symbol and self.is_act_ended:
+                        return
             is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
             if len(label) > 1:
                 if label[1]=="title":
@@ -1035,7 +1041,7 @@ class Acts(TableBuilder, SentenceMaker):
        
         all_items = list(page.all_tbs.items())
         for idx, (tb, label) in enumerate(all_items):
-            if self.is_act_ended:
+            if self.is_act_ended and self.docend_symbol:
                 break
             if label == "header" or label == "footer" :
                continue

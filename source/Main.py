@@ -16,7 +16,7 @@ from .Utils import *
 from .FontMapper import DynamicFontMapper
 
 class Main:
-    def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes): #start,end,is_amendment_pdf,output_dir, pdf_type):
+    def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         self.pdf_path = pdfPath
         self.output_dir = output_dir
@@ -24,8 +24,9 @@ class Main:
         self.total_pgs = 0
         self.all_pgs = {}
         self.pdf_type = pdf_type  # Store pdf_type for later use
+        self.has_doc_end = has_doc_end
         if self.pdf_type == 'acts':
-            self.html_builder = self.get_htmlBuilder(pdf_type)
+            self.html_builder = self.get_htmlBuilder(pdf_type, self.has_doc_end)
         else:
             self.html_builder = self.get_htmlBuilder(pdf_type)
         self.is_amendment_pdf = is_amendment_pdf
@@ -38,7 +39,7 @@ class Main:
         self.fontmapper = DynamicFontMapper(self.pdf_path, out_dir=self.output_dir)
         # self.fontmapper.extract_fonts()
         
-    def get_htmlBuilder(self, pdf_type):
+    def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
@@ -47,7 +48,7 @@ class Main:
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-')
-            return Acts(sentence_completion_punctutation, pdf_type)
+            return Acts(sentence_completion_punctutation, pdf_type, docend_symbol)
         else:
             sentence_completion_punctutation = ('.', ':')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
@@ -1020,6 +1021,8 @@ def get_arg_parser():
                         required=False, default=None, help = 'if requires, set char margin threshold for pdf miner')
     parser.add_argument('-wm', '--word-margin', dest='word_margin', action='store', \
                         required=False, default=None, help = 'if requires, set word margin threshold for pdf miner')
+    parser.add_argument('-de', '--doc-end', dest = 'has_doc_end', action = 'store_true', \
+                        required = False, default = False, help = 'mention if pdf has document end symbol (---)')
     return parser
 
 
@@ -1075,7 +1078,8 @@ if __name__ == "__main__":
     has_sidenotes = args.has_sidenotes
     logger.debug(f"Is the pdf contains side notes - {"Yes" if has_sidenotes else "No"}")
     output_dir = args.output_dir
-    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, has_sidenotes)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
+    has_doc_end = args.has_doc_end
+    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, has_sidenotes, has_doc_end)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
