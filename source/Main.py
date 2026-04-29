@@ -7,6 +7,8 @@ import re
 import codecs
 import logging
 import shutil
+
+from .JudgmentBuilder import JudgmentBuilder
 from .ParserTool import ParserTool
 from .Page import Page, SectionState
 from .HTMLBuilder import HTMLBuilder
@@ -49,6 +51,9 @@ class Main:
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-')
             return Acts(sentence_completion_punctutation, pdf_type, docend_symbol)
+        elif pdf_type == 'judgments':
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";')
+            return JudgmentBuilder(sentence_completion_punctutation, pdf_type)
         else:
             sentence_completion_punctutation = ('.', ':')
             return HTMLBuilder(sentence_completion_punctutation, pdf_type)
@@ -112,7 +117,24 @@ class Main:
             # page.print_levels()
             page.print_all()
             # page.print_tbs()
-            
+    
+    def process_pages_judgments(self, pdf_type):
+        for page in self.all_pgs.values():
+            self.logger.info(f"Processing page num-{page.pg_num}")
+            page.get_width_ofTB_moreThan_Half_of_pg()
+            page.get_body_width_by_binning()
+            # page.is_single_column_page = page.is_single_column_page()
+            # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
+            # print(page.is_single_column_page)
+            page.get_italic_blockquotes(pdf_type)
+            self.amendment.check_for_blockquotes(page)
+            # page.get_titles(pdf_type)
+            # page.get_bulletins(self.section_state)
+            page.sort_all_boxes()
+            # page.print_headers()
+            # page.print_footers()
+            page.print_all()
+    
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
@@ -161,7 +183,7 @@ class Main:
             page.get_figures()#pg)
             page.label_table_tbs()
 
-            page.line_based_header_footer_detection()
+            # page.line_based_header_footer_detection()
         # Run adaptive header/footer detection
         self.logger.info("Starting adaptive header/footer detection...")
         self.adaptive_header_footer_detection(pages, self.pdf_type)
@@ -796,34 +818,168 @@ class Main:
                     
         return False
 
+    # def _apply_adaptive_headers_footers(self):
+    #     try:
+    #         # Apply headers
+    #         for header_group in self.adaptive_headers:
+    #             for element in header_group['elements']:
+    #                 page_num = element['page_num']
+    #                 textbox = element['textbox']
+                    
+    #                 if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
+    #                     self.all_pgs[page_num].all_tbs[textbox] = "header"
+    #                     self.logger.debug("Applied adaptive header on page %d: '%s'", 
+    #                                     page_num, element['text'][:50])
+            
+    #         # Apply footers
+    #         for footer_group in self.adaptive_footers:
+    #             for element in footer_group['elements']:
+    #                 page_num = element['page_num']
+    #                 textbox = element['textbox']
+                    
+    #                 if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
+    #                     self.all_pgs[page_num].all_tbs[textbox] = "footer"
+    #                     self.logger.debug("Applied adaptive footer on page %d: '%s'", 
+    #                                     page_num, element['text'][:50])
+            
+    #         self.logger.info("Successfully applied adaptive headers and footers to pages")
+            
+    #     except Exception as e:
+    #         self.logger.exception("Error applying adaptive headers and footers: %s", e)
+    
+
+    def get_pages_excluding_first(self, elements):
+        return {e['page_num'] for e in elements if e['page_num'] != 1}
+
+
+    def sort_groups(self, groups):
+        if not groups:
+            return []
+        return sorted(
+            groups,
+            key=lambda g: g.get("occurrence_rate", 0),
+            reverse=True
+        )
+
+
+    def get_top_k_groups(self, groups, k, min_occ=0.5):
+        if not groups:
+            return []
+
+        groups = self.sort_groups(groups)
+
+        # filter by occurrence threshold
+        groups = [g for g in groups if g.get("occurrence_rate", 0) >= min_occ]
+
+        return groups[:k]
+
+
+    def compute_group_score(self, groups, k=2):
+        if not groups:
+            return 0, set()
+
+        groups = self.sort_groups(groups)[:k]
+
+        total_score = 0
+        all_pages = set()
+
+        for g in groups:
+            pages = self.get_pages_excluding_first(g['elements'])
+            coverage = len(pages)
+            occ = g.get("occurrence_rate", 0)
+
+            total_score += occ * coverage
+            all_pages.update(pages)
+
+        return total_score, all_pages
+
+
+
+    def resolve_header_footer(self, header_groups, footer_groups, k):
+
+        if not header_groups and not footer_groups:
+            return False, False
+
+        if not header_groups:
+            return False, True
+
+        if not footer_groups:
+            return True, False
+
+        # ---- aggregate signals ----
+        h_score, h_pages = self.compute_group_score(header_groups, k)
+        f_score, f_pages = self.compute_group_score(footer_groups, k)
+
+        h_count = len(h_pages)
+        f_count = len(f_pages)
+
+        # -------- CASE 1: Equal coverage --------
+        if h_count == f_count:
+            if h_score > 0 and f_score > 0:
+                return True, True
+            return False, False
+
+        # -------- CASE 2: Unequal coverage --------
+        if h_count > f_count:
+            return True, False
+        else:
+            return False, True
+
+
+    # -------------------------------
+    # Apply (Top-K groups)
+    # -------------------------------
+
+    def apply_groups(self, groups, label):
+        for group in groups:
+            for element in group['elements']:
+
+                page_num = element['page_num']
+                textbox = element['textbox']
+
+                if (
+                    page_num in self.all_pgs and
+                    textbox in self.all_pgs[page_num].all_tbs
+                ):
+                    self.all_pgs[page_num].all_tbs[textbox] = label
+
+
+    # -------------------------------
+    # Main Entry
+    # -------------------------------
+
+    def get_adaptive_k(self):
+        total_pages = len(self.all_pgs)
+
+        if total_pages < 3:
+            return 1
+
+        return min(max(1, total_pages // 3), 5)
+
     def _apply_adaptive_headers_footers(self):
         try:
-            # Apply headers
-            for header_group in self.adaptive_headers:
-                for element in header_group['elements']:
-                    page_num = element['page_num']
-                    textbox = element['textbox']
-                    
-                    if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
-                        self.all_pgs[page_num].all_tbs[textbox] = "header"
-                        self.logger.debug("Applied adaptive header on page %d: '%s'", 
-                                        page_num, element['text'][:50])
-            
-            # Apply footers
-            for footer_group in self.adaptive_footers:
-                for element in footer_group['elements']:
-                    page_num = element['page_num']
-                    textbox = element['textbox']
-                    
-                    if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
-                        self.all_pgs[page_num].all_tbs[textbox] = "footer"
-                        self.logger.debug("Applied adaptive footer on page %d: '%s'", 
-                                        page_num, element['text'][:50])
-            
-            self.logger.info("Successfully applied adaptive headers and footers to pages")
-            
+            K = self.get_adaptive_k()
+
+            # Step 1: Decision using aggregated top-K
+            use_header, use_footer = self.resolve_header_footer(
+                self.adaptive_headers,
+                self.adaptive_footers,
+                K
+            )
+
+            # Step 2: Apply only strong top-K groups
+            if use_header:
+                top_headers = self.get_top_k_groups(self.adaptive_headers, K)
+                self.apply_groups(top_headers, "header")
+
+            if use_footer:
+                top_footers = self.get_top_k_groups(self.adaptive_footers, K)
+                self.apply_groups(top_footers, "footer")
+
+            self.logger.info("Adaptive header/footer applied successfully")
+
         except Exception as e:
-            self.logger.exception("Error applying adaptive headers and footers: %s", e)
+            self.logger.exception("Error applying adaptive headers/footers: %s", e)
     
     def get_path_cache_xml(self):
         current_file = Path(__file__).resolve()       
@@ -874,6 +1030,8 @@ class Main:
                 self.process_pages_acts(pdf_type)
             elif pdf_type == 'sebi':
                 self.process_pages_sebi(pdf_type)
+            elif pdf_type == 'judgments':
+                self.process_pages_judgments(pdf_type) 
             else:
                 self.process_pages(pdf_type)
             self.logger.info("Finished Processing of pages for: %s", self.pdf_path)

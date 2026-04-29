@@ -469,7 +469,7 @@ class Page:
         for tb, label in self.all_tbs.items():
             if label is not None:
                 continue
-            if tb.textFont_is_italic(pdf_type):
+            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9]+\)?[.)]', tb.extract_text_from_tb().strip()):
                 self.all_tbs[tb] = ('italic', 'blockquote')
 
     def print_section_para(self):
@@ -1125,23 +1125,27 @@ class Page:
         for line in self.page_in_xml.findall(".//line"):
             bbox = tuple(map(float, line.attrib["bbox"].split(",")))
             x0, y0, x1, y1 = bbox
-
-            if (y0 == y1) and not self.is_table_line(bbox):
+            line_width = abs(x1 - x0)
+            if (y0 == y1) and line_width > 0.7*self.pg_width and not self.is_table_line(bbox):
                 probable_lines.append(y1)
 
         for curve in self.page_in_xml.findall(".//curve"):
             bbox = tuple(map(float, curve.attrib["bbox"].split(",")))
 
             if self.is_line_like(bbox) and not self.is_table_line(bbox):
-                _, y0, _, y1 = bbox
-                probable_lines.append(max(y0, y1))
+                x0, y0, x1, y1 = bbox
+                line_width = abs(x1 - x0)
+                if line_width > 0.7*self.pg_width:
+                    probable_lines.append(max(y0, y1))
 
         for rect in self.page_in_xml.findall(".//rect"):
             bbox = tuple(map(float, rect.attrib["bbox"].split(",")))
 
             if self.is_line_like(bbox) and not self.is_table_line(bbox):
-                _, y0, _, y1 = bbox
-                probable_lines.append(max(y0, y1))
+                x0, y0, x1, y1 = bbox
+                line_width = abs(x1 - x0)
+                if line_width > 0.7*self.pg_width:
+                    probable_lines.append(max(y0, y1))
 
         if not probable_lines:
             return

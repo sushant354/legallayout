@@ -153,6 +153,7 @@ class Amendment:
                             (
                                  text.startswith('"') and (
                                     text.lower().endswith('(emphasis supplied)') or
+                                    text.lower().endswith('[emphasis supplied]') or
                                     text.endswith('".') or
                                     text.endswith('";') or
                                     text.endswith('…"') or 
@@ -162,12 +163,25 @@ class Amendment:
                                     text.lower().endswith('…"(emphasis supplied)') or
                                     text.lower().endswith('."(emphasis supplied)') or
                                     text.lower().endswith(';"(emphasis supplied)') or
+                                    
+                                    text.lower().endswith('…" [emphasis supplied]') or
+                                    text.lower().endswith('." [emphasis supplied]') or
+                                    text.lower().endswith(';" [emphasis supplied]') or
+                                    text.lower().endswith('…"[emphasis supplied]') or
+                                    text.lower().endswith('."[emphasis supplied]') or
+                                    text.lower().endswith(';"[emphasis supplied]') or
+
                                     text.endswith('."') or
                                     text.endswith(';"') or
                                     text.lower().endswith('". (emphasis supplied)') or
                                     text.lower().endswith('"; (emphasis supplied)') or
                                     text.lower().endswith('".(emphasis supplied)') or
                                     text.lower().endswith('";(emphasis supplied)') or
+
+                                    text.lower().endswith('". [emphasis supplied]') or
+                                    text.lower().endswith('"; [emphasis supplied]') or
+                                    text.lower().endswith('".[emphasis supplied]') or
+                                    text.lower().endswith('";[emphasis supplied]') or
                                     text.endswith('"')
                                 )
                             )
@@ -175,6 +189,7 @@ class Amendment:
                             (
                                 text.startswith("'") and (
                                     text.lower().endswith('(emphasis supplied)') or
+                                    text.lower().endswith('[emphasis supplied]') or
                                     text.endswith("'.") or
                                     text.endswith("';") or
                                     text.endswith("…'") or 
@@ -184,10 +199,19 @@ class Amendment:
                                     text.lower().endswith("…'(emphasis supplied)") or
                                     text.lower().endswith(".'(emphasis supplied)") or
                                     text.lower().endswith(";'(emphasis supplied)") or
+                                    
+                                    text.lower().endswith("…' [emphasis supplied]") or 
+                                    text.lower().endswith(".' [emphasis supplied]") or 
+                                    text.lower().endswith(";' [emphasis supplied]") or 
+                                    text.lower().endswith("…'[emphasis supplied]") or 
+                                    text.lower().endswith(".'[emphasis supplied]") or 
+                                    text.lower().endswith(";'[emphasis supplied]") or
                                     text.endswith(".'") or
                                     text.endswith(";'") or
                                     text.lower().endswith("'.(emphasis supplied)") or
                                     text.lower().endswith("';(emphasis supplied)") or
+                                    text.lower().endswith("'.[emphasis supplied]") or
+                                    text.lower().endswith("';[emphasis supplied]") or
                                     text.endswith("'")
                                 )
                             )
@@ -211,26 +235,46 @@ class Amendment:
                         page.all_tbs[tb] = 'blockquote'
             
                     # Check for closing quote
-                    elif self.quote_stack and self.quote_stack[-1] == '"' and doubleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
+                    elif self.quote_stack and self.quote_stack[-1] == '"' and doubleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or
+                                               text.lower().endswith('[emphasis supplied]') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
                                                text.lower().endswith(self.quote_stack[-1] + "." + " (emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + " (emphasis supplied)") or\
-                                               text.lower().endswith(self.quote_stack[-1] + "." + "(emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + "(emphasis supplied)")\
+                                               text.lower().endswith(self.quote_stack[-1] + "." + "(emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + "(emphasis supplied)") or \
+
+                                               text.lower().endswith(self.quote_stack[-1] + "." + " [emphasis supplied]") or text.lower().endswith(self.quote_stack[-1] + ";" + " [emphasis supplied]") or\
+                                               text.lower().endswith(self.quote_stack[-1] + "." + "[emphasis supplied]") or text.lower().endswith(self.quote_stack[-1] + ";" + "[emphasis supplied]")\
+                                                
                                                or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1]) or \
                                                text.lower().endswith("."+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ " (emphasis supplied)") or \
                                                text.lower().endswith("."+self.quote_stack[-1]+ "(emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ "(emphasis supplied)") or \
                                                text.lower().endswith("…"+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith("…"+self.quote_stack[-1]+ "(emphasis supplied)") or text.endswith("…"+self.quote_stack[-1]) or \
+                                               
+                                               text.lower().endswith("."+self.quote_stack[-1]+ " [emphasis supplied]") or text.lower().endswith(";"+self.quote_stack[-1]+ " [emphasis supplied]") or \
+                                               text.lower().endswith("."+self.quote_stack[-1]+ "[emphasis supplied]") or text.lower().endswith(";"+self.quote_stack[-1]+ "[emphasis supplied]") or \
+                                               text.lower().endswith("…"+self.quote_stack[-1]+ " [emphasis supplied]") or text.lower().endswith("…"+self.quote_stack[-1]+ "[emphasis supplied]") or text.endswith("…"+self.quote_stack[-1]) or \
                                                text.endswith(self.quote_stack[-1])
                                                ):
                         self.quote_stack.pop()
                         self.logger.debug(f"Detected closing quote on page {page.pg_num}. Popped from quote_stack.")
                         page.all_tbs[tb] = 'blockquote'
 
-                    elif self.quote_stack and self.quote_stack[-1] == "'" and singleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
+                    elif self.quote_stack and self.quote_stack[-1] == "'" and singleQuote_count%2!=0  and (text.lower().endswith('(emphasis supplied)') or 
+                                               text.lower().endswith('[emphasis supplied]') or text.endswith(self.quote_stack[-1] + ".") or text.endswith(self.quote_stack[-1] + ";") or \
                                                text.lower().endswith(self.quote_stack[-1] + "." + " (emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + " (emphasis supplied)") or\
-                                               text.lower().endswith(self.quote_stack[-1] + "." + "(emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + "(emphasis supplied)")\
+                                               text.lower().endswith(self.quote_stack[-1] + "." + "(emphasis supplied)") or text.lower().endswith(self.quote_stack[-1] + ";" + "(emphasis supplied)") or \
+                                               
+                                               text.lower().endswith(self.quote_stack[-1] + "." + " [emphasis supplied]") or text.lower().endswith(self.quote_stack[-1] + ";" + " [emphasis supplied]") or\
+                                               text.lower().endswith(self.quote_stack[-1] + "." + "[emphasis supplied]") or text.lower().endswith(self.quote_stack[-1] + ";" + "[emphasis supplied]")\
+                                               
                                                or  text.endswith("."+self.quote_stack[-1]) or  text.endswith(";"+self.quote_stack[-1]) or \
                                                text.lower().endswith("."+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ " (emphasis supplied)") or \
                                                text.lower().endswith("."+self.quote_stack[-1]+ "(emphasis supplied)") or text.lower().endswith(";"+self.quote_stack[-1]+ "(emphasis supplied)") or \
                                                text.lower().endswith("…"+self.quote_stack[-1]+ " (emphasis supplied)") or text.lower().endswith("…"+self.quote_stack[-1]+ "(emphasis supplied)") or text.endswith("…"+self.quote_stack[-1]) or \
+                                               
+                                               text.lower().endswith("."+self.quote_stack[-1]+ " [emphasis supplied]") or text.lower().endswith(";"+self.quote_stack[-1]+ " [emphasis supplied]") or \
+                                               text.lower().endswith("."+self.quote_stack[-1]+ "[emphasis supplied]") or text.lower().endswith(";"+self.quote_stack[-1]+ "[emphasis supplied]") or \
+                                               text.lower().endswith("…"+self.quote_stack[-1]+ " [emphasis supplied]") or text.lower().endswith("…"+self.quote_stack[-1]+ "[emphasis supplied]") or text.endswith("…"+self.quote_stack[-1]) or \
+                                               
+                                            
                                                text.endswith(self.quote_stack[-1])
                                                ):
                         self.quote_stack.pop()
