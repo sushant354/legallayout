@@ -11,10 +11,17 @@ class ParserTool:
             cmd.append(flag)
             cmd.append(value)
             return 
-        if pdf_type == 'sebi' and value is None:
+        elif pdf_type == 'sebi' and value is None:
             cmd.append("--char-margin")
             cmd.append("25.0")
             return
+        elif pdf_type == 'judgments' and value is None:
+            cmd.append("--char-margin")
+            cmd.append("3.0")
+            cmd.append("--line-margin")
+            cmd.append("0.2")
+            return
+        
 
     def convert_to_xml(self,pdf_path, xml_path, pdf_type, \
                        char_margin, word_margin, line_margin):

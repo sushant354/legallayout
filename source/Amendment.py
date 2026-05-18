@@ -1,4 +1,7 @@
 import logging
+import re
+import unicodedata
+from collections import deque
 
 class Amendment:
     def __init__(self):
@@ -288,4 +291,361 @@ class Amendment:
                 
                 except Exception as e:
                     self.logger.error(f"Error while processing blockquote logic on page {page_num}: {e}")
-                    
+    
+
+    # def check_for_blockquotes_judgments(self, page):
+    #     """
+    #     PRODUCTION-GRADE BLOCKQUOTE DETECTOR (LAYOUT-FIRST)
+
+    #     Works on:
+    #     - fragmented PDF textboxes
+    #     - multi-box rows
+    #     - horizontal splits
+    #     - unlabeled regions only
+
+    #     Does NOT use:
+    #     - trigger words
+    #     - full-text offsets
+    #     - section trees
+
+    #     Only:
+    #     - punctuation cues
+    #     - geometry
+    #     - reading order
+    #     """
+
+    #     import re
+
+    #     # =========================
+    #     # STATE
+    #     # =========================
+    #     if not hasattr(self, "bq_active"):
+    #         self.bq_active = False
+    #     if not hasattr(self, "bq_count"):
+    #         self.bq_count = 0
+
+    #     # =========================
+    #     # CLEAN TEXT
+    #     # =========================
+    #     def clean(t):
+    #         t = (t or "").strip()
+    #         t = t.replace("“", '"').replace("”", '"')
+    #         t = t.replace("‘", "'").replace("’", "'")
+    #         t = re.sub(r"\s+", " ", t)
+    #         return t.strip()
+
+    #     # =========================
+    #     # BBOX HELPERS
+    #     # =========================
+    #     def bbox(tb):
+    #         return getattr(tb, "x0", 0), getattr(tb, "y0", 0), getattr(tb, "x1", 0), getattr(tb, "y1", 0)
+
+    #     def same_row(a, b, tol=3):
+    #         ax0, ay0, ax1, ay1 = bbox(a)
+    #         bx0, by0, bx1, by1 = bbox(b)
+    #         return abs((ay0 + ay1)/2 - (by0 + by1)/2) <= tol
+
+    #     # =========================
+    #     # PUNCTUATION STARTER
+    #     # =========================
+    #     def is_starter(txt):
+    #         txt = txt.strip()
+
+    #         return (
+    #             re.search(r':\s*$', txt) or
+    #             re.search(r':-\s*$', txt) or
+    #             re.search(r'::\s*$', txt) or
+    #             re.search(r'--\s*$', txt) or
+    #             re.search(r';\s*$', txt) or
+    #             re.match(r'^:+.*:+$', txt)
+    #         )
+
+    #     # =========================
+    #     # PARAGRAPH / STOP RULES
+    #     # =========================
+    #     def is_new_paragraph(txt):
+    #         return bool(re.match(r'^(\d+[\.\)]|[ivxlcdm]+[\.\)]|[A-Za-z]\))\s+', txt))
+
+    #     def is_heading(txt):
+    #         if len(txt) < 4:
+    #             return True
+    #         if txt.isupper() and len(txt.split()) <= 8:
+    #             return True
+    #         return False
+
+    #     def sentence_end(txt):
+    #         return bool(re.search(r'[.!?]["\']?\s*$', txt))
+
+    #     # =========================
+    #     # STEP 1: collect UNLABELED boxes only
+    #     # =========================
+    #     boxes = []
+
+    #     for tb in page.all_tbs.keys():
+
+    #         # IMPORTANT: skip pre/table/header already labeled
+    #         if page.all_tbs[tb] is not None:
+    #             continue
+
+    #         try:
+    #             txt = clean(tb.extract_text_from_tb())
+    #         except:
+    #             continue
+
+    #         if not txt:
+    #             continue
+
+    #         x0, y0, x1, y1 = bbox(tb)
+
+    #         boxes.append({
+    #             "tb": tb,
+    #             "text": txt,
+    #             "x0": x0,
+    #             "y0": y0,
+    #             "x1": x1,
+    #             "y1": y1
+    #         })
+
+    #     if not boxes:
+    #         return
+
+    #     # =========================
+    #     # STEP 2: reading order sort
+    #     # =========================
+    #     boxes.sort(key=lambda b: (-b["y0"], b["x0"]))
+
+    #     # =========================
+    #     # STEP 3: ROW CLUSTERING (critical)
+    #     # =========================
+    #     rows = []
+    #     used = [False] * len(boxes)
+
+    #     for i in range(len(boxes)):
+
+    #         if used[i]:
+    #             continue
+
+    #         group = [boxes[i]]
+    #         used[i] = True
+
+    #         for j in range(i + 1, len(boxes)):
+    #             if used[j]:
+    #                 continue
+
+    #             if same_row(boxes[i]["tb"], boxes[j]["tb"]):
+    #                 group.append(boxes[j])
+    #                 used[j] = True
+
+    #         group.sort(key=lambda b: b["x0"])
+
+    #         row_text = clean(" ".join(g["text"] for g in group))
+
+    #         rows.append({
+    #             "boxes": group,
+    #             "text": row_text
+    #         })
+
+    #     # top → bottom
+    #     rows.sort(key=lambda r: -r["boxes"][0]["y0"])
+
+    #     # =========================
+    #     # STEP 4: BLOCKQUOTE DETECTION
+    #     # =========================
+    #     i = 0
+
+    #     while i < len(rows):
+
+    #         row = rows[i]
+    #         txt = row["text"]
+
+    #         # ----------------------------------
+    #         # START CONDITION
+    #         # ----------------------------------
+    #         if is_starter(txt):
+    #             self.bq_active = True
+    #             self.bq_count = 0
+    #             i += 1
+    #             continue
+
+    #         # ----------------------------------
+    #         # ACTIVE MODE
+    #         # ----------------------------------
+    #         if self.bq_active:
+
+    #             # stop conditions
+    #             if is_heading(txt):
+    #                 self.bq_active = False
+    #                 i += 1
+    #                 continue
+
+    #             if is_new_paragraph(txt):
+    #                 self.bq_active = False
+    #                 i += 1
+    #                 continue
+
+    #             # ignore noise / pre fragments
+    #             words = txt.split()
+    #             if len(words) <= 1 and len(txt) < 10:
+    #                 self.bq_active = False
+    #                 i += 1
+    #                 continue
+
+    #             # mark ALL boxes in row
+    #             for b in row["boxes"]:
+    #                 page.all_tbs[b["tb"]] = "blockquote"
+
+    #             self.bq_count += 1
+
+    #             # natural stop
+    #             if self.bq_count >= 3 and sentence_end(txt):
+    #                 self.bq_active = False
+
+    #             # safety cap
+    #             if self.bq_count >= 20:
+    #                 self.bq_active = False
+
+    #         i += 1
+
+
+
+    def check_for_blockquotes_judgments(self, page):
+        """
+        FORWARD PROPAGATION BLOCKQUOTE LABELER
+
+        RULE:
+        - if a line ends with ':' or ':-'
+        - next rows become blockquote
+        - stop on heading / paragraph / strong break
+        """
+
+        import re
+        import unicodedata
+
+        def normalize(t):
+            if not t:
+                return ""
+            t = unicodedata.normalize("NFKC", t)
+            t = t.replace("।", ".").replace("॥", ".")
+            t = re.sub(r"\s+", " ", t).strip()
+            return t
+
+        def bbox(tb):
+            return getattr(tb, "x0", 0), getattr(tb, "y0", 0), getattr(tb, "x1", 0), getattr(tb, "y1", 0)
+
+        def same_row(a, b, tol=3):
+            ax0, ay0, ax1, ay1 = bbox(a)
+            bx0, by0, bx1, by1 = bbox(b)
+            return abs(((ay0 + ay1) / 2) - ((by0 + by1) / 2)) <= tol
+
+        # ----------------------------
+        # STOP CONDITIONS
+        # ----------------------------
+        def is_stop(txt):
+            return (
+                len(txt.strip()) < 3 or
+                txt.isupper() or
+                bool(re.match(r"^\d+[\.\)]\s", txt))  # paragraph restart
+            )
+
+        # ----------------------------
+        # TRIGGER CONDITION
+        # ----------------------------
+        def is_trigger(txt):
+            return bool(re.search(r":\s*$|:-\s*$", txt))
+
+        # =========================
+        # COLLECT ONLY UNLABELED
+        # =========================
+        boxes = []
+
+        for tb in page.all_tbs.keys():
+
+            if page.all_tbs[tb] is not None:
+                continue
+
+            try:
+                txt = normalize(tb.extract_text_from_tb())
+            except:
+                continue
+
+            if not txt:
+                continue
+
+            x0, y0, x1, y1 = bbox(tb)
+
+            boxes.append({
+                "tb": tb,
+                "text": txt,
+                "x0": x0,
+                "y0": y0
+            })
+
+        if not boxes:
+            return
+
+        boxes.sort(key=lambda b: (-b["y0"], b["x0"]))
+
+        # =========================
+        # ROW GROUPING
+        # =========================
+        rows = []
+        used = set()
+
+        for i in range(len(boxes)):
+            if i in used:
+                continue
+
+            group = [boxes[i]]
+            used.add(i)
+
+            for j in range(i + 1, len(boxes)):
+                if j in used:
+                    continue
+                if same_row(boxes[i]["tb"], boxes[j]["tb"]):
+                    group.append(boxes[j])
+                    used.add(j)
+
+            group.sort(key=lambda b: b["x0"])
+
+            rows.append({
+                "boxes": group,
+                "text": normalize(" ".join(g["text"] for g in group))
+            })
+
+        rows.sort(key=lambda r: -r["boxes"][0]["y0"])
+
+        # =========================
+        # FORWARD LABELING ENGINE
+        # =========================
+        active = False
+
+        for row in rows:
+            txt = row["text"]
+
+            if not txt:
+                continue
+
+            # -------------------------
+            # TRIGGER → START PROPAGATION
+            # -------------------------
+            if is_trigger(txt):
+                active = True
+
+                # also label trigger row itself if needed
+                for b in row["boxes"]:
+                    page.all_tbs[b["tb"]] = "blockquote"
+
+                continue
+
+            # -------------------------
+            # APPLY LABEL IF ACTIVE
+            # -------------------------
+            if active:
+
+                if is_stop(txt):
+                    active = False
+                    continue
+
+                for b in row["boxes"]:
+                    page.all_tbs[b["tb"]] = "blockquote"
+        

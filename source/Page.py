@@ -1,13 +1,14 @@
 from sklearn.cluster import DBSCAN
 from sklearn.cluster import KMeans
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import numpy as np
 import re
 import logging
+import pandas as pd
 
 
 from .TextBox import TextBox
-from .TableExtraction import TableExtraction
+from .TableExtraction import TableExtraction, TableExtractionJudgments
 from .CompareLevel import CompareLevel, CompareLevelSebi
 from .NormalizeText import NormalizeText
 from .Figure import Figure,Pictures
@@ -40,7 +41,10 @@ class Page:
         self.pdf_type = pdf_type
         self.is_amendment_pdf = is_amendment_pdf
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, output_dir)
-        self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
+        if pdf_type == 'acts':
+            self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
+        else:
+            self.tabular_datas = TableExtractionJudgments(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
         self.font_mapper = font_mapper
     
@@ -1043,6 +1047,58 @@ class Page:
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to label textbox '{tb}' for table {idx} -- {e}")
 
+        if self.pdf_type != 'acts':
+            for idx in self.tabular_datas.table_bbox.keys():
+                try:
+                    rows = self.tabular_datas.table_shape[idx]["rows"]
+                    cols = self.tabular_datas.table_shape[idx]["cols"]
+
+                    # empty dataframe
+                    df = pd.DataFrame(
+                        [["" for _ in range(cols)] for _ in range(rows)]
+                    )
+
+                    table_cells = self.tabular_datas.table_cells[idx]
+
+                    # fill cells using labelled textboxes
+                    for tb in self.all_tbs.keys():
+
+                        # if self.all_tbs[tb] != ("table", idx):
+                        #     continue
+
+                        for cell in table_cells:
+
+                            if self.bbox_satisfies(
+                                tb.coords,
+                                cell["bbox"]
+                            ):
+
+                                r = cell["row_index"]
+                                c = cell["col_index"]
+
+                                old_val = str(df.iat[r, c]).strip()
+                                new_val = tb.text.strip()
+
+                                if old_val:
+                                    df.iat[r, c] = old_val + " " + new_val
+                                else:
+                                    df.iat[r, c] = new_val
+
+                                break
+
+                    # store dataframe
+                    self.tabular_datas.tables[idx] = df
+
+                    self.logger.debug(
+                        f"Page {self.pg_num}: Built dataframe for table {idx}"
+                    )
+
+                except Exception as e:
+                    self.logger.warning(
+                        f"Page {self.pg_num}: Failed dataframe build "
+                        f"for table {idx} -- {e}"
+                    )
+
     def get_bulletins(self, sectionState):
         normalize_text = NormalizeText().normalize_text
         hierarchy_type = ("level1","level2","level3","level4","level5")
@@ -1242,3 +1298,400 @@ class Page:
             if self.bbox_satisfies(coords,tab_bbox):
                 return True
         return False
+    
+    # def get_judgments_pre(self):
+    #     """
+    #     Production-grade PRE detector.
+
+    #     Detects:
+    #         - sparse structured rows
+    #         - signature / approval blocks
+    #         - detached metadata regions
+    #         - floating sparse text blocks
+
+    #     Avoids:
+    #         - numbered legal paragraphs
+    #         - bullet lists
+    #         - dense prose
+    #         - false positives from split PDF textboxes
+
+    #     Core idea:
+    #         reconstruct visual rows first, then classify.
+    #     """
+
+    #     # ===============================================================
+    #     # CONFIG
+    #     # ===============================================================
+
+    #     PAGE_W = float(self.pg_width)
+
+    #     ROW_PRE_THRESHOLD = 4.0
+    #     BLOCK_PRE_THRESHOLD = 4.0
+
+    #     GAP_RATIO = 0.075
+    #     LARGE_GAP = PAGE_W * GAP_RATIO
+
+    #     HALF = PAGE_W * 0.50
+
+    #     # ===============================================================
+    #     # HELPERS
+    #     # ===============================================================
+
+    #     def parse_bbox(elem):
+    #         try:
+    #             return tuple(map(float, elem.attrib["bbox"].split(",")))
+    #         except:
+    #             return None
+
+    #     def norm(txt):
+    #         return re.sub(r"\s+", " ", txt).strip()
+
+    #     def extract_textline(tl):
+    #         arr = []
+
+    #         for t in tl.findall(".//text"):
+    #             if t.text:
+    #                 arr.append(t.text)
+
+    #         return norm("".join(arr))
+
+    #     def extract_textbox(tb):
+
+    #         vals = []
+
+    #         for tl in tb.tbox.findall(".//textline"):
+
+    #             txt = extract_textline(tl)
+
+    #             if txt:
+    #                 vals.append(txt)
+
+    #         return norm(" ".join(vals))
+
+    #     def wc(txt):
+    #         return len(txt.split())
+
+    #     def sentence_end(txt):
+    #         return bool(re.search(r"[.!?;:]\s*$", txt))
+
+    #     # ===============================================================
+    #     # BULLET / ENUMERATION DETECTOR
+    #     # ===============================================================
+
+    #     roman = r"""
+    #     (?:
+    #         C|XC|XL|L?X{0,3}
+    #     )
+    #     (?:
+    #         IX|IV|V?I{0,3}
+    #     )
+    #     """
+
+    #     bullet_pat = re.compile(
+    #         rf"""
+    #         ^
+    #         \s*
+    #         (
+    #             (\(?\d{{1,3}}\)?|\[\d{{1,3}}\])
+    #             |
+    #             (\(?[A-Za-z]{{1,3}}\)?|\[[A-Za-z]{{1,3}}\])
+    #             |
+    #             (\(?{roman}\)?|\[{roman}\])
+    #         )
+    #         [\.\)\]:-]
+    #         \s*
+    #         """,
+    #         re.VERBOSE | re.IGNORECASE
+    #     )
+
+    #     # ===============================================================
+    #     # PASS 1 : COLLECT ALL TEXTLINES
+    #     # ===============================================================
+
+    #     rows = []
+
+    #     for tb, label in self.all_tbs.items():
+
+    #         if label is not None:
+    #             continue
+
+    #         for tl in tb.tbox.findall(".//textline"):
+
+    #             bb = parse_bbox(tl)
+
+    #             if not bb:
+    #                 continue
+
+    #             txt = extract_textline(tl)
+
+    #             if not txt:
+    #                 continue
+
+    #             x0, y0, x1, y1 = bb
+
+    #             rows.append({
+    #                 "tb": tb,
+    #                 "text": txt,
+    #                 "x0": x0,
+    #                 "x1": x1,
+    #                 "y0": y0,
+    #                 "y1": y1,
+    #                 "width": x1 - x0,
+    #                 "height": y1 - y0
+    #             })
+
+    #     if not rows:
+    #         return
+
+    #     # ===============================================================
+    #     # PASS 2 : RECONSTRUCT VISUAL ROWS ACROSS TEXTBOXES
+    #     # ===============================================================
+
+    #     groups = defaultdict(list)
+
+    #     for r in rows:
+    #         key = round(r["y0"], 1)
+    #         groups[key].append(r)
+
+    #     # ===============================================================
+    #     # PASS 3 : BLOCK ALL BULLET ROWS
+    #     # ===============================================================
+
+    #     blocked_boxes = set()
+
+    #     for _, items in groups.items():
+
+    #         items.sort(key=lambda z: z["x0"])
+
+    #         merged = norm(
+    #             " ".join(x["text"] for x in items)
+    #         )
+
+    #         if bullet_pat.match(merged):
+
+    #             for x in items:
+    #                 blocked_boxes.add(x["tb"])
+
+    #     # ===============================================================
+    #     # PASS 4 : ROW LEVEL PRE DETECTION
+    #     # ===============================================================
+
+    #     for _, items in groups.items():
+
+    #         usable = [
+    #             x for x in items
+    #             if x["tb"] not in blocked_boxes
+    #         ]
+
+    #         if len(usable) < 2:
+    #             continue
+
+    #         usable.sort(key=lambda z: z["x0"])
+
+    #         joined = norm(
+    #             " ".join(x["text"] for x in usable)
+    #         )
+
+    #         score = 0.0
+
+    #         # -----------------------------------------------------------
+    #         # gap features
+    #         # -----------------------------------------------------------
+
+    #         gaps = []
+
+    #         for prev, cur in zip(usable, usable[1:]):
+
+    #             g = cur["x0"] - prev["x1"]
+
+    #             if g > 0:
+    #                 gaps.append(g)
+
+    #         if gaps:
+
+    #             mx = max(gaps)
+    #             av = sum(gaps) / len(gaps)
+
+    #             if mx > LARGE_GAP:
+    #                 score += 2.0
+
+    #             if av > LARGE_GAP * 0.65:
+    #                 score += 1.0
+
+    #         # -----------------------------------------------------------
+    #         # occupancy
+    #         # -----------------------------------------------------------
+
+    #         occupied = sum(x["width"] for x in usable)
+
+    #         if occupied / PAGE_W < 0.45:
+    #             score += 1.5
+
+    #         # -----------------------------------------------------------
+    #         # multi anchor columns
+    #         # -----------------------------------------------------------
+
+    #         anchors = {
+    #             round(x["x0"] / 25)
+    #             for x in usable
+    #         }
+
+    #         if len(anchors) >= 2:
+    #             score += 1.0
+
+    #         # -----------------------------------------------------------
+    #         # short sparse content
+    #         # -----------------------------------------------------------
+
+    #         if wc(joined) <= 18:
+    #             score += 0.75
+
+    #         # -----------------------------------------------------------
+    #         # not sentence prose
+    #         # -----------------------------------------------------------
+
+    #         if not sentence_end(joined):
+    #             score += 0.75
+
+    #         # -----------------------------------------------------------
+    #         # final row classify
+    #         # -----------------------------------------------------------
+
+    #         if score >= ROW_PRE_THRESHOLD:
+
+    #             for x in usable:
+    #                 self.all_tbs[x["tb"]] = "pre"
+
+    #     # ===============================================================
+    #     # PASS 5 : BLOCK LEVEL PRE DETECTION
+    #     # ===============================================================
+
+    #     for tb, label in self.all_tbs.items():
+
+    #         if label is not None:
+    #             continue
+
+    #         if tb in blocked_boxes:
+    #             continue
+
+    #         bb = parse_bbox(tb.tbox)
+
+    #         if not bb:
+    #             continue
+
+    #         x0, y0, x1, y1 = bb
+
+    #         width = x1 - x0
+    #         height = y1 - y0
+
+    #         txt = extract_textbox(tb)
+
+    #         if not txt:
+    #             continue
+
+    #         if bullet_pat.match(txt):
+    #             continue
+
+    #         lines = []
+
+    #         for tl in tb.tbox.findall(".//textline"):
+
+    #             t = extract_textline(tl)
+    #             b = parse_bbox(tl)
+
+    #             if t and b:
+
+    #                 lx0, ly0, lx1, ly1 = b
+
+    #                 lines.append({
+    #                     "text": t,
+    #                     "width": lx1 - lx0,
+    #                     "x0": lx0,
+    #                     "x1": lx1
+    #                 })
+
+    #         if not lines:
+    #             continue
+
+    #         score = 0.0
+
+    #         occupancy = width / PAGE_W
+    #         words = wc(txt)
+
+    #         # -----------------------------------------------------------
+    #         # narrow sparse block
+    #         # -----------------------------------------------------------
+
+    #         if occupancy < 0.45:
+    #             score += 1.75
+
+    #         # -----------------------------------------------------------
+    #         # floating left/right
+    #         # -----------------------------------------------------------
+
+    #         if x0 > PAGE_W * 0.55:
+    #             score += 1.5
+
+    #         elif x1 < PAGE_W * 0.45:
+    #             score += 1.25
+
+    #         # -----------------------------------------------------------
+    #         # stacked compact lines
+    #         # -----------------------------------------------------------
+
+    #         if 2 <= len(lines) <= 6:
+    #             score += 1.25
+
+    #         # -----------------------------------------------------------
+    #         # aligned widths
+    #         # -----------------------------------------------------------
+
+    #         widths = [l["width"] for l in lines]
+
+    #         if widths:
+
+    #             spread = max(widths) - min(widths)
+
+    #             if spread < PAGE_W * 0.18:
+    #                 score += 1.0
+
+    #         # -----------------------------------------------------------
+    #         # low word count
+    #         # -----------------------------------------------------------
+
+    #         if words <= 20:
+    #             score += 1.0
+
+    #         # -----------------------------------------------------------
+    #         # low density
+    #         # -----------------------------------------------------------
+
+    #         density = words / max(width, 1)
+
+    #         if density < 0.08:
+    #             score += 1.0
+
+    #         # -----------------------------------------------------------
+    #         # prose penalty
+    #         # -----------------------------------------------------------
+
+    #         if words > 40:
+    #             score -= 3.0
+
+    #         if occupancy > 0.75:
+    #             score -= 2.0
+
+    #         long_lines = sum(
+    #             1 for l in lines
+    #             if l["width"] > PAGE_W * 0.65
+    #         )
+
+    #         if long_lines >= 2:
+    #             score -= 2.0
+
+    #         # -----------------------------------------------------------
+    #         # final block classify
+    #         # -----------------------------------------------------------
+
+    #         if score >= BLOCK_PRE_THRESHOLD:
+    #             self.all_tbs[tb] = "pre"

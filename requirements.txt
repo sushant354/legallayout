@@ -7,3 +7,5 @@ numpy
 beautifulsoup4
 lxml
 fonttools
+pymupdf 
+pymupdf4llm
