@@ -27,7 +27,9 @@ class SectionState:
 
 
 class Page:
-    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, pdf_type, has_side_notes, is_amendment_pdf, font_mapper):
+    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, 
+                 pdf_type, has_side_notes, is_amendment_pdf, 
+                 font_mapper, unique_images):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.page_in_xml = pg
@@ -39,11 +41,12 @@ class Page:
         self.has_side_notes = has_side_notes
         self.pdf_type = pdf_type
         self.is_amendment_pdf = is_amendment_pdf
-        self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, output_dir)
+        self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, 
+                                output_dir, unique_images)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
         self.font_mapper = font_mapper
-    
+         
 
     # --- func for getting page coordinates, height, width ---
     def get_pg_coords(self,pg):
@@ -90,7 +93,7 @@ class Page:
             textBoxes = get_sorted_textboxes(tbs)
             for tb in textBoxes:
                 try:
-                    tb_obj = TextBox(tb, self.font_mapper)
+                    tb_obj = TextBox(tb, self.pdf_type, self.font_mapper)
                     text = tb_obj.extract_text_from_tb()
                     if text and text.strip():
                         self.all_tbs[tb_obj] = None
@@ -1114,6 +1117,84 @@ class Page:
             except Exception as e:
                 self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
                 continue
+    
+    def get_bulletins_sebi_circulars(self, sectionState):
+        normalize_text = NormalizeText().normalize_text
+        hierarchy_type = ("level1","level2","level3","level4","level5")
+        
+        # original
+        section_re = re.compile(
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            re.IGNORECASE
+        )
+
+        group_re = re.compile(
+            r'\s*('
+                r'(?:[A-z]{1,2}[.\)]|\([A-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
+                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+            r')(?!\w)',  # ensure not followed by alphanumeric (safety)
+        )
+
+        
+        for tb,label in self.all_tbs.items():
+            
+            if label == 'footnote':
+                break
+
+            if label is not None:
+                    continue
+            
+            # if label is not None and (isinstance(label,tuple) and label  not in (('italic', 'blockquote'),)):
+            #     continue
+            texts = tb.extract_text_from_tb().strip()
+            texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            try:
+                if not isinstance(label,list) and section_re.match(texts): 
+                    section_number = section_re.match(texts).group().split('.')[0].strip()
+                    sectionState.compare_obj = CompareLevelSebi(section_number, ARTICLE)
+                    sectionState.prev_value = section_number
+                    sectionState.prev_type = ARTICLE
+                    sectionState.curr_depth = 0
+                    self.all_tbs[tb] = hierarchy_type[0]
+                    self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
+                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    
+                    if check_inside:
+                        rest_text = check_inside.group(2).strip()
+                        match = group_re.match(rest_text)
+                        if match:
+                            group =match.group(1).strip()
+                            valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth, sectionState.prev_value, group, sectionState.prev_type)
+                            if valueType2 is not None and compValue is not None:
+                                sectionState.curr_depth = sectionState.curr_depth - compValue
+                                sectionState.prev_value = group
+                                sectionState.prev_type = valueType2
+                                print(sectionState.curr_depth, sectionState.prev_value, sectionState.prev_type)
+                                self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
+                    continue
+
+                match = group_re.match(texts)
+
+                if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
+                    group =match.group(1).strip()
+                    valueType2, compValue = sectionState.compare_obj.comp_nums(sectionState.curr_depth,sectionState.prev_value,group,sectionState.prev_type)
+                    if valueType2 is not None and compValue is not None:
+                        sectionState.curr_depth = sectionState.curr_depth - compValue
+                        if sectionState.curr_depth >= len(hierarchy_type)-1:
+                                    continue
+                        else:
+                            classification = hierarchy_type[sectionState.curr_depth]
+                            if classification == hierarchy_type[0]:
+                                continue
+                            self.all_tbs[tb] = classification
+                            sectionState.prev_value = group
+                            sectionState.prev_type = valueType2
+                            self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
+            
+            except Exception as e:
+                self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{texts[:30]}...' due to: {e}")
+                continue
          
     def print_levels(self):
         for tb,label in self.all_tbs.items():
@@ -1238,3 +1319,282 @@ class Page:
             if self.bbox_satisfies(coords,tab_bbox):
                 return True
         return False
+    
+    # def get_footnotes(self):
+    #     for tb, label in self.all_tbs.items():
+    #         if not (label == 'footer' or label is None or \
+    #                  (isinstance(label, tuple) and label[0] == 'table')):
+    #             continue
+    #         text = tb.extract_text_from_tb()
+    #         if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
+    #             self.all_tbs[tb] = 'footnote'
+
+    # def get_footnotes(self):
+    #     is_footnote_started = False
+
+    #     for tb, label in self.all_tbs.items():
+
+    #         # Once footnote starts, mark everything till footer as footnote
+    #         if is_footnote_started:
+    #             if label == 'footer':
+    #                 break
+
+    #             self.all_tbs[tb] = 'footnote'
+    #             continue
+
+    #         # Skip unrelated blocks before first footnote
+    #         if not (
+    #             label == 'footer'
+    #             or label is None
+    #             or (isinstance(label, tuple) and label[0] == 'table')
+    #         ):
+    #             continue
+
+    #         text = tb.extract_text_from_tb()
+
+    #         # Detect first footnote
+    #         if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
+    #             self.all_tbs[tb] = 'footnote'
+    #             is_footnote_started = True
+
+    # def get_footnotes(
+    #     self,
+    #     previous_page_ended_with_footnote=False
+    # ):
+
+    #     FOOTNOTE_START_RE = re.compile(
+    #         r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+'
+    #     )
+
+    #     sorted_tbs = sorted(
+    #         self.all_tbs.keys(),
+    #         key=lambda tb: (
+    #             -tb.coords[3],
+    #             tb.coords[0]
+    #         )
+    #     )
+
+    #     footnote_started = False
+
+    #     footnote_font_size = None
+
+    #     page_ended_with_footnote = False
+
+    #     previous_tb = None
+
+    #     if previous_page_ended_with_footnote:
+
+    #         candidate_sizes = []
+
+    #         for tb in sorted_tbs[:5]:
+
+    #             if tb.avg_font_size > 0:
+    #                 candidate_sizes.append(
+    #                     tb.avg_font_size
+    #                 )
+
+    #         if candidate_sizes:
+
+    #             footnote_font_size = min(
+    #                 candidate_sizes
+    #             )
+
+
+    #     for tb in sorted_tbs:
+
+    #         label = self.all_tbs[tb]
+
+    #         text = tb.extract_text_from_tb()
+
+    #         if not text:
+    #             continue
+
+
+    #         if FOOTNOTE_START_RE.search(text):
+
+    #             self.all_tbs[tb] = 'footnote'
+
+    #             footnote_started = True
+
+    #             footnote_font_size = (
+    #                 tb.avg_font_size
+    #             )
+
+    #             page_ended_with_footnote = True
+
+    #             previous_tb = tb
+
+    #             continue
+
+
+    #         if previous_page_ended_with_footnote:
+
+    #             small_font = (
+    #                 tb.avg_font_size <= 10
+    #             )
+
+    #             similar_font = True
+
+    #             if footnote_font_size:
+
+    #                 similar_font = (
+    #                     abs(
+    #                         tb.avg_font_size -
+    #                         footnote_font_size
+    #                     ) <= 1
+    #                 )
+
+    #             very_large_font = False
+
+    #             if footnote_font_size:
+
+    #                 very_large_font = (
+    #                     tb.avg_font_size >
+    #                     footnote_font_size + 2
+    #                 )
+
+    #             similar_left_indent = True
+
+    #             if previous_tb:
+
+    #                 similar_left_indent = (
+    #                     abs(
+    #                         tb.coords[0] -
+    #                         previous_tb.coords[0]
+    #                     ) <= 40
+    #                 )
+
+    #             multiline_density = (
+    #                 len(text) > 40
+    #             )
+
+    #             upper_page_zone = (
+    #                 tb.coords[3]
+    #                 > self.pg_height * 0.60
+    #             )
+
+    #             if (
+    #                 small_font
+    #                 and similar_font
+    #                 and not very_large_font
+    #                 and (
+    #                     similar_left_indent
+    #                     or multiline_density
+    #                     or upper_page_zone
+    #                 )
+    #             ):
+
+    #                 self.all_tbs[tb] = 'footnote'
+
+    #                 footnote_started = True
+
+    #                 page_ended_with_footnote = True
+
+    #                 previous_tb = tb
+
+    #                 continue
+
+    #             else:
+
+    #                 previous_page_ended_with_footnote = False
+
+    #         if footnote_started:
+
+    #             if label == 'footer':
+    #                 break
+
+    #             same_font = (
+    #                 abs(
+    #                     tb.avg_font_size -
+    #                     footnote_font_size
+    #                 ) <= 1
+    #             )
+
+    #             small_font = (
+    #                 tb.avg_font_size <= 10
+    #             )
+
+    #             very_large_font = (
+    #                 tb.avg_font_size >
+    #                 footnote_font_size + 2
+    #             )
+
+    #             similar_left_indent = True
+
+    #             if previous_tb:
+
+    #                 similar_left_indent = (
+    #                     abs(
+    #                         tb.coords[0] -
+    #                         previous_tb.coords[0]
+    #                     ) <= 40
+    #                 )
+
+    #             multiline_density = (
+    #                 len(text) > 20
+    #             )
+
+    #             if (
+    #                 same_font
+    #                 and small_font
+    #                 and not very_large_font
+    #                 and (
+    #                     similar_left_indent
+    #                     or multiline_density
+    #                 )
+    #             ):
+
+    #                 self.all_tbs[tb] = 'footnote'
+
+    #                 page_ended_with_footnote = True
+
+    #                 previous_tb = tb
+
+    #                 continue
+
+    #             else:
+
+    #                 footnote_started = False
+
+
+    #         if (
+    #             label is None
+    #             or label == 'footer'
+    #             or (
+    #                 isinstance(label, tuple)
+    #                 and label[0] == 'table'
+    #             )
+    #         ):
+
+    #             small_font = (
+    #                 tb.avg_font_size <= 10
+    #             )
+
+    #             footer_zone = (
+    #                 tb.coords[1]
+    #                 < self.pg_height * 0.25
+    #             )
+
+    #             dense_text = (
+    #                 len(text) > 60
+    #             )
+
+    #             if (
+    #                 small_font
+    #                 and footer_zone
+    #                 and dense_text
+    #             ):
+
+    #                 self.all_tbs[tb] = 'footnote'
+
+    #                 footnote_started = True
+
+    #                 footnote_font_size = (
+    #                     tb.avg_font_size
+    #                 )
+
+    #                 page_ended_with_footnote = True
+
+    #                 previous_tb = tb
+
+    #     return page_ended_with_footnote

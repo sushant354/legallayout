@@ -11,7 +11,7 @@ class ParserTool:
             cmd.append(flag)
             cmd.append(value)
             return 
-        if pdf_type == 'sebi' and value is None:
+        if pdf_type in set(['sebi', 'sebi_circulars']) and value is None:
             cmd.append("--char-margin")
             cmd.append("25.0")
             return
