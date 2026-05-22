@@ -17,7 +17,8 @@ from .Utils import *
 from .FontMapper import DynamicFontMapper
 
 class Main:
-    def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end): #start,end,is_amendment_pdf,output_dir, pdf_type):
+    def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
+                 is_footnote_continuation): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         self.pdf_path = pdfPath
         self.output_dir = output_dir
@@ -26,12 +27,6 @@ class Main:
         self.all_pgs = {}
         self.pdf_type = pdf_type  # Store pdf_type for later use
         self.has_doc_end = has_doc_end
-        if self.pdf_type in set(['acts']):
-            self.html_builder = self.get_htmlBuilder(pdf_type, self.has_doc_end)
-        elif self.pdf_type in set(['sebi_circulars']):
-            self.html_builder = self.get_htmlBuilder(pdf_type)
-        else:
-            self.html_builder = self.get_htmlBuilder(pdf_type)
         self.is_amendment_pdf = is_amendment_pdf
         self.has_side_notes = has_side_notes
         self.amendment = Amendment()
@@ -39,490 +34,235 @@ class Main:
         self.article_state = SectionState()
         self.is_preamble_reached = False
         self.section_shorttitle_notend_status = False
+        self.is_footnote_continuation = is_footnote_continuation
         self.fontmapper = DynamicFontMapper(self.pdf_path, out_dir=self.output_dir)
         self.unique_images = {}
         self.all_footnote_text = {}
+        if self.pdf_type in set(['acts']):
+            self.html_builder = self.get_htmlBuilder(pdf_type, self.has_doc_end)
+        elif self.pdf_type in set(['sebi_circulars']):
+            self.html_builder = self.get_htmlBuilder(pdf_type)
+        else:
+            self.html_builder = self.get_htmlBuilder(pdf_type)
         # self.fontmapper.extract_fonts()
-
-    # def get_all_footnote_text(self):
-
-    #     FOOTNOTE_SPLIT_RE = re.compile(
-    #         r'(\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\})'
-    #     )
-
-    #     FOOTNOTE_NUM_RE = re.compile(
-    #         r'\{\{\^\{\{FOOTNOTE\s*(\d+)\}\}\}\}'
-    #     )
-
-    #     # =====================================================
-    #     # BUILD GLOBAL ORDERED TEXTBOX STREAM
-    #     # =====================================================
-
-    #     ordered_tbs = []
-
-    #     for pg_num in sorted(self.all_pgs.keys()):
-
-    #         page = self.all_pgs[pg_num]
-
-    #         sorted_tbs = sorted(
-    #             page.all_tbs.keys(),
-    #             key=lambda tb: (
-    #                 -tb.coords[3],   # top -> bottom
-    #                 tb.coords[0]     # left -> right
-    #             )
-    #         )
-
-    #         for tb in sorted_tbs:
-
-    #             ordered_tbs.append(
-    #                 (pg_num, page, tb)
-    #             )
-
-    #     # =====================================================
-    #     # GLOBAL FOOTNOTE STATE
-    #     # =====================================================
-
-    #     active_footnote_num = None
-
-    #     active_font_size = None
-
-    #     self.all_footnote_text = {}
-
-    #     # =====================================================
-    #     # PROCESS TEXTBOXES
-    #     # =====================================================
-
-    #     for pg_num, page, tb in ordered_tbs:
-
-    #         text = tb.extract_text_from_tb()
-
-    #         text = re.sub(
-    #             r'\s+',
-    #             ' ',
-    #             text
-    #         ).strip()
-
-    #         if not text:
-    #             continue
-
-    #         # =================================================
-    #         # CASE 1:
-    #         # TEXTBOX CONTAINS FOOTNOTE TOKENS
-    #         # =================================================
-
-    #         if FOOTNOTE_NUM_RE.search(text):
-
-    #             parts = FOOTNOTE_SPLIT_RE.split(text)
-
-    #             # Example:
-    #             #
-    #             # [
-    #             #   '',
-    #             #   '{{^{{FOOTNOTE 91}}}}',
-    #             #   'Substituted by...',
-    #             #   '{{^{{FOOTNOTE 92}}}}',
-    #             #   'Substituted by...',
-    #             # ]
-    #             #
-
-    #             i = 0
-
-    #             while i < len(parts):
-
-    #                 part = parts[i].strip()
-
-    #                 # -----------------------------------------
-    #                 # FOOTNOTE TOKEN
-    #                 # -----------------------------------------
-
-    #                 if FOOTNOTE_NUM_RE.match(part):
-
-    #                     num_match = FOOTNOTE_NUM_RE.match(part)
-
-    #                     footnote_num = num_match.group(1)
-
-    #                     active_footnote_num = footnote_num
-
-    #                     active_font_size = tb.avg_font_size
-
-    #                     content = ""
-
-    #                     # next chunk contains content
-    #                     if i + 1 < len(parts):
-
-    #                         content = parts[i + 1].strip()
-
-    #                     full_text = (
-    #                         part + " " + content
-    #                     ).strip()
-
-    #                     self.all_footnote_text[
-    #                         footnote_num
-    #                     ] = full_text
-
-    #                     i += 2
-
-    #                     continue
-
-    #                 i += 1
-
-    #             continue
-
-    #         # =================================================
-    #         # CASE 2:
-    #         # CONTINUATION TEXTBOX
-    #         # =================================================
-
-    #         if active_footnote_num:
-
-    #             # ---------------------------------------------
-    #             # FONT CONTINUITY
-    #             # ---------------------------------------------
-
-    #             same_font_size = (
-    #                 abs(
-    #                     tb.avg_font_size -
-    #                     active_font_size
-    #                 ) <= 0.75
-    #             )
-
-    #             # ---------------------------------------------
-    #             # SMALL FOOTNOTE FONT
-    #             # ---------------------------------------------
-
-    #             small_font = (
-    #                 tb.avg_font_size <= 9.5
-    #             )
-
-    #             # ---------------------------------------------
-    #             # FOOTER ZONE
-    #             # ---------------------------------------------
-
-    #             footer_zone = (
-    #                 tb.coords[1]
-    #                 < page.pg_height * 0.20
-    #             )
-
-    #             # ---------------------------------------------
-    #             # TOP OF PAGE
-    #             # continuation spillover
-    #             # ---------------------------------------------
-
-    #             top_zone = (
-    #                 tb.coords[3]
-    #                 > page.pg_height * 0.75
-    #             )
-
-    #             # ---------------------------------------------
-    #             # NOT HEADING
-    #             # ---------------------------------------------
-
-    #             not_heading = not re.match(
-    #                 r'^\d+(\.\d+)*\s+[A-Z]',
-    #                 text
-    #             )
-
-    #             # ---------------------------------------------
-    #             # CONTINUATION LANGUAGE STYLE
-    #             # ---------------------------------------------
-
-    #             continuation_style = bool(
-    #                 re.match(
-    #                     r'^(and|or|vide|for|where|which|provided|,|\))',
-    #                     text,
-    #                     re.I
-    #                 )
-    #             )
-
-    #             # ---------------------------------------------
-    #             # FINAL CONTINUATION DECISION
-    #             # ---------------------------------------------
-
-    #             is_continuation = (
-
-    #                 same_font_size
-
-    #                 and small_font
-
-    #                 and not_heading
-
-    #                 and (
-    #                     footer_zone
-    #                     or top_zone
-    #                     or continuation_style
-    #                 )
-    #             )
-
-    #             # ---------------------------------------------
-    #             # APPEND CONTINUATION
-    #             # ---------------------------------------------
-
-    #             if is_continuation:
-
-    #                 self.all_footnote_text[
-    #                     active_footnote_num
-    #                 ] += " " + text
-
-    #             # ---------------------------------------------
-    #             # TERMINATE ACTIVE FOOTNOTE
-    #             # ---------------------------------------------
-
-    #             else:
-
-    #                 active_footnote_num = None
-    #                 active_font_size = None
-
-    # =========================================================
-    # GLOBAL FOOTNOTE RECONSTRUCTION
-    # =========================================================
 
     def get_all_footnote_text(self):
 
-        FOOTNOTE_SPLIT_RE = re.compile(
-            r'(\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\})'
+        FOOTNOTE_START_RE = re.compile(
+            r'^\{\{\^\{\{FOOTNOTE\s*(.+?)\}\}\}\}'
         )
 
-        FOOTNOTE_NUM_RE = re.compile(
-            r'\{\{\^\{\{FOOTNOTE\s*(\d+)\}\}\}\}'
-        )
-
-        self.all_footnote_text = {}
-
-        ordered_tbs = []
-
-        # =====================================================
-        # BUILD GLOBAL FOOTNOTE STREAM
-        # =====================================================
+        active_footnote_num = None
 
         for pg_num in sorted(self.all_pgs.keys()):
 
             page = self.all_pgs[pg_num]
 
-            sorted_tbs = sorted(
-                page.all_tbs.keys(),
-                key=lambda tb: (
-                    -tb.coords[3],
-                    tb.coords[0]
-                )
-            )
-
-            for tb in sorted_tbs:
+            for tb in page.all_tbs.keys():
 
                 if page.all_tbs[tb] != 'footnote':
                     continue
 
-                ordered_tbs.append(
-                    (pg_num, page, tb)
-                )
+                for textline in tb.tbox.findall(".//textline"):
 
-        # =====================================================
-        # GLOBAL STATE
-        # =====================================================
+                    line_parts = []
 
-        active_footnote_num = None
+                    pending_superscript = []
 
-        active_font_size = None
+                    for text in textline.findall(".//text"):
 
-        footnote_flow_mode = False
+                        raw = text.text or ""
 
-        previous_tb = None
+                        if not raw:
+                            continue
 
-        # =====================================================
-        # PROCESS
-        # =====================================================
+                        is_super = False
 
-        for pg_num, page, tb in ordered_tbs:
+                        if "bbox" in text.attrib:
 
-            text = tb.extract_text_from_tb()
+                            try:
 
-            text = re.sub(
-                r'\s+',
-                ' ',
-                text
-            ).strip()
+                                bbox = tuple(
+                                    map(
+                                        float,
+                                        text.attrib["bbox"].split(",")
+                                    )
+                                )
 
-            if not text:
-                continue
+                                if bbox in tb.footnotes_superscript:
 
-            # =================================================
-            # CASE 1:
-            # EXPLICIT FOOTNOTE TOKENS
-            # =================================================
+                                    pending_superscript.append(
+                                        tb.footnotes_superscript[bbox]
+                                    )
 
-            if FOOTNOTE_NUM_RE.search(text):
+                                    is_super = True
 
-                parts = FOOTNOTE_SPLIT_RE.split(text)
+                            except Exception:
+                                pass
 
-                i = 0
+                        if not is_super:
 
-                while i < len(parts):
+                            if pending_superscript:
 
-                    part = parts[i].strip()
+                                marker = "".join(
+                                    pending_superscript
+                                )
 
-                    if FOOTNOTE_NUM_RE.match(part):
+                                line_parts.append(
+                                    "{{^{{FOOTNOTE "
+                                    + marker +
+                                    "}}}}"
+                                )
 
-                        num_match = FOOTNOTE_NUM_RE.match(part)
+                                pending_superscript = []
 
-                        footnote_num = num_match.group(1)
+                            line_parts.append(raw)
+
+                    if pending_superscript:
+
+                        marker = "".join(
+                            pending_superscript
+                        )
+
+                        line_parts.append(
+                            "{{^{{FOOTNOTE "
+                            + marker +
+                            "}}}}"
+                        )
+
+                    text = "".join(line_parts)
+
+                    text = re.sub(
+                        r'\s+',
+                        ' ',
+                        text
+                    ).strip()
+
+                    if not text:
+                        continue
+
+                    start_match = FOOTNOTE_START_RE.match(text)
+
+                    if start_match:
+
+                        footnote_num = (
+                            start_match.group(1).strip()
+                        )
 
                         active_footnote_num = footnote_num
 
-                        active_font_size = tb.avg_font_size
-
-                        content = ""
-
-                        if i + 1 < len(parts):
-
-                            content = parts[i + 1].strip()
-
-                        full_text = (
-                            part + " " + content
+                        cleaned_text = FOOTNOTE_START_RE.sub(
+                            '',
+                            text,
+                            count=1
                         ).strip()
 
-                        self.all_footnote_text[
+                        if (
                             footnote_num
-                        ] = full_text
+                            not in self.all_footnote_text
+                        ):
 
-                        footnote_flow_mode = True
+                            self.all_footnote_text[
+                                footnote_num
+                            ] = cleaned_text
 
-                        previous_tb = tb
+                        else:
 
-                        i += 2
+                            self.all_footnote_text[
+                                footnote_num
+                            ] += "\n" + cleaned_text
 
-                        continue
+                    else:
 
-                    i += 1
+                        if not active_footnote_num:
+                            continue
 
-                continue
+                        self.all_footnote_text[
+                            active_footnote_num
+                        ] += "\n" + text
 
-            # =================================================
-            # CASE 2:
-            # CONTINUATION BLOCK
-            # =================================================
+            if not self.is_footnote_continuation:
 
-            if active_footnote_num:
+                active_footnote_num = None
+    
+    # def finalize_unique_images(self):
+    #     for img_hash, meta in self.unique_images.items():
 
-                same_font_size = (
-                    abs(
-                        tb.avg_font_size -
-                        active_font_size
-                    ) <= 1
-                )
+    #         if meta["count"] == 1:
+    #             continue
 
-                small_font = (
-                    tb.avg_font_size <= 10
-                )
+    #         img_path = meta["path"]
 
-                is_heading = bool(
-                    re.match(
-                        r'^\d+(\.\d+)*\s+[A-Z]',
-                        text
-                    )
-                )
+    #         if img_path and os.path.exists(img_path):
+    #             try:
+    #                 os.remove(img_path)
+    #             except Exception as e:
+    #                 self.logger.warning(
+    #                     f"Failed deleting duplicate image {img_path}: {e}"
+    #                 )
 
-                large_font_jump = (
-                    tb.avg_font_size >
-                    active_font_size + 1.5
-                )
+    #         for pg_num in meta["pages"]:
 
-                centered_block = (
-                    abs(
-                        (
-                            (tb.coords[0] + tb.coords[2]) / 2
-                        ) -
-                        (page.pg_width / 2)
-                    ) < 80
-                )
+    #             page_obj = self.all_pgs.get(pg_num)
 
-                continuation_style = bool(
-                    re.match(
-                        r'^(\(?[a-zA-Z0-9]+\)|provided|and|or|vide|where|which|for|,)',
-                        text,
-                        re.I
-                    )
-                )
-
-                similar_left_indent = True
-
-                if previous_tb:
-
-                    similar_left_indent = (
-                        abs(
-                            tb.coords[0] -
-                            previous_tb.coords[0]
-                        ) <= 40
-                    )
-
-                is_continuation = (
-
-                    same_font_size
-
-                    and small_font
-
-                    and not large_font_jump
-
-                    and not centered_block
-
-                    and not is_heading
-
-                    and (
-                        continuation_style
-                        or similar_left_indent
-                        or footnote_flow_mode
-                    )
-                )
-
-                # =============================================
-                # APPEND CONTINUATION
-                # =============================================
-
-                if is_continuation:
-
-                    self.all_footnote_text[
-                        active_footnote_num
-                    ] += " " + text
-
-                    footnote_flow_mode = True
-
-                    previous_tb = tb
-
-                # =============================================
-                # TERMINATE FOOTNOTE FLOW
-                # =============================================
-
-                else:
-
-                    active_footnote_num = None
-
-                    active_font_size = None
-
-                    footnote_flow_mode = False
-
-                    previous_tb = None
+    #             if page_obj and hasattr(page_obj, "figures"):
+    #                 page_obj.figures.remove_hash(img_hash)
 
     def finalize_unique_images(self):
+
+        remove_hashes = []
+
         for img_hash, meta in self.unique_images.items():
 
-            if meta["count"] == 1:
-                continue
+            if meta.get("count", 0) > 1:
 
-            img_path = meta["path"]
+                img_path = meta.get("path")
 
-            if img_path and os.path.exists(img_path):
-                try:
-                    os.remove(img_path)
-                except Exception as e:
-                    self.logger.warning(
-                        f"Failed deleting duplicate image {img_path}: {e}"
-                    )
 
-            for pg_num in meta["pages"]:
+                if img_path and os.path.exists(img_path):
 
-                page_obj = self.all_pgs.get(pg_num)
+                    try:
+                        os.remove(img_path)
 
-                if page_obj and hasattr(page_obj, "figures"):
-                    page_obj.figures.remove_hash(img_hash)
-        
+                        self.logger.info(
+                            f"Deleted duplicate image: {img_path}"
+                        )
+
+                    except Exception as e:
+
+                        self.logger.warning(
+                            f"Failed deleting image "
+                            f"{img_path}: {e}"
+                        )
+
+
+                for pg_num in meta.get("pages", set()):
+                    pg_num = int(pg_num)
+                    page_obj = self.all_pgs.get(pg_num)
+                    if page_obj and hasattr(page_obj, "figures"):
+                        try:
+                            page_obj.figures.remove_hash(img_hash)
+
+                        except Exception as e:
+
+                            self.logger.warning(
+                                f"Failed removing image hash "
+                                f"{img_hash} from page {pg_num}: {e}"
+                            )
+
+
+                remove_hashes.append(img_hash)
+
+
+        for img_hash in remove_hashes:
+
+            del self.unique_images[img_hash]
+
+        self.logger.info(
+            f"Remaining unique images: "
+            f"{len(self.unique_images)}"
+        )
+    
     def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
@@ -538,7 +278,7 @@ class Main:
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-')
-            return SebiCirculars(sentence_completion_punctutation, pdf_type, docend_symbol)
+            return SebiCirculars(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
 
         else:
             sentence_completion_punctutation = ('.', ':')
@@ -678,17 +418,19 @@ class Main:
         self.logger.info("Starting adaptive header/footer detection...")
         self.adaptive_header_footer_detection(pages, self.pdf_type)
 
-        previous_page_ended_with_footnote = False
-
-        for pg_num, page in self.all_pgs.items():
-
-            if self.pdf_type in {'sebi_circulars'}:
-
-                previous_page_ended_with_footnote = (
-                    page.get_footnotes(
-                        previous_page_ended_with_footnote
+        
+        if self.pdf_type in {'sebi_circulars'} :
+            previous_page_footnote_font_size  = None
+            for page in self.all_pgs.values():
+                if self.is_footnote_continuation:
+                    previous_page_footnote_font_size  = (
+                        page.get_footnotes(
+                            previous_page_footnote_font_size
+                        )
                     )
-                )
+                else:
+                    page.get_footnotes()
+
         self.finalize_unique_images()
         self.get_all_footnote_text()
         self.logger.info(self.all_footnote_text)
@@ -1560,6 +1302,8 @@ def get_arg_parser():
                         required=False, default=None, help = 'if requires, set word margin threshold for pdf miner')
     parser.add_argument('-de', '--doc-end', dest = 'has_doc_end', action = 'store_true', \
                         required = False, default = False, help = 'mention if pdf has document end symbol (---)')
+    parser.add_argument('-fnc', '--footnote-continuation', dest='is_footnote_continuation', action = 'store_true', \
+                        required = False, default = False, help = 'mention if pdf has footnote that continued across the pages')
     return parser
 
 
@@ -1616,7 +1360,9 @@ if __name__ == "__main__":
     logger.debug(f"Is the pdf contains side notes - {"Yes" if has_sidenotes else "No"}")
     output_dir = args.output_dir
     has_doc_end = args.has_doc_end
-    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, has_sidenotes, has_doc_end)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
+    is_footnote_continuation = args.is_footnote_continuation
+    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, has_sidenotes, has_doc_end,
+                is_footnote_continuation)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])

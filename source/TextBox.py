@@ -38,6 +38,8 @@
 #         except Exception as e:
 #             self.logger.error(f"Failed to extract text from textbox on page {getattr(self, 'pg_num', 'unknown')}: {e}")
 #             return ""
+
+
 import re
 import string
 import logging
@@ -67,21 +69,29 @@ class TextBox:
 
     def get_avg_font_size(self):
 
-        sizes = []
+        total_size = 0.0
+
+        count = 0
 
         for txt in self.tbox.findall(".//text"):
 
             try:
-                sizes.append(
-                    float(txt.attrib.get("size"))
+
+                size = float(
+                    txt.attrib.get("size")
                 )
+
+                total_size += size
+
+                count += 1
+
             except:
                 continue
 
-        if not sizes:
+        if count == 0:
             return 0
 
-        return sum(sizes) / len(sizes)
+        return total_size / count
     
     def get_footnotes_superscript(self):
 

@@ -1329,272 +1329,88 @@ class Page:
     #         if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
     #             self.all_tbs[tb] = 'footnote'
 
-    # def get_footnotes(self):
-    #     is_footnote_started = False
+    def get_footnotes(self):
+        is_footnote_started = False
 
-    #     for tb, label in self.all_tbs.items():
+        for tb, label in self.all_tbs.items():
+            if is_footnote_started:
+                if label == 'footer':
+                    break
 
-    #         # Once footnote starts, mark everything till footer as footnote
-    #         if is_footnote_started:
-    #             if label == 'footer':
-    #                 break
+                self.all_tbs[tb] = 'footnote'
+                continue
 
-    #             self.all_tbs[tb] = 'footnote'
-    #             continue
+            if not (
+                label == 'footer'
+                or label is None
+                or (isinstance(label, tuple) and label[0] == 'table')
+            ):
+                continue
 
-    #         # Skip unrelated blocks before first footnote
-    #         if not (
-    #             label == 'footer'
-    #             or label is None
-    #             or (isinstance(label, tuple) and label[0] == 'table')
-    #         ):
-    #             continue
+            text = tb.extract_text_from_tb()
 
-    #         text = tb.extract_text_from_tb()
+            if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
+                self.all_tbs[tb] = 'footnote'
+                is_footnote_started = True
 
-    #         # Detect first footnote
-    #         if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
-    #             self.all_tbs[tb] = 'footnote'
-    #             is_footnote_started = True
 
-    # def get_footnotes(
-    #     self,
-    #     previous_page_ended_with_footnote=False
-    # ):
+    def get_footnotes(
+        self,
+        previous_page_footnote_font_size=None
+    ):
 
-    #     FOOTNOTE_START_RE = re.compile(
-    #         r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+'
-    #     )
+        FOOTNOTE_START_RE = re.compile(
+            r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+'
+        )
 
-    #     sorted_tbs = sorted(
-    #         self.all_tbs.keys(),
-    #         key=lambda tb: (
-    #             -tb.coords[3],
-    #             tb.coords[0]
-    #         )
-    #     )
 
-    #     footnote_started = False
+        current_footnote_font_size = (
+            previous_page_footnote_font_size
+        )
 
-    #     footnote_font_size = None
+        for tb in self.all_tbs.keys():
 
-    #     page_ended_with_footnote = False
+            text = tb.extract_text_from_tb()
 
-    #     previous_tb = None
+            if not text:
+                continue
 
-    #     if previous_page_ended_with_footnote:
+            if FOOTNOTE_START_RE.search(text):
 
-    #         candidate_sizes = []
+                self.all_tbs[tb] = 'footnote'
 
-    #         for tb in sorted_tbs[:5]:
+                
+                current_footnote_font_size = (
+                    tb.avg_font_size
+                )
 
-    #             if tb.avg_font_size > 0:
-    #                 candidate_sizes.append(
-    #                     tb.avg_font_size
-    #                 )
+                continue
 
-    #         if candidate_sizes:
+            if current_footnote_font_size is not None:
 
-    #             footnote_font_size = min(
-    #                 candidate_sizes
-    #             )
+                same_font = (
 
+                    abs(
+                        tb.avg_font_size -
+                        current_footnote_font_size
+                    )
 
-    #     for tb in sorted_tbs:
+                    <=
 
-    #         label = self.all_tbs[tb]
+                    (
+                        current_footnote_font_size * 0.05
+                    )
+                )
+                
+                if same_font:
 
-    #         text = tb.extract_text_from_tb()
+                    self.all_tbs[tb] = 'footnote'
 
-    #         if not text:
-    #             continue
+                    
+                    current_footnote_font_size = (
+                        tb.avg_font_size
+                    )
 
+                    continue
 
-    #         if FOOTNOTE_START_RE.search(text):
-
-    #             self.all_tbs[tb] = 'footnote'
-
-    #             footnote_started = True
-
-    #             footnote_font_size = (
-    #                 tb.avg_font_size
-    #             )
-
-    #             page_ended_with_footnote = True
-
-    #             previous_tb = tb
-
-    #             continue
-
-
-    #         if previous_page_ended_with_footnote:
-
-    #             small_font = (
-    #                 tb.avg_font_size <= 10
-    #             )
-
-    #             similar_font = True
-
-    #             if footnote_font_size:
-
-    #                 similar_font = (
-    #                     abs(
-    #                         tb.avg_font_size -
-    #                         footnote_font_size
-    #                     ) <= 1
-    #                 )
-
-    #             very_large_font = False
-
-    #             if footnote_font_size:
-
-    #                 very_large_font = (
-    #                     tb.avg_font_size >
-    #                     footnote_font_size + 2
-    #                 )
-
-    #             similar_left_indent = True
-
-    #             if previous_tb:
-
-    #                 similar_left_indent = (
-    #                     abs(
-    #                         tb.coords[0] -
-    #                         previous_tb.coords[0]
-    #                     ) <= 40
-    #                 )
-
-    #             multiline_density = (
-    #                 len(text) > 40
-    #             )
-
-    #             upper_page_zone = (
-    #                 tb.coords[3]
-    #                 > self.pg_height * 0.60
-    #             )
-
-    #             if (
-    #                 small_font
-    #                 and similar_font
-    #                 and not very_large_font
-    #                 and (
-    #                     similar_left_indent
-    #                     or multiline_density
-    #                     or upper_page_zone
-    #                 )
-    #             ):
-
-    #                 self.all_tbs[tb] = 'footnote'
-
-    #                 footnote_started = True
-
-    #                 page_ended_with_footnote = True
-
-    #                 previous_tb = tb
-
-    #                 continue
-
-    #             else:
-
-    #                 previous_page_ended_with_footnote = False
-
-    #         if footnote_started:
-
-    #             if label == 'footer':
-    #                 break
-
-    #             same_font = (
-    #                 abs(
-    #                     tb.avg_font_size -
-    #                     footnote_font_size
-    #                 ) <= 1
-    #             )
-
-    #             small_font = (
-    #                 tb.avg_font_size <= 10
-    #             )
-
-    #             very_large_font = (
-    #                 tb.avg_font_size >
-    #                 footnote_font_size + 2
-    #             )
-
-    #             similar_left_indent = True
-
-    #             if previous_tb:
-
-    #                 similar_left_indent = (
-    #                     abs(
-    #                         tb.coords[0] -
-    #                         previous_tb.coords[0]
-    #                     ) <= 40
-    #                 )
-
-    #             multiline_density = (
-    #                 len(text) > 20
-    #             )
-
-    #             if (
-    #                 same_font
-    #                 and small_font
-    #                 and not very_large_font
-    #                 and (
-    #                     similar_left_indent
-    #                     or multiline_density
-    #                 )
-    #             ):
-
-    #                 self.all_tbs[tb] = 'footnote'
-
-    #                 page_ended_with_footnote = True
-
-    #                 previous_tb = tb
-
-    #                 continue
-
-    #             else:
-
-    #                 footnote_started = False
-
-
-    #         if (
-    #             label is None
-    #             or label == 'footer'
-    #             or (
-    #                 isinstance(label, tuple)
-    #                 and label[0] == 'table'
-    #             )
-    #         ):
-
-    #             small_font = (
-    #                 tb.avg_font_size <= 10
-    #             )
-
-    #             footer_zone = (
-    #                 tb.coords[1]
-    #                 < self.pg_height * 0.25
-    #             )
-
-    #             dense_text = (
-    #                 len(text) > 60
-    #             )
-
-    #             if (
-    #                 small_font
-    #                 and footer_zone
-    #                 and dense_text
-    #             ):
-
-    #                 self.all_tbs[tb] = 'footnote'
-
-    #                 footnote_started = True
-
-    #                 footnote_font_size = (
-    #                     tb.avg_font_size
-    #                 )
-
-    #                 page_ended_with_footnote = True
-
-    #                 previous_tb = tb
-
-    #     return page_ended_with_footnote
+        return current_footnote_font_size
