@@ -7,6 +7,9 @@ from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTImage
 from pdfminer.image import ImageWriter
 
+MIN_IMAGE_SIZE_KB = 250
+MIN_IMAGE_SIZE_BYTES = MIN_IMAGE_SIZE_KB * 1024
+
 class StableImageWriter(ImageWriter):
 
     def _create_unique_image_name(self, image, ext):
@@ -184,8 +187,18 @@ class Pictures:
                     if not os.path.exists(temp_path):
                         continue
 
-                    if os.path.getsize(temp_path) == 0:
+                    file_size = os.path.getsize(temp_path)
+
+                    if file_size < MIN_IMAGE_SIZE_BYTES:
+
                         os.remove(temp_path)
+
+                        self.logger.info(
+                            f"Skipping small image "
+                            f"{temp_path} "
+                            f"({round(file_size / 1024, 2)} KB)"
+                        )
+
                         continue
 
                     if not self.valid_image(temp_path):

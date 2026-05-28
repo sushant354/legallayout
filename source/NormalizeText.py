@@ -10,6 +10,7 @@ NORMALIZE_MAP = {
     "□": "▫",    # U+25A1 → White square
     "▪": "▪",    # U+25AA → Small square
     "▫": "▫",    # U+25AB → White small square
+   
 
     # Arrows
     "": "→",    # U+F0E0 → Right arrow
@@ -17,6 +18,7 @@ NORMALIZE_MAP = {
     "": "←",    # U+F0D9 → Left arrow
     "": "→",    # U+F0DA → Right arrow
     "": "↔",    # U+F0DB → Left-right arrow
+    "": "➢",   #PUA right arrow → Dingbat arrow
     "⇒": "→",    # Double arrow → normalize
     "➔": "→",    # Dingbat arrow
     "➤": "→",    # Black arrowhead

@@ -277,7 +277,8 @@ class Main:
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
-                                                '.”', '.’', ';”' , ';’', ':-')
+                                                '.”', '.’', ';”' , ';’', ':-', '.]',
+                                                ',-', ':-', ';-', '--')
             return SebiCirculars(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
 
         else:
