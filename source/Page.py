@@ -1170,7 +1170,6 @@ class Page:
                                 sectionState.curr_depth = sectionState.curr_depth - compValue
                                 sectionState.prev_value = group
                                 sectionState.prev_type = valueType2
-                                print(sectionState.curr_depth, sectionState.prev_value, sectionState.prev_type)
                                 self.logger.debug(f"Page {self.pg_num}: Nested under section: {group} as {valueType2}")
                     continue
 

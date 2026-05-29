@@ -101,7 +101,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         pattern = rf"""
             ^\s*
 
-            chapter|section
+            \b(?:chapter|section)\b
+            
             \s*
 
             # optional separator before chapter number
@@ -133,7 +134,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         )
 
         if match:
-            return  True, match.group("number"),match.group("title").strip()
+            return  True, match.group("number"),match.group("title")
             
 
         return False, None, None
@@ -143,7 +144,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         pattern = rf"""
             ^\s*
 
-            part
+            \bpart\b
             \s*
 
             # optional separator before part number
@@ -177,14 +178,14 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         )
 
         if match:
-            return True, match.group(1), match.group(2).strip()
+            return True, match.group(1), match.group(2)
 
 
         return False, None, None
 
     def is_article(self, text):
         pattern = rf"""
-            ^\s*article              # word 'article'
+            ^\s*\barticle\b              # word 'article'
             \s*                      # optional spaces
             [\-–—:.\u2013\u2014]?    # one optional separator
             \s*                      # optional spaces
@@ -214,7 +215,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
             (?:the\s+)?                 # optional 'the'
 
-            schedule
+            \bschedule\b
             \s*
 
             # optional separator after schedule
@@ -265,8 +266,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
                 (?:\d+(?:\.\d+)*\s+)?     # optional numbering
 
-                annexure
-                s?
+                \bannexures?\b
 
                 \s*
 
@@ -302,7 +302,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 [\-–—:.\u2013\u2014]?
                 \s*
 
-                annexure
+                \bannexure\b
                 \s*
 
                 (
@@ -336,7 +336,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             # 13.1
             (?:\d+(?:\.\d+)*\s+)?
 
-            appendix
+            \bappendix\b
             \s*
 
             # optional separator
@@ -382,7 +382,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             # 13.1
             (?:\d+(?:\.\d+)*\s+)?
 
-            form
+            \bform\b
             \s*
 
             # optional separator
@@ -421,7 +421,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             [\-–—:.\u2013\u2014]?
             \s*
 
-            form
+            \bform\b
             \s*
 
             (
@@ -906,7 +906,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             if not title:
                                 self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} -"
                             else:
-                                self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} - {title}"
+                                self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['CHAP']
                             self.is_schedule_open = False
@@ -926,7 +926,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             if not title:
                                 self.builder += "\n" + ("\t" * tab_level) + f"PART {val} -"
                             else:
-                                self.builder += "\n" + ("\t" * tab_level) + f"PART {val} - {title}"
+                                self.builder += "\n" + ("\t" * tab_level) + f"PART {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['PART']
                             self.is_schedule_open = False
@@ -1062,7 +1062,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             if not title:
                                 self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} -"
                             else:
-                                self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} - {title}"
+                                self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['CHAP']
                             self.is_schedule_open = False
@@ -1082,7 +1082,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             if not title:
                                 self.builder += "\n" + ("\t" * tab_level) + f"PART {val} -"
                             else:
-                                self.builder += "\n" + ("\t" * tab_level) + f"PART {val} - {title}"
+                                self.builder += "\n" + ("\t" * tab_level) + f"PART {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['PART']
                             self.is_schedule_open = False

@@ -1163,9 +1163,21 @@ class Main:
             return False
 
 
+    def escape_inline_markup(self, content):
+        if not content:
+            return content
+
+        pattern = r'(?<!\\)([*_/])'
+
+        return re.sub(
+            pattern,
+            r'\\\1',
+            content
+        )
     
     # --- func for writing the html content to the desired output file ---
     def write_html(self, content, start_page, end_page):
+        content = self.escape_inline_markup(content)
         if not content:
             self.logger.warning('HTML content not available to save')
             return
@@ -1200,6 +1212,7 @@ class Main:
             self.logger.exception("Failed to write HTML content: %s", e)
 
     def write_bluebell(self, content, start_page, end_page):
+        content = self.escape_inline_markup(content)
         if not content:
             self.logger.warning('Content not available to save')
             return
