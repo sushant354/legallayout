@@ -177,6 +177,13 @@ class Page:
 
     def get_side_notes(self): #,startPage,endPage):
         try:
+
+            left_previous_text = ""
+            right_previous_text = ""
+            left_tb_coords = None
+            left_sn_start_coords = None
+            right_tb_coords = None
+            right_sn_start_coords = None
             # if startPage is not None and endPage is not None and int(self.pg_num) >=startPage and int(self.pg_num)<=endPage:
             if self.has_side_notes:
                 if not hasattr(self, 'body_startX') and not hasattr(self, 'body_endX'):
@@ -186,12 +193,7 @@ class Page:
                 
                 pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
 
-                left_previous_text = ""
-                right_previous_text = ""
-                left_tb_coords = None
-                left_sn_start_coords = None
-                right_tb_coords = None
-                right_sn_start_coords = None
+                
 
                 for tb in list(self.all_tbs.keys()):
                     try:
@@ -269,15 +271,14 @@ class Page:
 
     def fallback_side_notes(self): #,startPage,endPage):
         try:
+            left_previous_text = ""
+            right_previous_text = ""
+            left_tb_coords = None
+            left_sn_start_coords = None
+            right_tb_coords = None
+            right_sn_start_coords = None
             if self.has_side_notes:
                 pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
-
-                left_previous_text = ""
-                right_previous_text = ""
-                left_tb_coords = None
-                left_sn_start_coords = None
-                right_tb_coords = None
-                right_sn_start_coords = None
 
                 for tb, label in list(self.all_tbs.items()):
                     if label != 'side notes':
