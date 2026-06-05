@@ -11,6 +11,7 @@ from .TableExtraction import TableExtraction
 from .CompareLevel import CompareLevel, CompareLevelSebi
 from .NormalizeText import NormalizeText
 from .Figure import Figure,Pictures
+from .Utils import *
 
 ARTICLE      = 4
 DECIMAL      = 3
@@ -46,6 +47,12 @@ class Page:
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type)
         self.side_notes_datas ={}
         self.font_mapper = font_mapper
+        self.title_type_map = {
+            'schedule' :is_schedule,
+            'annexure': is_annexure,
+            'appendix': is_appendix,
+            'form': is_form,
+        }
          
 
     # --- func for getting page coordinates, height, width ---
@@ -1328,43 +1335,111 @@ class Page:
     #         if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
     #             self.all_tbs[tb] = 'footnote'
 
-    def get_footnotes(self):
-        is_footnote_started = False
+    # def get_footnotes(self):
+    #     is_footnote_started = False
 
-        for tb, label in self.all_tbs.items():
-            if is_footnote_started:
-                if label == 'footer':
-                    break
+    #     for tb, label in self.all_tbs.items():
+    #         if is_footnote_started:
+    #             if label == 'footer':
+    #                 break
 
-                self.all_tbs[tb] = 'footnote'
-                continue
+    #             self.all_tbs[tb] = 'footnote'
+    #             continue
 
-            if not (
-                label == 'footer'
-                or label is None
-                or (isinstance(label, tuple) and label[0] == 'table')
-            ):
-                continue
+    #         if not (
+    #             label == 'footer'
+    #             or label is None
+    #             or (isinstance(label, tuple) and label[0] == 'table')
+    #         ):
+    #             continue
 
-            text = tb.extract_text_from_tb()
+    #         text = tb.extract_text_from_tb()
 
-            if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
-                self.all_tbs[tb] = 'footnote'
-                is_footnote_started = True
+    #         if re.search(r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+', text):
+    #             self.all_tbs[tb] = 'footnote'
+    #             is_footnote_started = True
 
+
+    # def get_footnotes(
+    #     self,
+    #     previous_page_footnote_font_size=None
+    # ):
+
+    #     FOOTNOTE_START_RE = re.compile(
+    #         r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+'
+    #     )
+
+
+    #     current_footnote_font_size = (
+    #         previous_page_footnote_font_size
+    #     )
+
+    #     for tb in self.all_tbs.keys():
+
+    #         text = tb.extract_text_from_tb()
+
+    #         if not text:
+    #             continue
+
+    #         if FOOTNOTE_START_RE.search(text):
+
+    #             self.all_tbs[tb] = 'footnote'
+
+                
+    #             current_footnote_font_size = (
+    #                 tb.avg_font_size
+    #             )
+
+    #             continue
+
+    #         if current_footnote_font_size is not None:
+
+    #             same_font = (
+
+    #                 abs(
+    #                     tb.avg_font_size -
+    #                     current_footnote_font_size
+    #                 )
+
+    #                 <=
+
+    #                 (
+    #                     current_footnote_font_size * 0.05
+    #                 )
+    #             )
+                
+    #             if same_font:
+
+    #                 self.all_tbs[tb] = 'footnote'
+
+                    
+    #                 current_footnote_font_size = (
+    #                     tb.avg_font_size
+    #                 )
+
+    #                 continue
+
+    #     return current_footnote_font_size
 
     def get_footnotes(
         self,
+        seen_footnotes=None,
         previous_page_footnote_font_size=None
     ):
 
-        FOOTNOTE_START_RE = re.compile(
-            r'^\{\{\^\{\{FOOTNOTE\s*\d+\}\}\}\}\s+'
-        )
+        if seen_footnotes is None:
+            seen_footnotes = set()
 
+        FOOTNOTE_RE = re.compile(
+            r'\{\{\^\{\{FOOTNOTE\s*(\d+)\}\}\}\}'
+        )
 
         current_footnote_font_size = (
             previous_page_footnote_font_size
+        )
+
+        footnote_started = (
+            previous_page_footnote_font_size is not None
         )
 
         for tb in self.all_tbs.keys():
@@ -1374,16 +1449,38 @@ class Page:
             if not text:
                 continue
 
-            if FOOTNOTE_START_RE.search(text):
+            # -----------------------------------------
+            # detect second occurrence of footnote ref
+            # -----------------------------------------
 
-                self.all_tbs[tb] = 'footnote'
+            if not footnote_started:
 
-                
-                current_footnote_font_size = (
-                    tb.avg_font_size
-                )
+                matches = FOOTNOTE_RE.findall(text)
 
-                continue
+                if matches:
+
+                    for footnote_num in matches:
+
+                        if footnote_num in seen_footnotes:
+
+                            self.all_tbs[tb] = 'footnote'
+
+                            current_footnote_font_size = (
+                                tb.avg_font_size
+                            )
+
+                            footnote_started = True
+
+                            break
+
+                        seen_footnotes.add(footnote_num)
+
+                    if footnote_started:
+                        continue
+
+            # -----------------------------------------
+            # continuation based on font size
+            # -----------------------------------------
 
             if current_footnote_font_size is not None:
 
@@ -1400,16 +1497,84 @@ class Page:
                         current_footnote_font_size * 0.05
                     )
                 )
-                
+
                 if same_font:
 
                     self.all_tbs[tb] = 'footnote'
 
-                    
                     current_footnote_font_size = (
                         tb.avg_font_size
                     )
 
                     continue
 
-        return current_footnote_font_size
+        return current_footnote_font_size, seen_footnotes
+    
+    def get_title_hierarchy(self, section_state, sentence_status,
+                      sentence_completion_punctutation):
+        
+        hierarchy_type = ("level0","level1","level2","level3","level4")
+        group_re = re.compile(
+            r'\s*('
+                r'(?:[A-z]{1,2}[.\)]|\([A-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
+                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+            r')(?!\w)',  # ensure not followed by alphanumeric (safety)
+        )
+        try:
+
+            for tb, label in self.all_tbs.items():
+                text = tb.extract_text_from_tb().strip()
+                text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+                if label in ['footnote', 'header', 'footer', 'title']:
+                    is_sentence_completed = True
+                elif isinstance(label, tuple) and label[0] == 'table':
+                    is_sentence_completed = True
+                else:
+                    is_sentence_completed = text.endswith(sentence_completion_punctutation)
+                if not (label in set(['title', 'level1', 'level2', 'level3', 'level4',
+                            'sec', 'subsec', 'para', 'subpara'])\
+                   or label is None):
+                    continue
+                
+                is_match = False
+
+                for func in self.title_type_map.values():
+                    is_match = (is_match or func(text))
+                try:
+                    if label == 'title' and is_match and sentence_status:
+                        section_number = 0
+                        section_state.compare_obj = CompareLevelSebi(section_number, ARTICLE)
+                        section_state.prev_value = section_number
+                        section_state.prev_type = ARTICLE
+                        section_state.curr_depth = 0
+                        self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
+
+
+                    match = group_re.match(text)
+                  
+                    if section_state.compare_obj != None and  match : # does not consider amendments label
+                        group =match.group(1).strip()
+                        valueType2, compValue = section_state.compare_obj.comp_nums(section_state.curr_depth,section_state.prev_value,group,section_state.prev_type)
+                        if valueType2 is not None and compValue is not None:
+                            section_state.curr_depth = section_state.curr_depth - compValue
+                            if section_state.curr_depth >= len(hierarchy_type):
+                                        continue
+                            else:
+                                classification = hierarchy_type[section_state.curr_depth]
+                                if label != 'title':
+                                    self.all_tbs[tb] = ('title', classification)
+                            
+                                section_state.prev_value = group
+                                section_state.prev_type = valueType2
+                                self.logger.debug(f"Page {self.pg_num}: Classified '{group}' as {classification}")
+                
+                except Exception as e:
+                    self.logger.warning(f"Page {self.pg_num}: Failed to classify textbox '{text[:30]}...' due to: {e}")
+                    continue
+
+                sentence_status = is_sentence_completed
+            return sentence_status
+        except Exception as e:
+            self.logger.error(f"Error in get_hierarchy: {e}")
+            return False

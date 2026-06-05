@@ -1,74 +1,350 @@
-import numpy as np
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTChar
-from sklearn.mixture import GaussianMixture
+import re
 
-def compute_optimal_char_margin(pdf_path):
+ROMAN_RE  = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
 
-    char_gaps = []
+def is_chapter(text):
+        pattern = rf"""
+            ^\s*
 
-    # ---------------------------------------------------------
-    # Recursively collect LTChar
-    # ---------------------------------------------------------
-    def walk(obj, chars):
-        if isinstance(obj, LTChar):
-            chars.append(obj)
-        if hasattr(obj, "_objs"):
-            for child in obj._objs:
-                walk(child, chars)
+            \b(?:chapter|section)\b
+            
+            \s*
 
-    def baseline(c):
-        return (c.y0 + c.y1) / 2
+            # optional separator before chapter number
+            [\-–—:.\u2013\u2014]?
+            \s*
 
-    # ---------------------------------------------------------
-    # Extract char gaps
-    # ---------------------------------------------------------
-    try:
-        for layout in extract_pages(pdf_path):
+            # chapter number
+            (?P<number>
+                \d+
+                |
+                {ROMAN_RE}
+            )
 
-            chars = []
-            for obj in layout:
-                walk(obj, chars)
+            # optional separator after number
+            \s*
+            [\-–—:.\u2013\u2014.]?
+            \s*
 
-            if not chars:
-                continue
+            # optional title
+            (?P<title>.*?)
 
-            chars.sort(key=lambda c: (-baseline(c), c.x0))
-            prev = None
+            \s*$
+        """
 
-            for c in chars:
-                if prev:
-                    # adaptive baseline threshold
-                    if abs(baseline(prev) - baseline(c)) < c.height * 0.65:
-                        gap = c.x0 - prev.x1
-                        if gap > 0:
-                            char_gaps.append(gap)
-                prev = c
+        match = re.match(
+            pattern,
+            text,
+            re.IGNORECASE | re.VERBOSE
+        )
 
-            if len(char_gaps) > 6000:
-                break
+        if match:
+            return  True, match.group("number"),match.group("title")
+            
 
-    except Exception:
-        return 2.0   # safe fallback
+        return False, None, None
+    
+def is_part(text):
 
-    if len(char_gaps) < 10:
-        return 2.0   # insufficient data
+    pattern = rf"""
+        ^\s*
 
-    # ---------------------------------------------------------
-    # Fit Gaussian Mixture to find small-gap cluster = char spacing
-    # ---------------------------------------------------------
-    data = np.array(char_gaps).reshape(-1, 1)
+        \bpart\b
+        \s*
 
-    gmm = GaussianMixture(n_components=2, random_state=0)
-    gmm.fit(data)
+        # optional separator before part number
+        [\-–—:.\u2013\u2014]?
+        \s*
 
-    means = gmm.means_.flatten()
-    char_spacing_mean = min(means)
+        # part identifier
+        (
+            \d+
+            |
+            [A-Z]+
+            |
+            {ROMAN_RE}
+        )
 
-    # scale down slightly for pdfminer
-    char_margin = char_spacing_mean * 0.75
+        # optional separator after identifier
+        \s*
+        [\-–—:.\u2013\u2014.]?
+        \s*
 
-    # clamp reasonable bounds
-    char_margin = max(2.0, min(3.5, round(char_margin, 2)))
+        # optional title
+        (.*?)
 
-    return char_margin
+        \s*$
+    """
+
+    match = re.match(
+        pattern,
+        text,
+        re.IGNORECASE | re.VERBOSE
+    )
+
+    if match:
+        return True, match.group(1), match.group(2)
+
+
+    return False, None, None
+
+def is_article(text):
+    pattern = rf"""
+        ^\s*\barticle\b              # word 'article'
+        \s*                      # optional spaces
+        [\-–—:.\u2013\u2014]?    # one optional separator
+        \s*                      # optional spaces
+        (\d+|{ROMAN_RE})    # number or roman
+    """
+    match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
+    if match:
+        return True, match.group(1)
+    return False, None
+
+
+def is_schedule(text):
+
+    ordinals = [
+        "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+        "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
+        "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
+        "nineteenth", "twentieth"
+    ]
+
+    ordinals_re = r"(?:{})".format("|".join(ordinals))
+
+    numbers_re = r"(?:[1-9][0-9]*)"
+
+    pattern = rf"""
+        ^\s*
+
+        (?:the\s+)?                 # optional 'the'
+
+        \bschedule\b
+        \s*
+
+        # optional separator after schedule
+        [\-–—:.\u2013\u2014]?
+        \s*
+
+        # optional schedule identifier
+        (
+            {ordinals_re}
+            |
+            {numbers_re}
+            |
+            {ROMAN_RE}
+        )?
+
+        \s*
+
+        # optional separator after identifier
+        [\-–—:.\u2013\u2014.]?
+        \s*
+
+        # optional title
+        (.*?)
+
+        \s*$
+    """
+
+    return bool(
+        re.match(
+            pattern,
+            text,
+            re.IGNORECASE | re.VERBOSE
+        )
+    )
+
+
+def is_annexure(text):
+
+    pattern = rf"""
+        ^\s*
+
+        (?:
+
+            # ---------------------------------
+            # CASE 1:
+            # Annexure at beginning
+            # ---------------------------------
+
+            (?:\d+(?:\.\d+)*\s+)?     # optional numbering
+
+            \bannexures?\b
+
+            \s*
+
+            [\-–—:.\u2013\u2014]?
+            \s*
+
+            (
+                \d+
+                |
+                [A-Z]+
+                |
+                {ROMAN_RE}
+            )?
+
+            \s*
+
+            [\-–—:.\u2013\u2014.]?
+            \s*
+
+            (.*?)
+
+            |
+
+            # ---------------------------------
+            # CASE 2:
+            # Annexure at end
+            # ---------------------------------
+
+            (.*?)
+
+            \s*
+
+            [\-–—:.\u2013\u2014]?
+            \s*
+
+            \bannexure\b
+            \s*
+
+            (
+                \d+
+                |
+                [A-Z]+
+                |
+                {ROMAN_RE}
+            )
+
+        )
+
+        \s*$
+    """
+
+    return bool(
+        re.match(
+            pattern,
+            text,
+            re.IGNORECASE | re.VERBOSE
+        )
+    )
+
+def is_appendix(text):
+
+    pattern = rf"""
+        ^\s*
+
+        # optional numbering like:
+        # 13
+        # 13.1
+        (?:\d+(?:\.\d+)*\s+)?
+
+        \bappendix\b
+        \s*
+
+        # optional separator
+        [\-–—:.\u2013\u2014]?
+        \s*
+
+        # optional appendix identifier
+        (
+            \d+
+            |
+            [A-Z]+
+            |
+            {ROMAN_RE}
+        )?
+
+        \s*
+
+        # optional separator after identifier
+        [\-–—:.\u2013\u2014.]?
+        \s*
+
+        # optional title
+        (.*?)
+
+        \s*$
+    """
+
+    return bool(
+        re.match(
+            pattern,
+            text,
+            re.IGNORECASE | re.VERBOSE
+        )
+    )
+
+def is_form(text):
+
+    pattern = rf"""
+        ^\s*
+
+        # optional numbering like:
+        # 13
+        # 13.1
+        (?:\d+(?:\.\d+)*\s+)?
+
+        \bform\b
+        \s*
+
+        # optional separator
+        [\-–—:.\u2013\u2014]?
+        \s*
+
+        # optional form identifier
+        (
+            \d+
+            |
+            [A-Z]+
+            |
+            {ROMAN_RE}
+        )?
+
+        \s*
+
+        # optional separator after identifier
+        [\-–—:.\u2013\u2014.]?
+        \s*
+
+        # optional title
+        (.*?)
+
+        |
+
+        # ---------------------------------
+        # CASE 2:
+        # title ending with "Form X"
+        # ---------------------------------
+
+        (.*?)
+
+        \s*
+
+        [\-–—:.\u2013\u2014]?
+        \s*
+
+        \bform\b
+        \s*
+
+        (
+            \d+
+            |
+            [A-Z]+
+            |
+            {ROMAN_RE}
+        )
+
+        \s*$
+
+    """
+
+    return bool(
+        re.match(
+            pattern,
+            text,
+            re.IGNORECASE | re.VERBOSE
+        )
+    )

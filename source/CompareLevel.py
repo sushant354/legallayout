@@ -7,6 +7,7 @@ DECIMAL      = 3
 SMALLSTRING  = 2
 GENSTRING    = 1
 ROMAN        = 0
+UROMAN       = -1
 
 class CompareLevel:
     def __init__(self, val, depthType):
@@ -428,17 +429,9 @@ class CompareLevel:
 #             vt = self.value_type(value2)
 #             return (vt, 0)
 
-# import logging
-# import re
 
 
-# ARTICLE      = 4
-# DECIMAL      = 3
-# SMALLSTRING  = 2
-# GENSTRING    = 1
-# ROMAN        = 0
-
-
+#previous good one
 class CompareLevelSebi:
 
     def __init__(self, val=None, depthType=None):
@@ -688,3 +681,207 @@ class CompareLevelSebi:
             )
 
             return GENSTRING, 0
+
+# import logging
+# import re
+
+
+# ARTICLE      = 4
+# DECIMAL      = 3
+# SMALLSTRING  = 2
+# GENSTRING    = 1
+# ROMAN        = 0
+# UROMAN       = -1
+
+
+# class CompareLevelSebi:
+
+#     def __init__(self, val=None, depthType=None):
+
+#         self.logger = logging.getLogger(__name__)
+
+#         self.depthTypes = [depthType, -1, -1, -1, -1, -1]
+#         self.valnum = [val, None, None, None, None, None]
+
+#         self.roman_order = [
+#             "i", "ii", "iii", "iv", "v",
+#             "vi", "vii", "viii", "ix", "x",
+#             "xi", "xii", "xiii", "xiv", "xv",
+#             "xvi", "xvii", "xviii", "xix", "xx",
+#             "xxi", "xxii", "xxiii", "xxiv", "xxv",
+#             "xxvi", "xxvii", "xxviii", "xxix", "xxx"
+#         ]
+
+#         self.roman_index = {
+#             value: idx
+#             for idx, value in enumerate(self.roman_order)
+#         }
+
+#     # --------------------------------------------------
+#     # normalize
+#     # --------------------------------------------------
+
+#     def _normalize(self, token):
+
+#         if token is None:
+#             return ""
+
+#         token = str(token).strip()
+
+#         token = re.sub(r'^[\(\[\s]+', '', token)
+#         token = re.sub(r'[\)\]\.\:\s]+$', '', token)
+
+#         return token.strip()
+
+#     # --------------------------------------------------
+#     # decimal
+#     # --------------------------------------------------
+
+#     def is_decimal(self, value):
+
+#         value = self._normalize(value)
+
+#         return (
+#             re.fullmatch(
+#                 r'\d+(?:\.\d+)*',
+#                 value
+#             ) is not None
+#         )
+
+#     def get_decimal_depth(self, value):
+
+#         value = self._normalize(value)
+
+#         return len(value.split("."))
+
+#     # --------------------------------------------------
+#     # alpha
+#     # --------------------------------------------------
+
+#     def is_alpha(self, value):
+
+#         value = self._normalize(value)
+
+#         return (
+#             re.fullmatch(
+#                 r'[A-Za-z]+',
+#                 value
+#             ) is not None
+#         )
+
+#     # --------------------------------------------------
+#     # roman
+#     # --------------------------------------------------
+
+#     def is_lower_roman(self, value):
+
+#         value = self._normalize(value)
+
+#         return value.lower() in self.roman_index
+
+#     def is_upper_roman(self, value):
+
+#         value = self._normalize(value)
+
+#         return (
+#             value.upper() == value
+#             and value.lower() in self.roman_index
+#         )
+
+#     # --------------------------------------------------
+#     # type
+#     # --------------------------------------------------
+
+#     def value_type(self, value):
+
+#         value = self._normalize(value)
+
+#         if self.is_decimal(value):
+#             return DECIMAL
+
+#         if self.is_upper_roman(value):
+#             return UROMAN
+
+#         if self.is_lower_roman(value):
+#             return ROMAN
+
+#         if self.is_alpha(value):
+#             return SMALLSTRING
+
+#         return GENSTRING
+
+#     # --------------------------------------------------
+#     # hierarchy resolver
+#     # --------------------------------------------------
+
+#     def _hierarchy_depth(self, token):
+
+#         token = token.strip()
+
+#         norm = self._normalize(token)
+
+#         # ------------------------------------------
+#         # decimal hierarchy
+#         # ------------------------------------------
+
+#         if self.is_decimal(norm):
+
+#             return min(
+#                 self.get_decimal_depth(norm),
+#                 4
+#             ) - 1
+
+#         # ------------------------------------------
+#         # alpha hierarchy
+#         # ------------------------------------------
+
+#         if self.is_alpha(norm):
+
+#             if self.is_upper_roman(norm):
+#                 return 3
+
+#             if self.is_lower_roman(norm):
+#                 return 2
+
+#             return 1
+
+#         return 0
+
+#     # --------------------------------------------------
+#     # main
+#     # --------------------------------------------------
+
+#     def comp_nums(
+#         self,
+#         depth,
+#         value1,
+#         value2,
+#         valueType1
+#     ):
+
+#         try:
+
+#             valueType2 = self.value_type(value2)
+
+#             new_depth = self._hierarchy_depth(value2)
+
+#             compval = depth - new_depth
+
+#             store_index = max(0, new_depth)
+
+#             if store_index >= len(self.valnum):
+#                 store_index = len(self.valnum) - 1
+
+#             self.valnum[store_index] = value2
+#             self.depthTypes[store_index] = valueType2
+
+#             return valueType2, compval
+
+#         except Exception as e:
+
+#             self.logger.exception(
+#                 f"comp_nums failed "
+#                 f"for '{value1}' -> '{value2}': {e}"
+#             )
+
+#             return GENSTRING, 0

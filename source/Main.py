@@ -32,6 +32,11 @@ class Main:
         self.amendment = Amendment()
         self.section_state = SectionState()
         self.article_state = SectionState()
+        # self.schedule_state = SectionState()
+        # self.annexure_state = SectionState()
+        # self.appendix_state = SectionState()
+        # self.form_state = SectionState()
+        self.title_state = SectionState()
         self.is_preamble_reached = False
         self.section_shorttitle_notend_status = False
         self.is_footnote_continuation = is_footnote_continuation
@@ -324,6 +329,17 @@ class Main:
             # page.print_footers()
 
     def process_pages_sebi_circulars(self, pdf_type):
+        # sch_prev_sent_end_status = True
+        # annex_prev_sent_end_status = True
+        # appendix_prev_sent_end_status = True
+        # form_prev_sent_end_status = True
+        prev_sent_end_status = True
+        sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
+                                                ': or', '; and', ': and', ':––', ';––',\
+                                                '––', '."', '.\'', ';"', ';\'' , \
+                                                '.”', '.’', ';”' , ';’', ':-', '.]',
+                                                ',-', ':-', ';-', '--')
+
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             page.get_width_ofTB_moreThan_Half_of_pg()
@@ -335,6 +351,16 @@ class Main:
             page.get_bulletins_sebi_circulars(self.section_state)
             # page.get_section_para(self.section_state, self)
             page.get_titles(pdf_type)
+            prev_sent_end_status = page.get_title_hierarchy(self.title_state, prev_sent_end_status, sentence_completion_punctutation)
+            # sch_prev_sent_end_status = page.get_hierarchy('schedule', self.schedule_state,
+            #                     sch_prev_sent_end_status, sentence_completion_punctutation)
+            # annex_prev_sent_end_status = page.get_hierarchy('annexure', self.annexure_state, 
+            #                    annex_prev_sent_end_status, sentence_completion_punctutation)
+            # form_prev_sent_end_status = page.get_hierarchy('form', self.form_state,
+            #                     form_prev_sent_end_status, sentence_completion_punctutation)
+            # appendix_prev_sent_end_status = page.get_hierarchy('appendix', self.appendix_state, 
+            #                 appendix_prev_sent_end_status, sentence_completion_punctutation)
+                        
             page.sort_all_boxes()
             # page.print_blockquote()
             # page.print_headers()
@@ -422,10 +448,12 @@ class Main:
         
         if self.pdf_type in {'sebi_circulars'} :
             previous_page_footnote_font_size  = None
+            seen_footnote = set()
             for page in self.all_pgs.values():
                 if self.is_footnote_continuation:
-                    previous_page_footnote_font_size  = (
+                    previous_page_footnote_font_size, seen_footnote = (
                         page.get_footnotes(
+                            seen_footnote,
                             previous_page_footnote_font_size
                         )
                     )

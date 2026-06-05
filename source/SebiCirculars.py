@@ -13,6 +13,7 @@ import os
 from .Table import TableBuilder
 from .NormalizeText import NormalizeText
 from .SentenceEndDetector import SentenceMaker
+from .Utils import *
 
 COMBINED_RE = re.compile(
                 r"""
@@ -59,6 +60,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         self.unique_image = unique_images
         self.all_footnote_text = all_footnote_text
         self.footnote_to_add = None
+        self.table_footnote_text = []
+        self.active_title_levels = []
     
     def get_tab_level(self, category):
         for key, value in self.tab_level.items():
@@ -97,352 +100,352 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         self.flushTables()
         return self.close_bluebell()
     
-    def is_chapter(self, text):
-        pattern = rf"""
-            ^\s*
+    # def is_chapter(self, text):
+    #     pattern = rf"""
+    #         ^\s*
 
-            \b(?:chapter|section)\b
+    #         \b(?:chapter|section)\b
             
-            \s*
+    #         \s*
 
-            # optional separator before chapter number
-            [\-–—:.\u2013\u2014]?
-            \s*
+    #         # optional separator before chapter number
+    #         [\-–—:.\u2013\u2014]?
+    #         \s*
 
-            # chapter number
-            (?P<number>
-                \d+
-                |
-                {self.roman_re}
-            )
+    #         # chapter number
+    #         (?P<number>
+    #             \d+
+    #             |
+    #             {self.roman_re}
+    #         )
 
-            # optional separator after number
-            \s*
-            [\-–—:.\u2013\u2014.]?
-            \s*
+    #         # optional separator after number
+    #         \s*
+    #         [\-–—:.\u2013\u2014.]?
+    #         \s*
 
-            # optional title
-            (?P<title>.*?)
+    #         # optional title
+    #         (?P<title>.*?)
 
-            \s*$
-        """
+    #         \s*$
+    #     """
 
-        match = re.match(
-            pattern,
-            text,
-            re.IGNORECASE | re.VERBOSE
-        )
+    #     match = re.match(
+    #         pattern,
+    #         text,
+    #         re.IGNORECASE | re.VERBOSE
+    #     )
 
-        if match:
-            return  True, match.group("number"),match.group("title")
+    #     if match:
+    #         return  True, match.group("number"),match.group("title")
             
 
-        return False, None, None
+    #     return False, None, None
     
-    def is_part(self, text):
+    # def is_part(self, text):
 
-        pattern = rf"""
-            ^\s*
+    #     pattern = rf"""
+    #         ^\s*
 
-            \bpart\b
-            \s*
+    #         \bpart\b
+    #         \s*
 
-            # optional separator before part number
-            [\-–—:.\u2013\u2014]?
-            \s*
-
-            # part identifier
-            (
-                \d+
-                |
-                [A-Z]+
-                |
-                {self.roman_re}
-            )
+    #         # optional separator before part number
+    #         [\-–—:.\u2013\u2014]?
+    #         \s*
+
+    #         # part identifier
+    #         (
+    #             \d+
+    #             |
+    #             [A-Z]+
+    #             |
+    #             {self.roman_re}
+    #         )
 
-            # optional separator after identifier
-            \s*
-            [\-–—:.\u2013\u2014.]?
-            \s*
+    #         # optional separator after identifier
+    #         \s*
+    #         [\-–—:.\u2013\u2014.]?
+    #         \s*
 
-            # optional title
-            (.*?)
+    #         # optional title
+    #         (.*?)
 
-            \s*$
-        """
+    #         \s*$
+    #     """
 
-        match = re.match(
-            pattern,
-            text,
-            re.IGNORECASE | re.VERBOSE
-        )
+    #     match = re.match(
+    #         pattern,
+    #         text,
+    #         re.IGNORECASE | re.VERBOSE
+    #     )
 
-        if match:
-            return True, match.group(1), match.group(2)
+    #     if match:
+    #         return True, match.group(1), match.group(2)
 
 
-        return False, None, None
+    #     return False, None, None
 
-    def is_article(self, text):
-        pattern = rf"""
-            ^\s*\barticle\b              # word 'article'
-            \s*                      # optional spaces
-            [\-–—:.\u2013\u2014]?    # one optional separator
-            \s*                      # optional spaces
-            (\d+|{self.roman_re})    # number or roman
-        """
-        match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
-        if match:
-            return True, match.group(1)
-        return False, None
+    # def is_article(self, text):
+    #     pattern = rf"""
+    #         ^\s*\barticle\b              # word 'article'
+    #         \s*                      # optional spaces
+    #         [\-–—:.\u2013\u2014]?    # one optional separator
+    #         \s*                      # optional spaces
+    #         (\d+|{self.roman_re})    # number or roman
+    #     """
+    #     match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
+    #     if match:
+    #         return True, match.group(1)
+    #     return False, None
 
 
-    def is_schedule(self, text):
+    # def is_schedule(self, text):
 
-        ordinals = [
-            "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
-            "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
-            "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
-            "nineteenth", "twentieth"
-        ]
+    #     ordinals = [
+    #         "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
+    #         "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
+    #         "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
+    #         "nineteenth", "twentieth"
+    #     ]
 
-        ordinals_re = r"(?:{})".format("|".join(ordinals))
+    #     ordinals_re = r"(?:{})".format("|".join(ordinals))
 
-        numbers_re = r"(?:[1-9][0-9]*)"
+    #     numbers_re = r"(?:[1-9][0-9]*)"
 
-        pattern = rf"""
-            ^\s*
+    #     pattern = rf"""
+    #         ^\s*
 
-            (?:the\s+)?                 # optional 'the'
+    #         (?:the\s+)?                 # optional 'the'
 
-            \bschedule\b
-            \s*
+    #         \bschedule\b
+    #         \s*
 
-            # optional separator after schedule
-            [\-–—:.\u2013\u2014]?
-            \s*
+    #         # optional separator after schedule
+    #         [\-–—:.\u2013\u2014]?
+    #         \s*
 
-            # optional schedule identifier
-            (
-                {ordinals_re}
-                |
-                {numbers_re}
-                |
-                {self.roman_re}
-            )?
+    #         # optional schedule identifier
+    #         (
+    #             {ordinals_re}
+    #             |
+    #             {numbers_re}
+    #             |
+    #             {self.roman_re}
+    #         )?
 
-            \s*
+    #         \s*
 
-            # optional separator after identifier
-            [\-–—:.\u2013\u2014.]?
-            \s*
+    #         # optional separator after identifier
+    #         [\-–—:.\u2013\u2014.]?
+    #         \s*
 
-            # optional title
-            (.*?)
+    #         # optional title
+    #         (.*?)
 
-            \s*$
-        """
+    #         \s*$
+    #     """
 
-        return bool(
-            re.match(
-                pattern,
-                text,
-                re.IGNORECASE | re.VERBOSE
-            )
-        )
+    #     return bool(
+    #         re.match(
+    #             pattern,
+    #             text,
+    #             re.IGNORECASE | re.VERBOSE
+    #         )
+    #     )
 
 
-    def is_annexure(self, text):
+    # def is_annexure(self, text):
 
-        pattern = rf"""
-            ^\s*
+    #     pattern = rf"""
+    #         ^\s*
 
-            (?:
+    #         (?:
 
-                # ---------------------------------
-                # CASE 1:
-                # Annexure at beginning
-                # ---------------------------------
+    #             # ---------------------------------
+    #             # CASE 1:
+    #             # Annexure at beginning
+    #             # ---------------------------------
 
-                (?:\d+(?:\.\d+)*\s+)?     # optional numbering
+    #             (?:\d+(?:\.\d+)*\s+)?     # optional numbering
 
-                \bannexures?\b
+    #             \bannexures?\b
 
-                \s*
+    #             \s*
 
-                [\-–—:.\u2013\u2014]?
-                \s*
+    #             [\-–—:.\u2013\u2014]?
+    #             \s*
 
-                (
-                    \d+
-                    |
-                    [A-Z]+
-                    |
-                    {self.roman_re}
-                )?
+    #             (
+    #                 \d+
+    #                 |
+    #                 [A-Z]+
+    #                 |
+    #                 {self.roman_re}
+    #             )?
 
-                \s*
+    #             \s*
 
-                [\-–—:.\u2013\u2014.]?
-                \s*
+    #             [\-–—:.\u2013\u2014.]?
+    #             \s*
 
-                (.*?)
+    #             (.*?)
 
-                |
+    #             |
 
-                # ---------------------------------
-                # CASE 2:
-                # Annexure at end
-                # ---------------------------------
+    #             # ---------------------------------
+    #             # CASE 2:
+    #             # Annexure at end
+    #             # ---------------------------------
 
-                (.*?)
+    #             (.*?)
 
-                \s*
+    #             \s*
 
-                [\-–—:.\u2013\u2014]?
-                \s*
+    #             [\-–—:.\u2013\u2014]?
+    #             \s*
 
-                \bannexure\b
-                \s*
+    #             \bannexure\b
+    #             \s*
 
-                (
-                    \d+
-                    |
-                    [A-Z]+
-                    |
-                    {self.roman_re}
-                )
+    #             (
+    #                 \d+
+    #                 |
+    #                 [A-Z]+
+    #                 |
+    #                 {self.roman_re}
+    #             )
 
-            )
+    #         )
 
-            \s*$
-        """
+    #         \s*$
+    #     """
 
-        return bool(
-            re.match(
-                pattern,
-                text,
-                re.IGNORECASE | re.VERBOSE
-            )
-        )
+    #     return bool(
+    #         re.match(
+    #             pattern,
+    #             text,
+    #             re.IGNORECASE | re.VERBOSE
+    #         )
+    #     )
 
-    def is_appendix(self, text):
+    # def is_appendix(self, text):
 
-        pattern = rf"""
-            ^\s*
+    #     pattern = rf"""
+    #         ^\s*
 
-            # optional numbering like:
-            # 13
-            # 13.1
-            (?:\d+(?:\.\d+)*\s+)?
+    #         # optional numbering like:
+    #         # 13
+    #         # 13.1
+    #         (?:\d+(?:\.\d+)*\s+)?
 
-            \bappendix\b
-            \s*
+    #         \bappendix\b
+    #         \s*
 
-            # optional separator
-            [\-–—:.\u2013\u2014]?
-            \s*
+    #         # optional separator
+    #         [\-–—:.\u2013\u2014]?
+    #         \s*
 
-            # optional appendix identifier
-            (
-                \d+
-                |
-                [A-Z]+
-                |
-                {self.roman_re}
-            )?
+    #         # optional appendix identifier
+    #         (
+    #             \d+
+    #             |
+    #             [A-Z]+
+    #             |
+    #             {self.roman_re}
+    #         )?
 
-            \s*
+    #         \s*
 
-            # optional separator after identifier
-            [\-–—:.\u2013\u2014.]?
-            \s*
+    #         # optional separator after identifier
+    #         [\-–—:.\u2013\u2014.]?
+    #         \s*
 
-            # optional title
-            (.*?)
+    #         # optional title
+    #         (.*?)
 
-            \s*$
-        """
+    #         \s*$
+    #     """
 
-        return bool(
-            re.match(
-                pattern,
-                text,
-                re.IGNORECASE | re.VERBOSE
-            )
-        )
+    #     return bool(
+    #         re.match(
+    #             pattern,
+    #             text,
+    #             re.IGNORECASE | re.VERBOSE
+    #         )
+    #     )
 
-    def is_form(self, text):
+    # def is_form(self, text):
 
-        pattern = rf"""
-            ^\s*
+    #     pattern = rf"""
+    #         ^\s*
 
-            # optional numbering like:
-            # 13
-            # 13.1
-            (?:\d+(?:\.\d+)*\s+)?
+    #         # optional numbering like:
+    #         # 13
+    #         # 13.1
+    #         (?:\d+(?:\.\d+)*\s+)?
 
-            \bform\b
-            \s*
+    #         \bform\b
+    #         \s*
 
-            # optional separator
-            [\-–—:.\u2013\u2014]?
-            \s*
+    #         # optional separator
+    #         [\-–—:.\u2013\u2014]?
+    #         \s*
 
-            # optional form identifier
-            (
-                \d+
-                |
-                [A-Z]+
-                |
-                {self.roman_re}
-            )?
+    #         # optional form identifier
+    #         (
+    #             \d+
+    #             |
+    #             [A-Z]+
+    #             |
+    #             {self.roman_re}
+    #         )?
 
-            \s*
+    #         \s*
 
-            # optional separator after identifier
-            [\-–—:.\u2013\u2014.]?
-            \s*
+    #         # optional separator after identifier
+    #         [\-–—:.\u2013\u2014.]?
+    #         \s*
 
-            # optional title
-            (.*?)
+    #         # optional title
+    #         (.*?)
 
-            |
+    #         |
 
-            # ---------------------------------
-            # CASE 2:
-            # title ending with "Form X"
-            # ---------------------------------
+    #         # ---------------------------------
+    #         # CASE 2:
+    #         # title ending with "Form X"
+    #         # ---------------------------------
 
-            (.*?)
+    #         (.*?)
 
-            \s*
+    #         \s*
 
-            [\-–—:.\u2013\u2014]?
-            \s*
+    #         [\-–—:.\u2013\u2014]?
+    #         \s*
 
-            \bform\b
-            \s*
+    #         \bform\b
+    #         \s*
 
-            (
-                \d+
-                |
-                [A-Z]+
-                |
-                {self.roman_re}
-            )
+    #         (
+    #             \d+
+    #             |
+    #             [A-Z]+
+    #             |
+    #             {self.roman_re}
+    #         )
 
-            \s*$
+    #         \s*$
 
-        """
+    #     """
 
-        return bool(
-            re.match(
-                pattern,
-                text,
-                re.IGNORECASE | re.VERBOSE
-            )
-        )
+    #     return bool(
+    #         re.match(
+    #             pattern,
+    #             text,
+    #             re.IGNORECASE | re.VERBOSE
+    #         )
+    #     )
 
     def get_textline_statistics(self, texts):
 
@@ -817,8 +820,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
 
                 if self.is_preamble_reached and line:
-                    matched = self.is_schedule(line)
-                    if matched:
+                    matched = is_schedule(line) #self.is_schedule(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -831,11 +834,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"SCHEDULE {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['SCHEDULE']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue
                     
-                    matched = self.is_annexure(line)
-                    if matched:
+                    matched =  is_annexure(line) #self.is_annexure(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -848,11 +852,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"ANNEXURE {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['ANNEXURE']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue
 
-                    matched = self.is_appendix(line)
-                    if matched:
+                    matched = is_appendix(line) #self.is_appendix(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -865,11 +870,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"APPENDIX {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['APPENDIX']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue
 
-                    matched = self.is_form(line)
-                    if matched:
+                    matched = is_form(line) #self.is_form(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -882,6 +888,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"ATTACHMENT {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['ATTACHMENT']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue                    
                     
@@ -892,8 +899,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                         self.builder += "\n" + ("\t" * self.curr_tab_level) + f"SUBPART - {line}"
                         continue
 
-                    matched, val, title = self.is_chapter(line)
-                    if matched:
+                    matched, val, title = is_chapter(line) #self.is_chapter(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -909,11 +916,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                 self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['CHAP']
+                            self.active_title_levels = []
                             self.is_schedule_open = False
                             continue
                     
-                    matched, val, title = self.is_part(line)
-                    if matched:
+                    matched, val, title = is_part(line) #self.is_part(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -929,6 +937,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                 self.builder += "\n" + ("\t" * tab_level) + f"PART {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['PART']
+                            self.active_title_levels = []
                             self.is_schedule_open = False
                             continue
 
@@ -975,8 +984,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                 self.footnote_to_add = None
                             continue
                     
-                    matched = self.is_schedule(line)
-                    if matched:
+                    matched = is_schedule(line) #self.is_schedule(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -989,11 +998,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"SCHEDULE {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['SCHEDULE']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue
                     
-                    matched = self.is_annexure(line)
-                    if matched:
+                    matched = is_annexure(line) #self.is_annexure(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -1006,11 +1016,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"ANNEXURE {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['ANNEXURE']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue
 
-                    matched = self.is_appendix(line)
-                    if matched:
+                    matched = is_appendix(line) #self.is_appendix(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -1023,11 +1034,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"APPENDIX {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['APPENDIX']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue
 
-                    matched = self.is_form(line)
-                    if matched:
+                    matched = is_form(line) #self.is_form(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -1040,6 +1052,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                             self.builder += "\n" + ("\t" * tab_level) + f"ATTACHMENT {line}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['ATTACHMENT']
+                            self.active_title_levels = []
                             self.is_schedule_open = True
                             continue                   
 
@@ -1048,8 +1061,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                         self.builder += "\n" + ("\t" * self.curr_tab_level) + f"SUBPART - {line}"
                         continue
 
-                    matched, val, title = self.is_chapter(line)
-                    if matched:
+                    matched, val, title =  is_chapter(line) #self.is_chapter(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -1065,11 +1078,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                 self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['CHAP']
+                            self.active_title_levels = []
                             self.is_schedule_open = False
                             continue 
                     
-                    matched, val, title = self.is_part(line)
-                    if matched:
+                    matched, val, title = is_part(line) #self.is_part(line)
+                    if matched and not is_sentence_completed:
                         if not self.is_body_added:
                             tab_level = self.get_tab_level('BODY')
                             if tab_level is not None:
@@ -1085,6 +1099,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                 self.builder += "\n" + ("\t" * tab_level) + f"PART {val} - {title.strip()}"
                             self.curr_tab_level = tab_level
                             self.hierarchy = ['PART']
+                            self.active_title_levels = []
                             self.is_schedule_open = False
                             continue
                     
@@ -1426,7 +1441,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
     
     def addArticle(self, line):
         is_sentence_completed = line.endswith(self.sentence_completion_punctuation)
-        matched, val = self.is_article(line)
+        matched, val = is_article(line) #self.is_article(line)
         if matched:
             if not self.is_body_added:
                 tab_level = self.get_tab_level('BODY')
@@ -1441,6 +1456,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                     self.builder += "\n" + ("\t" * tab_level) + f"ART {val}"
                     self.curr_tab_level = tab_level
                     self.hierarchy = ['ART']
+                    self.active_title_levels = []
                     self.is_schedule_open = False
                     
                 else:
@@ -1462,6 +1478,27 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 self.hierarchy = self.hierarchy[:idx]
         except Exception as e:
             self.logger.error(f'while try to clear article hierarchy- {e}')
+
+    def addTitleSection(self, text):
+        try:
+            self.previous_sentence_end_status = text.endswith(self.sentence_completion_punctuation)
+            self.curr_tab_level = self.get_hierarchy_level('SEC')
+            value, remain_text = self.find_value_and_text(text)
+            self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SEC {value}"
+            value2, remain_text2 = self.find_value_and_text(remain_text)
+            if value2 == "":
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text2}"
+            else:
+                self.curr_tab_level = self.get_hierarchy_level('SUBSEC')
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level))+f"SUBSEC {value2}"
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text2}"
+            # print(self.previous_sentence_end_status, text)
+            if self.previous_sentence_end_status and self.footnote_to_add:
+                # self.logger.info('footnote 10')
+                self.add_footnote(footnotes =  self.footnote_to_add)
+                self.footnote_to_add = None
+        except Exception as e:
+            self.logger.exception("Error while adding subsection [%s]: %s",text, e)
 
     def addSubsection(self, text):
         try:
@@ -1656,6 +1693,23 @@ class SebiCirculars(TableBuilder, SentenceMaker):
          
     def addTable(self, table):
         try:
+          
+          footnote_map = {}
+
+          for item in self.table_footnote_text:
+            m = re.search(
+                r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}',
+                item
+            )
+
+            if not m:
+                continue
+
+            footnote_num = m.group(1)
+
+            base_text = item.partition("{{^{{FOOTNOTE")[0].strip()
+            footnote_map[f"{base_text}{footnote_num}"] = item
+
           self.previous_sentence_end_status = True
           self.table_visited_lastly = True
           table_tab = self.curr_tab_level + 1
@@ -1673,6 +1727,9 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 value = row[col]
                 value = str(value)
                 text = self.normalize_text(value)
+                for src_text, replacement_txt in footnote_map.items():
+                    if src_text and src_text in text:
+                        text = text.replace(src_text, replacement_txt)
                 text = self.clean_text(text)
                 value_tab = cell_tab + 1
                 indent =  ("\t" * (value_tab))
@@ -1764,6 +1821,10 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         return matches if matches else []
         
     def add_footnote(self, footnotes):
+        footnote_abbreviation_pattern = re.compile(
+                    r'(?:\b[a-z]\.){2,}$|\b(?:no|ref)\.$',
+                    re.IGNORECASE
+                )
         if not footnotes:
             return
         
@@ -1790,8 +1851,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                         self.sentence_completion_punctuation)
 
                                         and
-                                        not current_sentence.endswith('w.e.f.')
-                                        
+                                        not footnote_abbreviation_pattern.search(current_sentence)
                                         )
                 
                 if is_sentence_completed:
@@ -1806,6 +1866,12 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 self.builder  += "\n" + ("\t" * (self.curr_tab_level+2))+f"{textline}"
     
     def build(self, page, has_side_notes) :
+        handlers = [
+                self.addTitleSection,
+                self.addSubsection,
+                self.addPara,
+                self.addSubpara
+            ]
         self.remove_unwanted_sidenotes(page.side_notes_datas)
         visited_for_table = set()
        
@@ -1824,10 +1890,13 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             if not ((isinstance(label, tuple) and label[0] == "table")):
                 if self.pending_table is not None and len(self.pending_table) <= 2:
                     self.addTable(self.pending_table[0])
+                    self.table_footnote_text = []
                     self.pending_table = None
  
             if label in ('title', 'level1', 'level2', 
-                         'level3', 'level4', 'figure'):
+                         'level3', 'level4', 'figure')\
+                or (isinstance(label, tuple) and \
+                    label[1] in ('level1', 'level2', 'level3', 'level4')):
                 if self.footnote_to_add:
                     # self.logger.info('foonote 18')
                     self.add_footnote(footnotes = self.footnote_to_add)
@@ -1843,6 +1912,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                     self.footnote_to_add = self.is_footnote_detected
                 else:
                     self.footnote_to_add.extend(self.is_footnote_detected)
+                if isinstance(label, tuple) and label[0] == "table":
+                    self.table_footnote_text.append(text)
             
             if isinstance(label, tuple) and label[0] == "table":
                 table_id = label[1]
@@ -1860,9 +1931,35 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                                
                             else:
                                 self.addTable(self.pending_table[0])
+                                self.table_footnote_text = []
                                 self.pending_table = [table_obj, table_width]
+                                self.table_footnote_text = [text]
 
                     visited_for_table.add(table_id)
+            
+            elif isinstance(label, tuple) and label[0] == "title":
+                level = label[1]
+                if level not in self.active_title_levels:
+                    self.active_title_levels.append(level)
+                
+                if level in self.active_title_levels:
+                    position = self.active_title_levels.index(level)
+                    if position < len(handlers):
+                        self.table_visited_lastly = False
+                        handlers[position](text)
+                
+                # if label[1] == "level1":
+                #     self.table_visited_lastly = False
+                #     self.addTitleSection(text)
+                # elif label[1] == "level2":
+                #     self.table_visited_lastly = False
+                #     self.addSubsection(text)
+                # elif label[1] == "level3":
+                #     self.table_visited_lastly = False
+                #     self.addPara(text)
+                # elif label[1] == "level4":
+                #     self.table_visited_lastly = False                
+                #     self.addSubpara(text)
 
             elif label == "title":
                 self.addTitle(tb)
@@ -1888,6 +1985,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         if self.pending_table is not None and len(self.pending_table) <= 2:
             self.addTable(self.pending_table[0])
             self.pending_table = None
+            self.table_footnote_text = []
 
     def set_empty_hierarchy(self):
         self.hierarchy = []
