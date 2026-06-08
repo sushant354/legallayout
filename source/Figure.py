@@ -1,7 +1,7 @@
 import logging
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTImage
-import os, imghdr
+import os
 from pdfminer.image import ImageWriter
 
 class Figure:

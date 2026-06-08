@@ -460,6 +460,9 @@ class Acts(TableBuilder, SentenceMaker):
                             self.is_schedule_open = False
                             continue
                     
+                    if self.is_body_added:
+                        self.builder += " " + line
+                    
         except Exception as e:
           self.logger.exception("Error while adding title - [%s] in html: %s",tb.extract_text_from_tb(),e)
     
@@ -829,7 +832,7 @@ class Acts(TableBuilder, SentenceMaker):
     def addUnlabelled(self, text):
         try:
             is_sentence_completed = text.endswith(self.sentence_completion_punctuation)
-            if not self.is_preamble_reached and text:
+            if not self.is_preamble_reached and not self.is_body_added and text:
                 is_matched = self.check_preamble_start(text)
                 if is_matched:
                     self.is_preamble_reached = True
