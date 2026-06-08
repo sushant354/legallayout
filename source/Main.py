@@ -86,7 +86,6 @@ class Main:
             page.get_section_para(self.section_state, self)#, self.section_start_page,self.section_end_page)
             page.get_titles(pdf_type)
             page.sort_all_boxes()
-            self.logger.info(f'page height - {page.pg_height}, page width - {page.pg_width}, body startX - {page.body_startX}, body endX - {page.body_endX}')
             page.print_all()
             # page.print_headers()
             # page.print_footers()
