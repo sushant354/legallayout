@@ -7,8 +7,9 @@ import re
 import codecs
 import logging
 import shutil
-from .ParserTool import ParserTool, ChromeLensParserTool
-from .Page import Page, SectionState
+from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
+from .Page import Page, SectionState, PreAlignmentClassifier
+from .Judgment import JudgmentBuilder
 from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens
 from .Acts import Acts
 from .SebiCirculars import SebiCirculars
@@ -96,6 +97,7 @@ class Main:
         self.header_classifier = HeaderRowClassifier.default()
         self.region_merge_classifier = RegionMergeClassifier.default()
         self.continuation_classifier = ContinuationClassifier.default()
+        self.pre_alignment_classifier = PreAlignmentClassifier.default()
         # Column template carried between pages so a borderless table that runs off the
         # bottom of one page can be picked up at the top of the next (set per page in the
         # processing loops, reset here so it never leaks across documents/runs).
@@ -109,10 +111,13 @@ class Main:
         )
 
         active_footnote_num = None
+        active_footnote_page = None
 
         for pg_num in sorted(self.all_pgs.keys()):
 
             page = self.all_pgs[pg_num]
+
+            page_footnote_text = self.all_footnote_text.setdefault(pg_num, {})
 
             for tb in page.all_tbs.keys():
 
@@ -206,6 +211,7 @@ class Main:
                         )
 
                         active_footnote_num = footnote_num
+                        active_footnote_page = pg_num
 
                         cleaned_text = FOOTNOTE_START_RE.sub(
                             '',
@@ -215,31 +221,34 @@ class Main:
 
                         if (
                             footnote_num
-                            not in self.all_footnote_text
+                            not in page_footnote_text
                         ):
 
-                            self.all_footnote_text[
+                            page_footnote_text[
                                 footnote_num
                             ] = cleaned_text
 
                         else:
 
-                            self.all_footnote_text[
+                            page_footnote_text[
                                 footnote_num
                             ] += "\n" + cleaned_text
 
                     else:
 
-                        if not active_footnote_num:
+                        if not active_footnote_num or active_footnote_page is None:
                             continue
 
                         self.all_footnote_text[
+                            active_footnote_page
+                        ][
                             active_footnote_num
                         ] += "\n" + text
 
             if not self.is_footnote_continuation:
 
                 active_footnote_num = None
+                active_footnote_page = None
 
     def finalize_unique_images(self):
 
@@ -319,13 +328,13 @@ class Main:
     def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
-            return HTMLBuilder(self.unique_images, sentence_completion_punctutation, pdf_type)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-')
-            return Acts(sentence_completion_punctutation, pdf_type, docend_symbol)
+            return Acts(self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
         elif pdf_type in set(['sebi_circulars']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
@@ -334,9 +343,12 @@ class Main:
                                                 ',-', ':-', ';-', '--')
             return SebiCirculars(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
 
+        elif pdf_type == 'judgments':
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";')
+            return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         else:
             sentence_completion_punctutation = ('.', ':')
-            return HTMLBuilder(self.unique_images, sentence_completion_punctutation, pdf_type)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
     def buildHTML(self, start_page, end_page): #, section_page_end):
@@ -454,7 +466,27 @@ class Main:
             # page.print_levels()
             page.print_all()
             # page.print_tbs()
-            
+    
+    def process_pages_judgments(self, pdf_type):
+        for page in self.all_pgs.values():
+            self.logger.info(f"Processing page num-{page.pg_num}")
+            page.get_width_ofTB_moreThan_Half_of_pg()
+            page.get_body_width_by_binning()
+            # page.is_single_column_page = page.is_single_column_page()
+            # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
+            # print(page.is_single_column_page)
+            # page.get_italic_blockquotes(pdf_type)
+            self.amendment.check_for_blockquotes_judgments(page)
+            page.get_judgments_pre(self.pre_alignment_classifier)
+            # page.detect_pre()
+           
+            # page.get_titles(pdf_type)
+            # page.get_bulletins(self.section_state)
+            page.sort_all_boxes()
+            # page.print_headers()
+            # page.print_footers()
+            page.print_all()
+    
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
@@ -525,20 +557,23 @@ class Main:
         for page in self.all_pgs.values():
             page.detect_multicolumn_layout()
             page.apply_column_reading_order()
+        
+        if self.pdf_type in {'judgments'}:
+            self.detect_header_pre(pages)
 
-        if self.pdf_type in {'sebi_circulars'} :
-            previous_page_footnote_font_size  = None
-            seen_footnote = set()
-            for page in self.all_pgs.values():
-                if self.is_footnote_continuation:
-                    previous_page_footnote_font_size, seen_footnote = (
-                        page.get_footnotes(
-                            seen_footnote,
-                            previous_page_footnote_font_size
-                        )
+        previous_page_footnote_font_size  = None
+        seen_footnote = set()
+        for page in self.all_pgs.values():
+            if self.is_footnote_continuation:
+                previous_page_footnote_font_size, seen_footnote = (
+                    page.get_footnotes(
+                        seen_footnote,
+                        previous_page_footnote_font_size
                     )
-                else:
-                    page.get_footnotes()
+                )
+            else:
+                page.get_footnotes()
+            page.detect_footnote_blocks_by_style()
 
         self.finalize_unique_images()
         if not self.unique_images:
@@ -1195,34 +1230,164 @@ class Main:
                     
         return False
 
+    # def _apply_adaptive_headers_footers(self):
+    #     try:
+    #         # Apply headers
+    #         for header_group in self.adaptive_headers:
+    #             for element in header_group['elements']:
+    #                 page_num = element['page_num']
+    #                 textbox = element['textbox']
+                    
+    #                 if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
+    #                     self.all_pgs[page_num].all_tbs[textbox] = "header"
+    #                     self.logger.debug("Applied adaptive header on page %d: '%s'", 
+    #                                     page_num, element['text'][:50])
+            
+    #         # Apply footers
+    #         for footer_group in self.adaptive_footers:
+    #             for element in footer_group['elements']:
+    #                 page_num = element['page_num']
+    #                 textbox = element['textbox']
+                    
+    #                 if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
+    #                     self.all_pgs[page_num].all_tbs[textbox] = "footer"
+    #                     self.logger.debug("Applied adaptive footer on page %d: '%s'", 
+    #                                     page_num, element['text'][:50])
+            
+    #         self.logger.info("Successfully applied adaptive headers and footers to pages")
+            
+    #     except Exception as e:
+    #         self.logger.exception("Error applying adaptive headers and footers: %s", e)
+    
+
+    def get_pages_excluding_first(self, elements):
+        return {e['page_num'] for e in elements if e['page_num'] != 1}
+
+
+    def sort_groups(self, groups):
+        if not groups:
+            return []
+        return sorted(
+            groups,
+            key=lambda g: g.get("occurrence_rate", 0),
+            reverse=True
+        )
+
+
+    def get_top_k_groups(self, groups, k, min_occ=0.5):
+        if not groups:
+            return []
+
+        groups = self.sort_groups(groups)
+
+        # filter by occurrence threshold
+        groups = [g for g in groups if g.get("occurrence_rate", 0) >= min_occ]
+
+        return groups[:k]
+
+
+    def compute_group_score(self, groups, k=2):
+        if not groups:
+            return 0, set()
+
+        groups = self.sort_groups(groups)[:k]
+
+        total_score = 0
+        all_pages = set()
+
+        for g in groups:
+            pages = self.get_pages_excluding_first(g['elements'])
+            coverage = len(pages)
+            occ = g.get("occurrence_rate", 0)
+
+            total_score += occ * coverage
+            all_pages.update(pages)
+
+        return total_score, all_pages
+
+
+
+    def resolve_header_footer(self, header_groups, footer_groups, k):
+
+        if not header_groups and not footer_groups:
+            return False, False
+
+        if not header_groups:
+            return False, True
+
+        if not footer_groups:
+            return True, False
+
+        # ---- aggregate signals ----
+        h_score, h_pages = self.compute_group_score(header_groups, k)
+        f_score, f_pages = self.compute_group_score(footer_groups, k)
+
+        h_count = len(h_pages)
+        f_count = len(f_pages)
+
+        # -------- CASE 1: Equal coverage --------
+        if h_count == f_count:
+            if h_score > 0 and f_score > 0:
+                return True, True
+            return False, False
+
+        # -------- CASE 2: Unequal coverage --------
+        if h_count > f_count:
+            return True, False
+        else:
+            return False, True
+
+
+    # -------------------------------
+    # Apply (Top-K groups)
+    # -------------------------------
+
+    def apply_groups(self, groups, label):
+        for group in groups:
+            for element in group['elements']:
+
+                page_num = element['page_num']
+                textbox = element['textbox']
+
+                if (
+                    page_num in self.all_pgs and
+                    textbox in self.all_pgs[page_num].all_tbs
+                ):
+                    self.all_pgs[page_num].all_tbs[textbox] = label
+
+
+    def get_adaptive_k(self):
+        total_pages = len(self.all_pgs)
+
+        if total_pages < 3:
+            return 1
+
+        return min(max(1, total_pages // 2), 5)
+
     def _apply_adaptive_headers_footers(self):
         try:
-            # Apply headers
-            for header_group in self.adaptive_headers:
-                for element in header_group['elements']:
-                    page_num = element['page_num']
-                    textbox = element['textbox']
-                    
-                    if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
-                        self.all_pgs[page_num].all_tbs[textbox] = "header"
-                        self.logger.debug("Applied adaptive header on page %d: '%s'", 
-                                        page_num, element['text'][:50])
-            
-            # Apply footers
-            for footer_group in self.adaptive_footers:
-                for element in footer_group['elements']:
-                    page_num = element['page_num']
-                    textbox = element['textbox']
-                    
-                    if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
-                        self.all_pgs[page_num].all_tbs[textbox] = "footer"
-                        self.logger.debug("Applied adaptive footer on page %d: '%s'", 
-                                        page_num, element['text'][:50])
-            
-            self.logger.info("Successfully applied adaptive headers and footers to pages")
-            
+            K = self.get_adaptive_k()
+
+            # Step 1: Decision using aggregated top-K
+            use_header, use_footer = self.resolve_header_footer(
+                self.adaptive_headers,
+                self.adaptive_footers,
+                K
+            )
+
+            # Step 2: Apply only strong top-K groups
+            if use_header:
+                top_headers = self.get_top_k_groups(self.adaptive_headers, K)
+                self.apply_groups(top_headers, "header")
+
+            if use_footer:
+                top_footers = self.get_top_k_groups(self.adaptive_footers, K)
+                self.apply_groups(top_footers, "footer")
+
+            self.logger.info("Adaptive header/footer applied successfully")
+
         except Exception as e:
-            self.logger.exception("Error applying adaptive headers and footers: %s", e)
+            self.logger.exception("Error applying adaptive headers/footers: %s", e)
     
     def get_path_cache_xml(self):
         current_file = Path(__file__).resolve()       
@@ -1253,9 +1418,13 @@ class Main:
 
     def process_scanned_copy(self, pdf_type, base_name_of_file, start_page,
                              end_page):
-        pages = ChromeLensParserTool(self.pdf_path)\
-                            .build_xml(start_page, end_page)
-        # self.print_page_xml(pages)
+        if pdf_type == 'egazette':
+            pages = ChromeLensParserTool(self.pdf_path)\
+                                .build_xml(start_page, end_page)
+        else:
+            pages = TesseractParserTool(self.pdf_path, self.ocr_language)\
+                                            .build_xml(start_page, end_page)
+        self.print_page_xml(pages)
         self.set_htmlbuilder()
         self.logger.debug("Extracting header and footer info...")
         self.get_page_header_footer(pages, base_name_of_file, self.output_dir)
@@ -1266,6 +1435,8 @@ class Main:
             self.process_pages_sebi_circulars(pdf_type)
         elif pdf_type == 'sebi':
             self.process_pages_sebi(pdf_type)
+        elif pdf_type == 'judgments':
+            self.process_pages_judgments(pdf_type)
         else:
             self.process_pages(pdf_type)
         self.logger.info("Finished Processing of pages for: %s", self.pdf_path)
@@ -1324,6 +1495,8 @@ class Main:
                     self.process_pages_sebi_circulars(pdf_type)
                 elif pdf_type == 'sebi':
                     self.process_pages_sebi(pdf_type)
+                elif pdf_type == 'judgments':
+                    self.process_pages_judgments(pdf_type)
                 else:
                     self.process_pages(pdf_type)
                 self.logger.info("Finished Processing of pages for: %s", self.pdf_path)
@@ -1570,6 +1743,586 @@ class Main:
                     self.logger.error("Error deleting cached file %s: %s", self.pdf_path, e)
             else:
                 self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
+
+
+    def detect_header_pre(self, pages):
+
+        def parse_bbox(elem):
+            try:
+                return tuple(map(float, elem.attrib["bbox"].split(",")))
+            except:
+                return None
+
+        def norm(txt):
+            return re.sub(r"\s+", " ", txt or "").strip()
+
+        def tl_text(tl):
+            vals = []
+            for t in tl.findall(".//text"):
+                if t.text:
+                    vals.append(t.text)
+            return norm("".join(vals))
+
+        def spaced(word):
+            chars = []
+            for ch in word:
+                if ch.isspace():
+                    chars.append(r'\s+')
+                else:
+                    chars.append(re.escape(ch))
+            return r'\s*'.join(chars)
+
+
+        def phrase(txt):
+            return r'\s+'.join(spaced(x) for x in txt.split())
+
+
+        months = (
+            f"{spaced('January')}|{spaced('February')}|{spaced('March')}|"
+            f"{spaced('April')}|{spaced('May')}|{spaced('June')}|"
+            f"{spaced('July')}|{spaced('August')}|{spaced('September')}|"
+            f"{spaced('October')}|{spaced('November')}|{spaced('December')}"
+        )
+
+        
+        # TIER 1
+        tier1 = [
+
+            re.compile(
+                rf'\n\s*({phrase("THE")}\s+)?'
+                rf'({phrase("BRIEF")}\s+)?'
+                rf'({phrase("REASONS FOR THE")}\s+)?'
+                rf'{spaced("JUDGMENT")}\s*:?\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*({spaced("JUDGMENT")}|{spaced("JUDGEMENT")})'
+                rf'\s*(\(.+\))?\s*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'^\s*({spaced("JUDGMENT")}|{spaced("JUDGEMENT")})',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*[-:]*\s*{spaced("JUDGMENT")}\s*[-:]*\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*[-:]*\s*{spaced("JUDGEMENT")}\s*[-:]*\s*\n?',
+                re.I
+            ),
+
+
+            re.compile(
+                rf'\n\s*{phrase("EX PARTE JUDGMENT")}\s*\n?',
+                re.I
+            ),
+
+
+            re.compile(
+                rf'\n\s*[-:]*\s*{spaced("\u0ca4\u0cc0\u0cb0\u0ccd\u0caa\u0cc1")}\s*[-:]*\s*\n?',   # ತೀರ್ಪು
+                re.I
+            ),
+
+            re.compile(
+                rf'^\s*{spaced("\u0ca4\u0cc0\u0cb0\u0ccd\u0caa\u0cc1")}\s*$',   # ತೀರ್ಪು
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*[-:]*\s*{spaced("\u0906\u0926\u0947\u0936")}\s*[-:]*\s*\n?',   # आदेश
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0928\u094d\u092f\u093e\u092f\u0928\u093f\u0930\u094d\u0923\u092f")}\s*\n?',   # न्यायनिर्णय
+                re.I
+            ),
+
+            
+            re.compile(
+                rf'\n\s*[-:]*\s*{spaced("\u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}\s*[-:]*\s*\n?',   # निकालपत्र
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u0940 \u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}\s*\n?',   # एकतर्फी निकालपत्र
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u093e \u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}\s*\n?',   # एकतर्फा निकालपत्र
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("\u0935\u093e\u091f\u092a \u0906\u0926\u0947\u0936")}\s*\n?',   # वाटप आदेश
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u093e \u0906\u0926\u0947\u0936")}\s*\n?',   # एकतर्फा आदेश
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u0940 \u0906\u0926\u0947\u0936")}\s*\n?',   # एकतर्फी आदेश
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0ba4\u0bc0\u0bb0\u0bcd\u0baa\u0bc1\u0bb0\u0bc8")}\s*\n?',   # தீர்ப்புரை
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0ba4\u0bc0\u0bb0\u0bcd\u0baa\u0bcd\u0baa\u0bc1")}\s*\n?',   # தீர்ப்பு
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0b89\u0ba4\u0bcd\u0ba4\u0bbf\u0bb0\u0bb5\u0bc1")}\s*\n?',   # உத்திரவு
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0b89\u0ba4\u0bcd\u0ba4\u0bb0\u0bb5\u0bc1")}\s*\n?',   # உத்தரவு
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0d35\u0d3f\u0d27\u0d3f\u0d28\u0d4d\u0d2f\u0d3e\u0d2f\u0d02")}\s*\n?',   # വിധിന്യായം
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("\u0d09\u0d24\u0d4d\u0d24\u0d30\u0d35\u0d4d")}\s*\n?',   # ഉത്തരവ്
+                re.I
+            ),
+
+
+
+            # AWARD
+            re.compile(
+                rf'\n\s*({phrase("FINAL AWARD")}|{phrase("INTERIM AWARD")}|{spaced("AWARD")})\s*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*({phrase("ORAL AWARD")}|{spaced("AWARD")}\s*\(\s*{spaced("ORAL")}\s*\))',
+                re.I
+            ),
+
+            # P.C.
+            re.compile(
+                r'\n\s*((P\s*\.?\s*C\s*\.?)|(P\s*E\s*R\s*C\s*O\s*U\s*R\s*T))\s*(:|-)?\s*\n?',
+                re.I
+            ),
+
+            # ORDER
+            re.compile(
+                rf'\n\s*({spaced("ORDER")}|{phrase("COMMON ORDER")})'
+                rf'\s*(\(.+\))?\s*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("DISTRIBUTION ORDER")}\s*\n?',
+                re.I
+            ),
+
+
+            re.compile(
+                rf'^\s*{spaced("ORDER")}',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("ORDER UNDER")}.*',
+                re.I
+            ),
+
+            # ORAL ORDER / ORAL JUDGMENT
+            re.compile(
+                rf'\n\s*(({spaced("ORAL")}\s+({spaced("ORDER")}|{spaced("JUDGMENT")}))|'
+                rf'(({spaced("ORDER")}|{spaced("JUDGMENT")})\s*\(\s*{spaced("ORAL")}\s*\)))',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("ORDER BELOW EXH")}\s*\n?',
+                re.I
+            ),
+
+
+            # COMMON
+            re.compile(
+                rf'\n\s*{phrase("COMMON")}\s+'
+                rf'({spaced("JUDGMENT")}|{spaced("ORDER")})\s*(\n|:)?',
+                re.I
+            ),
+        ]
+
+        
+        # TIER 2
+
+        tier2 = [
+
+            # MANDEEP PANNU, J. (ORAL)
+            re.compile(
+                rf'\n?[A-Z .]{{3,120}},\s*J\.?\s*\(?{spaced("ORAL")}\)?\s*\n?',
+                re.I
+            ),
+
+            # XYZ, J.
+            re.compile(
+                r',[ ]*(J|Judge|Justice|Chief Justice|C\.J\.?)'
+                r'([. ]+\(?(Oral|ORAL|oral)\)?)?:?[ ]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                r',[ \xa0]*(((C\.|J)?(J[. \r\t]+:?|Judge:)'
+                r'([ ]*\(?(Oral|ORAL)\)?)?)|(J\s*\(Oral\)))'
+                r'[. \r\t:]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                r'\n\s*(Per|PER).+,\s*J\s*(:\s*)?\n?',
+                re.I
+            ),
+
+            # CORAM
+            re.compile(
+                rf'\n\s*({spaced("PER")}|{spaced("CORAM")})\s*:\s*{spaced("JUSTICE")}.*',
+                re.I
+            ),
+
+            # "HON'BLE" (straight or curly apostrophe) is the near-universal
+            # spelling in Indian court captions (apostrophe elided from
+            # "Honourable") - spaced("HONBLE") doesn't tolerate it, so this
+            # never matched that spelling and fell through to the much
+            # weaker generic comma-based fallback below.
+            re.compile(
+                rf"\n\s*(H\s*O\s*N\s*['’]?\s*B\s*L\s*E|{spaced('HONOURABLE')}).{{3,20}}{spaced('JUSTICE')}.*",
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("JUSTICE")}.{{0,30}}',
+                re.I
+            ),
+
+            # PRESENT
+            re.compile(
+                rf'\n\s*{spaced("PRESENT")}\s*\n?',
+                re.I
+            ),
+
+            # PRONOUNCED
+            re.compile(
+                rf'\n\s*({spaced("PRONOUNCED")}|{spaced("DICTATED")})'
+                rf'(\s+{phrase("IN COURT")})?',
+                re.I
+            ),
+        ]
+
+
+        # TIER 3
+
+        tier3 = [
+
+            re.compile(
+                rf'\n\s*(({spaced("MEMBER")})\s*\((J|A|T)\)|'
+                rf'({spaced("CHAIRMAN")})(\s*\((A|J)\))?|'
+                rf'(({phrase("JUDICIAL MEMBER")}|{phrase("ADMINISTRATIVE MEMBER")}|{phrase("TECHNICAL MEMBER")})))'
+                rf'\s*:?\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("MEMBER")}[ .:-]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[ \r\t]*{spaced("PER")}[ \r\t]+.*,[ \r\t]+'
+                rf'({phrase("JUDICIAL MEMBER")}|A\.?M|J\.?M|{phrase("ACCOUNTANT MEMBER")}).*',
+                re.I
+            ),
+        ]
+
+
+        # TIER 4
+
+        tier4 = [
+
+            # Arabic numerals
+            re.compile(
+                r'\n[ ]*[12]\.',
+                re.I
+            ),
+
+            # Devanagari / Marathi / Hindi : १ २
+            re.compile(
+                r'\n[ ]*[\u0967\u0968]\.',
+                re.I
+            ),
+
+            # Kannada : ೧ ೨
+            re.compile(
+                r'\n[ ]*[\u0ce7\u0ce8]\.',
+                re.I
+            ),
+
+            # Tamil : ௧ ௨
+            re.compile(
+                r'\n[ ]*[\u0be7\u0be8]\.',
+                re.I
+            ),
+
+            # Malayalam : ൧ ൨
+            re.compile(
+                r'\n[ ]*[\u0d67\u0d68]\.',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[ ]*((({phrase("BRIEF FACTS")})|{spaced("BACKGROUND")}|({phrase("FACTUAL BACKGROUND")}))).*',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("FACT OF THE CASE")}\s*:?\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("EXORDIUM")}\s*:?\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[ \r]*{phrase("INFORMATION SOUGHT")}',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("RESPONDENT")}(S)?.{{0,15}}',
+                re.I
+            ),
+        ]
+
+        # TIER 5
+
+        tier5 = [
+
+            re.compile(
+                rf'\n\s*({spaced("DATED")}[\s:,]+({spaced("THE")}\s+)?)'
+                rf'\d{{1,2}}\s*(th|rd|nd|st)\s+({months})[,\s]+\d{{4}}\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{spaced("DATED")}\s*:.*',
+                re.I
+            ),
+
+            re.compile(
+                r'\n(\d+[ /]+)?\d+[/.-]\d+[/.-]\d+',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("ORDER DATED")}\s*:\s*\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}\s*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("ORDER DATED")}\s*:\s*\n?',
+                re.I
+            ),
+        ]
+
+        # TIER 6
+        tier6 = [
+
+            re.compile(
+                rf'\n\s*({phrase("BY THE COURT")}|{phrase("BY COURT")}|{phrase("PER COURT")}).*',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*{phrase("FOR THE PETITIONER")}(S)?[\s.]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n\s*({phrase("PUBLIC PROSECUTOR")}|{phrase("FOR THE RESPONDENT")})(S)?[\s.]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                r'\n[ \t]*([-]+|=+|\*+|[.]+)[ \t]*\n?',
+                re.I
+            ),
+        ]
+
+
+       
+        # FINAL PRIORITY
+        
+
+        tiers = [tier1, tier2, tier3, tier4, tier5, tier6]
+
+        # COLLECT ROWS
+
+
+        rows = []
+
+        for pg_idx, pg in enumerate(pages):
+
+            page_num = pg_idx + 1
+
+            if page_num not in self.all_pgs:
+                continue
+
+            page_obj = self.all_pgs[page_num]
+
+            for tb, label in page_obj.all_tbs.items():
+
+                if label is not None:
+                    continue
+
+                for tl in tb.tbox.findall(".//textline"):
+
+                    bb = parse_bbox(tl)
+                    if not bb:
+                        continue
+
+                    txt = tl_text(tl)
+                    if not txt:
+                        continue
+
+                    x0, y0, x1, y1 = bb
+
+                    rows.append({
+                        "page": page_num,
+                        "tb": tb,
+                        "text": txt,
+                        "x0": x0,
+                        "y0": y0,
+                        "x1": x1,
+                        "y1": y1,
+                    })
+
+        if not rows:
+            return
+
+
+        # top to bottom
+        rows.sort(key=lambda z: (z["page"], -z["y0"], z["x0"]))
+
+
+        # SEARCH TIER BY TIER
+
+        hit = None
+        hit_row = None
+
+        for tier_idx, tier in enumerate(tiers, start=1):
+
+            built = ""
+
+            for i, row in enumerate(rows):
+
+                built += "\n" + row["text"]
+
+                matched = False
+
+                # A real heading occupies its own row - nothing of substance
+                # follows it there. A tier regex is anchored to the *start* of
+                # a row (via the "\n" every row is joined with) but has no
+                # matching guarantee at the other end, so it can just as
+                # easily match the first word of an ordinary sentence that
+                # happens to line-wrap onto its own row (e.g. a body
+                # paragraph reading "judgment of the Supreme Court does not
+                # apply..." - "judgment" alone satisfies the JUDGMENT tier1
+                # pattern). Requiring the match to reach (within a small
+                # trailing-punctuation/whitespace slack of) the end of the
+                # text built so far rules that out: it forces the matched
+                # row to be essentially *only* the heading, not a sentence
+                # that merely starts with the heading word.
+                trailing_slack = 3
+
+                for rgx in tier:
+                    m = rgx.search(built)
+                    if m and (len(built) - m.end()) <= trailing_slack:
+                        hit = i
+                        hit_row = row
+                        matched = True
+
+                        self.logger.info(
+                            f"Matched tier {tier_idx} regex: {rgx.pattern}"
+                        )
+                        break
+
+                if matched:
+                    break
+
+            if hit is not None:
+                break
+
+
+        if hit is None:
+            return
+
+        # FIND ALL ROWS WITH EXACT SAME y0,y1 AS MATCHED ROW
+
+        same_line_idx = set()
+
+        target_page = hit_row["page"]
+        target_y0 = hit_row["y0"]
+        target_y1 = hit_row["y1"]
+
+        for j, r in enumerate(rows):
+
+            if r["page"] != target_page:
+                continue
+
+            if r["y0"] == target_y0 and r["y1"] == target_y1:
+                same_line_idx.add(j)
+
+
+        # LABEL
+        # 1) all rows upto hit
+        # 2) all rows having exact same y0,y1 as matched row
+
+        mark_indexes = set(range(hit + 1)) | same_line_idx
+
+        seen = set()
+
+        for i in sorted(mark_indexes):
+
+            row = rows[i]
+
+            page_obj = self.all_pgs[row["page"]]
+            tb = row["tb"]
+
+            key = (row["page"], id(tb))
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+
+            if page_obj.all_tbs[tb] is None:
+                page_obj.all_tbs[tb] = "pre_header"
 
         
 # --- func to define argument parser required for the tool ---

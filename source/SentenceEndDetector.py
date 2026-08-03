@@ -29,8 +29,20 @@ LEGAL_ABBREVIATIONS= {
             "XRH.", "SEBI.", "RBI.", "CBI.", "CBDT.", "ITAT.", "NCLT.", "NCLAT.", "HC.", "SC.",
 
             # Special references
-            "No.", "pp.", "para.", "cl.", "art.", "reg.", "sch.", "Vol.", "Ed.", "Ch."
+            "No.", "pp.", "para.", "cl.", "art.", "reg.", "sch.", "Vol.", "Ed.", "Ch.",
+
+            # Case citation party-separator ("X v. Y")
+            "v.",
         }
+
+EXTENDED_LEGAL_ABBREVIATIONS = {
+    'ld.', 'learned', 'adv.', 'advocate', 'sr.', 'senior', 'jr.', 'junior',
+    'retd.', 'retired', 'addl.', 'additional', 'asstt.', 'assistant',
+    'govt.', 'government', 'dept.', 'department', 'min.', 'ministry',
+    'commr.', 'commissioner', 'collr.', 'collector', 'dist.', 'district',
+    'tehsildar', 'sdo', 'bdo', 'ceo', 'cfo', 'cmd', 'md', 'gm', 'dgm',
+    'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'ors', 'ors.'
+}
 
 class LegalSentenceDetector:
     
@@ -160,6 +172,9 @@ class LegalSentenceDetector:
               return False
 
       # 6. LEGAL ABBREVIATIONS
+      if len(last_token) == 1 and last_token.isalpha():
+          return False
+
       clean_token_for_abbr = re.sub(r'[^\w]', '', last_token).lower()
       abbr_variants = [
           clean_token_for_abbr + '.',
@@ -171,16 +186,8 @@ class LegalSentenceDetector:
           if abbr in self._abbr_clean:
               return False
 
-      extended_legal_abbrevs = {
-          'ld.', 'learned', 'adv.', 'advocate', 'sr.', 'senior', 'jr.', 'junior',
-          'retd.', 'retired', 'addl.', 'additional', 'asstt.', 'assistant',
-          'govt.', 'government', 'dept.', 'department', 'min.', 'ministry',
-          'commr.', 'commissioner', 'collr.', 'collector', 'dist.', 'district',
-          'tehsildar', 'sdo', 'bdo', 'ceo', 'cfo', 'cmd', 'md', 'gm', 'dgm',
-          'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'ors', 'ors.'
-      }
       for abbr_variant in abbr_variants:
-          if abbr_variant in extended_legal_abbrevs:
+          if abbr_variant in EXTENDED_LEGAL_ABBREVIATIONS:
               return False
 
       # 7. LOOKAHEAD CHECK
