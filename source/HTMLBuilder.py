@@ -14,13 +14,21 @@ from .NormalizeText import NormalizeText
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
 VOID_TAGS = {"br"}
+FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+FOOTNOTE_ABBREVIATION_RE = re.compile(
+    r'(?:\b[a-z]\.){2,}$|\b(?:no|ref)\.$',
+    re.IGNORECASE
+)
 
 class HTMLBuilder(TableBuilder):
     
-    def __init__(self, unique_images, sentence_completion_punctuation = tuple(), pdf_type = None):
+    def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation = tuple(), pdf_type = None):
         TableBuilder.__init__(self)
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
+        self.all_footnote_text = all_footnote_text
+        self.current_page_num = None
+        self.footnote_refs_used = []
         self.pending_text = ""
         self.pending_tag = None
         self.sentence_completion_punctuation = sentence_completion_punctuation
@@ -32,7 +40,8 @@ class HTMLBuilder(TableBuilder):
         self.is_real_sentence_end = self._sentence_detector.is_real_sentence_end
         self.previous_sentence_end_status = True
         self.is_pre_added = False
-        self.normalize_text = NormalizeText().normalize_text
+        self._base_normalize_text = NormalizeText().normalize_text
+        self.normalize_text = self._normalize_and_linkify_footnotes
         self.builder = ""
         self.unique_images = unique_images
         self.pending_header_footer = []
@@ -70,6 +79,17 @@ class HTMLBuilder(TableBuilder):
   .amendment {
     display: block;
     margin-left: 20%;
+  }
+
+  .footnotes {
+    display: block;
+    font-size: 0.9em;
+    border-top: 1px solid #999;
+    margin-top: 1em;
+  }
+
+  sup a {
+    text-decoration: none;
   }
   p {
     white-space: pre-wrap;
@@ -205,7 +225,7 @@ class HTMLBuilder(TableBuilder):
     # --- func to add Title in the html ---
     def addTitle(self, tb,pg_width,pg_height, next_text, next_text_tb,  at_page_end,next_label = None):
         try:
-          text = tb.extract_text_from_tb().strip()
+          text = self.normalize_text(tb.extract_text_from_tb()).strip()
           #original
           sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
           if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
@@ -917,8 +937,74 @@ class HTMLBuilder(TableBuilder):
                 self.builder += item
             self.pending_header_footer = []
         
+    def _normalize_and_linkify_footnotes(self, text):
+        text = self._base_normalize_text(text)
+        if not text or self.current_page_num is None:
+            return text
+
+        def replace(match):
+            footnote_num = match.group(1)
+            if footnote_num not in self.footnote_refs_used:
+                self.footnote_refs_used.append(footnote_num)
+            anchor = f"fn-{self.current_page_num}-{footnote_num}"
+            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
+
+        return FOOTNOTE_MARKER_RE.sub(replace, text)
+
+    def arrange_footnote_sentences(self, raw_text):
+        rawlines = raw_text.split('\n')
+        arranged_text = []
+        current_sentence = ""
+
+        for line in rawlines:
+            if current_sentence:
+                current_sentence += " " + line
+            else:
+                current_sentence = line
+
+            is_sentence_completed = (current_sentence.endswith(
+                                    self.sentence_completion_punctuation)
+                                    and
+                                    not FOOTNOTE_ABBREVIATION_RE.search(current_sentence)
+                                    )
+
+            if is_sentence_completed:
+                arranged_text.append(current_sentence.strip())
+                current_sentence = ""
+
+        if current_sentence:
+            arranged_text.append(current_sentence.strip())
+
+        return " ".join(arranged_text)
+
+    def render_footnote_section(self):
+        if not self.footnote_refs_used:
+            return
+
+        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
+        items = []
+
+        for footnote_num in self.footnote_refs_used:
+            if footnote_num not in page_footnote_text:
+                continue
+
+            body = self.arrange_footnote_sentences(page_footnote_text[footnote_num])
+            anchor = f"fn-{self.current_page_num}-{footnote_num}"
+            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            items.append(f'<li id="{anchor}" value="{footnote_num}">{body} <a href="#{ref}">↩</a></li>\n')
+
+        if items:
+            self.builder += '<section class="footnotes">\n<hr>\n<ol>\n'
+            for item in items:
+                self.builder += item
+            self.builder += '</ol>\n</section>\n'
+
+        self.footnote_refs_used = []
+
     def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
+        self.current_page_num = int(page.pg_num)
         self._sentence_detector.column_bounds = page.column_bounds if page.is_multicolumn else None
         # try:
         #   if section_end_page and int(section_end_page)+1 == int(page.pg_num):
@@ -961,14 +1047,17 @@ class HTMLBuilder(TableBuilder):
                   self.normalize_text(tb.extract_text_from_tb())
                )
                 continue
-            
+
+            elif label == "footnote":
+                continue
+
             if not ((isinstance(label, tuple) and (label[0] == "table" or\
                                                    label[0] == "borderless_table"))):
                 if self.pending_table is not None and len(self.pending_table) <= 2:
                     self.addTable(self.pending_table[0])
                     self.pending_table = None
                     self.flush_pending_header_footer()
-            
+
             if self.pdf_type == 'sebi' and not self.is_pre_added and label in ('title', 'level1'):
                 self.check_for_pre_ended(self.normalize_text(tb.extract_text_from_tb()), label)
 
@@ -1035,6 +1124,8 @@ class HTMLBuilder(TableBuilder):
             elif label is None:
                 # if not self.is_pg_num(tb,page.pg_width):
                   self.addUnlabelled(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
+
+        self.render_footnote_section()
 
     def is_pg_num(self,tb,pg_width):
         if  tb.width < 0.04 * pg_width and self.check_isDigit(tb):

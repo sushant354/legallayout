@@ -1,13 +1,14 @@
 from sklearn.cluster import DBSCAN
 from sklearn.cluster import KMeans
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import numpy as np
 import re
 import logging
+import pandas as pd
 
 
 from .TextBox import TextBox
-from .TableExtraction import TableExtraction, BorderlessTableExtraction
+from .TableExtraction import TableExtraction, BorderlessTableExtraction, PenalizedLogisticClassifier
 from .CompareLevel import CompareLevel, CompareLevelSebi
 from .NormalizeText import NormalizeText
 from .Figure import Figure,Pictures
@@ -17,6 +18,23 @@ ARTICLE      = 4
 DECIMAL      = 3
 SMALLSTRING  = 2
 GENSTRING    = 1
+
+
+class PreAlignmentClassifier(PenalizedLogisticClassifier):
+    FEATURE_ORDER = ("diff_norm", "is_table", "anchor_match", "vgap_ratio", "min_span_occupancy")
+
+    @classmethod
+    def default(cls):
+        return cls(
+            weights={
+                "diff_norm": -40.0,
+                "is_table": 0.6,
+                "anchor_match": 2.4,
+                "vgap_ratio": -1.2,
+                "min_span_occupancy": -1.0,
+            },
+            bias=1.2,
+        )
 ROMAN        = 0
 
 class SectionState:
@@ -460,8 +478,151 @@ class Page:
         for tb, label in self.all_tbs.items():
             if label is not None:
                 continue
-            if tb.textFont_is_italic(pdf_type):
+            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9]+\)?[.)]', tb.extract_text_from_tb().strip()):
                 self.all_tbs[tb] = ('italic', 'blockquote')
+
+    # def detect_pre(self):
+    #     PAGE_W = float(self.pg_width)
+
+    #     ROW_PRE_THRESHOLD = 4.0
+
+    #     GAP_RATIO = 0.075
+    #     LARGE_GAP = PAGE_W * GAP_RATIO
+
+    #     def parse_bbox(elem):
+    #         bbox_attr = elem.attrib.get("bbox")
+    #         if not bbox_attr:
+    #             return None
+    #         try:
+    #             return tuple(map(float, bbox_attr.split(",")))
+    #         except Exception:
+    #             return None
+
+    #     def norm(txt):
+    #         return re.sub(r"\s+", " ", txt or "").strip()
+
+    #     def words_in_textline(tl, y0, y1):
+    #         words = []
+    #         cur_x0 = None
+    #         prev_x1 = None
+    #         cur_chars = []
+    #         for ch in tl.findall(".//text"):
+    #             raw = ch.text
+    #             bbox = parse_bbox(ch)
+    #             if not bbox or bbox == (0.0, 0.0, 0.0, 0.0):
+    #                 continue
+    #             cx0, _, cx1, _ = bbox
+    #             if raw is None or raw.strip() == "":
+    #                 if cur_chars:
+    #                     words.append((cur_x0, prev_x1, "".join(cur_chars)))
+    #                 cur_x0 = None
+    #                 cur_chars = []
+    #                 continue
+    #             if cur_x0 is None:
+    #                 cur_x0 = cx0
+    #             cur_chars.append(raw)
+    #             prev_x1 = cx1
+    #         if cur_chars:
+    #             words.append((cur_x0, prev_x1, "".join(cur_chars)))
+    #         return [
+    #             {"x0": x0, "x1": x1, "y0": y0, "y1": y1, "width": x1 - x0, "text": t}
+    #             for x0, x1, t in words
+    #         ]
+
+    #     def wc(txt):
+    #         return len(txt.split())
+
+    #     def sentence_end(txt):
+    #         return bool(re.search(r"[.!?;:]\s*$", txt))
+
+    #     roman = r"(?:C|XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+    #     bullet_pat = re.compile(
+    #         rf"""
+    #         ^
+    #         [\s"“”'‘’]*
+    #         (
+    #             (\(?\d{{1,3}}\)?|\[\d{{1,3}}\])
+    #             |
+    #             (\(?[A-Za-z]{{1,3}}\)?|\[[A-Za-z]{{1,3}}\])
+    #             |
+    #             (\(?{roman}\)?|\[{roman}\])
+    #         )
+    #         [\.\)\]:-]
+    #         \s*
+    #         """,
+    #         re.VERBOSE | re.IGNORECASE
+    #     )
+
+    #     rows = []
+    #     for tb, label in self.all_tbs.items():
+    #         if label is not None:
+    #             continue
+    #         for tl in tb.tbox.findall(".//textline"):
+    #             print('am i here')
+    #             bb = parse_bbox(tl)
+    #             if not bb:
+    #                 continue
+    #             _, y0, _, y1 = bb
+    #             for w in words_in_textline(tl, y0, y1):
+    #                 w["tb"] = tb
+    #                 rows.append(w)
+
+    #     if not rows:
+    #         return
+
+    #     groups = defaultdict(list)
+    #     for r in rows:
+    #         key = round(r["y0"], 1)
+    #         groups[key].append(r)
+
+    #     blocked_boxes = set()
+    #     for _, items in groups.items():
+    #         items.sort(key=lambda z: z["x0"])
+    #         merged = norm(" ".join(x["text"] for x in items))
+    #         if bullet_pat.match(merged):
+    #             for x in items:
+    #                 blocked_boxes.add(x["tb"])
+
+    #     for _, items in groups.items():
+    #         usable = [x for x in items if x["tb"] not in blocked_boxes]
+    #         if len(usable) < 2:
+    #             continue
+    #         usable.sort(key=lambda z: z["x0"])
+    #         joined = norm(" ".join(x["text"] for x in usable))
+
+    #         gaps = []
+    #         for prev, cur in zip(usable, usable[1:]):
+    #             g = cur["x0"] - prev["x1"]
+    #             if g > 0:
+    #                 gaps.append(g)
+
+    #         if not gaps or max(gaps) <= LARGE_GAP:
+    #             continue
+
+    #         score = 2.0
+
+    #         av = sum(gaps) / len(gaps)
+    #         if av > LARGE_GAP * 0.65:
+    #             score += 1.0
+
+    #         occupied = sum(x["width"] for x in usable)
+    #         if occupied / PAGE_W < 0.45:
+    #             score += 1.5
+
+    #         anchors = {round(x["x0"] / 25) for x in usable}
+    #         if len(anchors) >= 2:
+    #             score += 1.0
+
+    #         if wc(joined) <= 18:
+    #             score += 0.75
+
+    #         if not sentence_end(joined):
+    #             score += 0.75
+
+    #         if score >= ROW_PRE_THRESHOLD:
+    #             for x in usable:
+    #                 print(tb.extract_text_from_tb(), 'pre')
+    #                 self.all_tbs[x["tb"]] = "pre"
 
     def print_section_para(self):
         for tb,label in self.all_tbs.items():
@@ -1150,6 +1311,58 @@ class Page:
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to label textbox '{tb}' for table {idx} -- {e}")
 
+        if self.pdf_type != 'acts':
+            for idx in self.tabular_datas.table_bbox.keys():
+                try:
+                    rows = self.tabular_datas.table_shape[idx]["rows"]
+                    cols = self.tabular_datas.table_shape[idx]["cols"]
+
+                    # empty dataframe
+                    df = pd.DataFrame(
+                        [["" for _ in range(cols)] for _ in range(rows)]
+                    )
+
+                    table_cells = self.tabular_datas.table_cells[idx]
+
+                    # fill cells using labelled textboxes
+                    for tb in self.all_tbs.keys():
+
+                        # if self.all_tbs[tb] != ("table", idx):
+                        #     continue
+
+                        for cell in table_cells:
+
+                            if self.bbox_satisfies(
+                                tb.coords,
+                                cell["bbox"]
+                            ):
+
+                                r = cell["row_index"]
+                                c = cell["col_index"]
+
+                                old_val = str(df.iat[r, c]).strip()
+                                new_val = tb.text.strip()
+
+                                if old_val:
+                                    df.iat[r, c] = old_val + " " + new_val
+                                else:
+                                    df.iat[r, c] = new_val
+
+                                break
+
+                    # store dataframe
+                    self.tabular_datas.tables[idx] = df
+
+                    self.logger.debug(
+                        f"Page {self.pg_num}: Built dataframe for table {idx}"
+                    )
+
+                except Exception as e:
+                    self.logger.warning(
+                        f"Page {self.pg_num}: Failed dataframe build "
+                        f"for table {idx} -- {e}"
+                    )
+
     def get_bulletins(self, sectionState):
         normalize_text = NormalizeText().normalize_text
         hierarchy_type = ("level1","level2","level3","level4","level5")
@@ -1309,23 +1522,27 @@ class Page:
         for line in self.page_in_xml.findall(".//line"):
             bbox = tuple(map(float, line.attrib["bbox"].split(",")))
             x0, y0, x1, y1 = bbox
-
-            if (y0 == y1) and not self.is_table_line(bbox):
+            line_width = abs(x1 - x0)
+            if (y0 == y1) and line_width > 0.7*self.pg_width and not self.is_table_line(bbox):
                 probable_lines.append(y1)
 
         for curve in self.page_in_xml.findall(".//curve"):
             bbox = tuple(map(float, curve.attrib["bbox"].split(",")))
 
             if self.is_line_like(bbox) and not self.is_table_line(bbox):
-                _, y0, _, y1 = bbox
-                probable_lines.append(max(y0, y1))
+                x0, y0, x1, y1 = bbox
+                line_width = abs(x1 - x0)
+                if line_width > 0.7*self.pg_width:
+                    probable_lines.append(max(y0, y1))
 
         for rect in self.page_in_xml.findall(".//rect"):
             bbox = tuple(map(float, rect.attrib["bbox"].split(",")))
 
             if self.is_line_like(bbox) and not self.is_table_line(bbox):
-                _, y0, _, y1 = bbox
-                probable_lines.append(max(y0, y1))
+                x0, y0, x1, y1 = bbox
+                line_width = abs(x1 - x0)
+                if line_width > 0.7*self.pg_width:
+                    probable_lines.append(max(y0, y1))
 
         if not probable_lines:
             return
@@ -1511,7 +1728,120 @@ class Page:
                     continue
 
         return current_footnote_font_size, seen_footnotes
-    
+
+    def detect_footnote_blocks_by_style(self):
+        try:
+            referenced_nums = set()
+            for tb in self.all_tbs.keys():
+                referenced_nums.update(tb.footnotes_superscript.values())
+
+            if not referenced_nums:
+                return
+
+            unlabeled_in_order = [tb for tb, label in self.all_tbs.items() if label is None]
+            if not unlabeled_in_order:
+                return
+
+            leading_marker_re = re.compile(r'^\s*\(?([0-9*†‡]{1,3})\)?[.\s]')
+            bare_number_re = re.compile(r'^\(?[0-9]{1,4}\)?$')
+            dotted_clause_re = re.compile(r'^\d+\.\d+(\.\d+)*[.\s]')
+
+            texts = [tb.extract_text_from_tb().strip() for tb in unlabeled_in_order]
+
+            def marker_num(text):
+                if dotted_clause_re.match(text):
+                    return None
+                match = leading_marker_re.match(text)
+                if not match:
+                    return None
+                value = match.group(1)
+                return value if value in referenced_nums else None
+
+            last_match_idx = None
+            for idx, text in enumerate(texts):
+                if marker_num(text) is not None:
+                    last_match_idx = idx
+
+            if last_match_idx is None:
+                return
+
+            for text in texts[last_match_idx + 1:]:
+                if not bare_number_re.match(text):
+                    return
+
+            run_start = last_match_idx
+            run_first_num = marker_num(texts[last_match_idx])
+            idx = last_match_idx - 1
+            while idx >= 0:
+                text = texts[idx]
+
+                if bare_number_re.match(text):
+                    idx -= 1
+                    continue
+
+                num = marker_num(text)
+                if (
+                    num is not None
+                    and num.isdigit()
+                    and run_first_num.isdigit()
+                    and int(num) == int(run_first_num) - 1
+                ):
+                    run_start = idx
+                    run_first_num = num
+                    idx -= 1
+                    continue
+
+                break
+
+            for tb, text in zip(unlabeled_in_order[run_start:], texts[run_start:]):
+                if bare_number_re.match(text):
+                    continue
+
+                self._mark_footnote_markers_in_tb(tb, referenced_nums, leading_marker_re, dotted_clause_re)
+                self.all_tbs[tb] = 'footnote'
+
+        except Exception as e:
+            self.logger.warning(f"Page {self.pg_num}: Failed footnote-style detection: {e}")
+
+    def _mark_footnote_markers_in_tb(self, tb, referenced_nums, leading_marker_re, dotted_clause_re):
+        if tb.footnotes_superscript:
+            return
+
+        try:
+            for textline in tb.tbox.findall('.//textline'):
+                chars = textline.findall('.//text')
+
+                line_text = "".join(ch.text or "" for ch in chars).replace('\n', ' ').strip()
+
+                if dotted_clause_re.match(line_text):
+                    continue
+
+                match = leading_marker_re.match(line_text)
+                if not match or match.group(1) not in referenced_nums:
+                    continue
+
+                remaining = match.group(1)
+                for ch in chars:
+                    if not remaining:
+                        break
+
+                    raw = ch.text or ""
+                    if not raw:
+                        continue
+
+                    if not remaining.startswith(raw):
+                        break
+
+                    if "bbox" not in ch.attrib:
+                        break
+
+                    bbox = tuple(map(float, ch.attrib["bbox"].split(",")))
+                    tb.footnotes_superscript[bbox] = raw
+                    remaining = remaining[len(raw):]
+
+        except Exception as e:
+            self.logger.warning(f"Page {self.pg_num}: Failed to mark footnote number bboxes: {e}")
+
     def get_title_hierarchy(self, section_state, sentence_status,
                       sentence_completion_punctutation):
         
@@ -1623,3 +1953,286 @@ class Page:
         if self.borderless_tabular_datas is None:
             return None
         return getattr(self.borderless_tabular_datas, "continuation_out", None)
+    def get_judgments_pre(self, classifier=None):
+        classifier = classifier or PreAlignmentClassifier.default()
+
+        PAGE_W = float(self.pg_width)
+
+        SPAN_OCCUPANCY_RATIO = 0.5
+        LARGE_GAP = PAGE_W * 0.075
+        MIN_RUN = 2
+
+        def parse_bbox(elem):
+            try:
+                return tuple(map(float, elem.attrib["bbox"].split(",")))
+            except:
+                return None
+
+        def norm(txt):
+            return re.sub(r"\s+", " ", txt).strip()
+
+        def words_in_textline(tl, y0, y1):
+            words = []
+            cur_x0 = None
+            prev_x1 = None
+            cur_chars = []
+            for ch in tl.findall(".//text"):
+                raw = ch.text
+                if raw is None or raw.strip() == "":
+                    if cur_chars:
+                        words.append((cur_x0, prev_x1, "".join(cur_chars)))
+                    cur_x0 = None
+                    cur_chars = []
+                    continue
+                bbox = parse_bbox(ch)
+                if not bbox or bbox == (0.0, 0.0, 0.0, 0.0):
+                    continue
+                cx0, _, cx1, _ = bbox
+                if cur_x0 is None:
+                    cur_x0 = cx0
+                cur_chars.append(raw)
+                prev_x1 = cx1
+            if cur_chars:
+                words.append((cur_x0, prev_x1, "".join(cur_chars)))
+            return [
+                {"tb": None, "text": t, "x0": x0, "x1": x1, "y0": y0, "y1": y1, "width": x1 - x0, "height": y1 - y0}
+                for x0, x1, t in words
+            ]
+
+        roman = r"""
+        (?:
+            C|XC|XL|L?X{0,3}
+        )
+        (?:
+            IX|IV|V?I{0,3}
+        )
+        """
+
+        bullet_pat = re.compile(
+            rf"""
+            ^
+            [\s"“”'‘’]*
+            (
+                (\(?\d{{1,3}}\)?|\[\d{{1,3}}\])
+                |
+                (\(?[A-Za-z]{{1,3}}\)?|\[[A-Za-z]{{1,3}}\])
+                |
+                (\(?{roman}\)?|\[{roman}\])
+            )
+            [\.\)\]:-]
+            \s*
+            """,
+            re.VERBOSE | re.IGNORECASE
+        )
+
+        words = []
+
+        for tb, label in self.all_tbs.items():
+
+            if label is not None:
+                continue
+
+            for tl in tb.tbox.findall(".//textline"):
+
+                bb = parse_bbox(tl)
+
+                if not bb:
+                    continue
+
+                _, y0, _, y1 = bb
+
+                for w in words_in_textline(tl, y0, y1):
+                    w["tb"] = tb
+                    words.append(w)
+
+        if not words:
+            return
+
+        words_sorted = sorted(words, key=lambda r: (-r["y0"], r["x0"]))
+
+        lines = []
+        current_line = []
+        current_y0 = None
+
+        for w in words_sorted:
+            if current_line and abs(current_y0 - w["y0"]) <= 2.0:
+                current_line.append(w)
+                continue
+            if current_line:
+                lines.append(current_line)
+            current_line = [w]
+            current_y0 = w["y0"]
+
+        if current_line:
+            lines.append(current_line)
+
+        blocked_boxes = set()
+
+        for line in lines:
+            line.sort(key=lambda z: z["x0"])
+            merged = norm(" ".join(x["text"] for x in line))
+            if bullet_pat.match(merged):
+                for x in line:
+                    blocked_boxes.add(x["tb"])
+
+        features = []
+
+        for line in lines:
+
+            usable = [x for x in line if x["tb"] not in blocked_boxes]
+
+            if not usable:
+                continue
+
+            usable.sort(key=lambda z: z["x0"])
+
+            x0 = usable[0]["x0"]
+            x1 = usable[-1]["x1"]
+            y0 = min(x["y0"] for x in usable)
+            y1 = max(x["y1"] for x in usable)
+            span_occupancy = (x1 - x0) / PAGE_W
+            max_gap = max(
+                (cur["x0"] - prev["x1"] for prev, cur in zip(usable, usable[1:])),
+                default=0.0,
+            )
+            anchors = tuple(sorted({round(x["x0"] / 25) for x in usable})) if len(usable) >= 2 else tuple()
+            text = " ".join(x["text"] for x in usable).strip()
+
+            features.append({
+                "tbs": [x["tb"] for x in usable],
+                "x0": x0, "x1": x1, "y0": y0, "y1": y1,
+                "center": (x0 + x1) / 2.0,
+                "height": max(y1 - y0, 1.0),
+                "span_occupancy": span_occupancy,
+                "max_gap": max_gap,
+                "anchors": anchors,
+                "text": text,
+            })
+
+        if not features:
+            return
+
+        def is_short(f):
+            return f["span_occupancy"] < SPAN_OCCUPANCY_RATIO
+
+        def is_table_row(f):
+            return f["max_gap"] > LARGE_GAP and len(f["anchors"]) >= 2
+
+        QUOTE_OPEN_CHARS = ('"', "'", '“', '‘', '„')
+
+        def is_candidate(f):
+            if f["text"].startswith(QUOTE_OPEN_CHARS):
+                return False
+            return is_short(f) or is_table_row(f)
+
+        def anchors_match(a, b):
+            if len(a) < 2 or len(b) < 2 or len(a) != len(b):
+                return False
+            return all(abs(x - y) <= 1 for x, y in zip(a, b))
+
+        def vertically_close(prev_f, f):
+            gap = prev_f["y0"] - f["y1"]
+            return gap <= max(prev_f["height"], f["height"]) * 1.5
+
+        def vgap_ratio(a, b):
+            gap = max(0.0, a["y0"] - b["y1"])
+            return gap / max(a["height"], b["height"], 1.0)
+
+        def build_features(a, b, kind, diff):
+            return {
+                "diff_norm": diff if diff is not None else 0.0,
+                "is_table": 1.0 if kind == "table" else 0.0,
+                "anchor_match": 1.0 if anchors_match(a["anchors"], b["anchors"]) else 0.0,
+                "vgap_ratio": vgap_ratio(a, b),
+                "min_span_occupancy": min(a["span_occupancy"], b["span_occupancy"]),
+            }
+
+        def relate(a, b):
+            if not vertically_close(a, b):
+                return None, None, None
+            for kind in ("center", "right", "left", "table"):
+                if kind == "center":
+                    diff, ref = abs(a["center"] - b["center"]) / PAGE_W, b["center"]
+                elif kind == "right":
+                    diff, ref = abs(a["x1"] - b["x1"]) / PAGE_W, b["x1"]
+                elif kind == "left":
+                    diff, ref = abs(a["x0"] - b["x0"]) / PAGE_W, b["x0"]
+                else:
+                    if not anchors_match(a["anchors"], b["anchors"]):
+                        continue
+                    diff, ref = None, b["anchors"]
+                feats = build_features(a, b, kind, diff)
+                if classifier.predict_proba(feats) >= 0.5:
+                    return kind, ref, feats
+            return None, None, None
+
+        def extends(f, run_kind, run_ref, prev_f):
+            if not vertically_close(prev_f, f):
+                return None
+            if run_kind == "center":
+                diff = abs(f["center"] - run_ref) / PAGE_W
+            elif run_kind == "right":
+                diff = abs(f["x1"] - run_ref) / PAGE_W
+            elif run_kind == "left":
+                diff = abs(f["x0"] - run_ref) / PAGE_W
+            else:
+                if not anchors_match(f["anchors"], run_ref):
+                    return None
+                diff = None
+            feats = build_features(prev_f, f, run_kind, diff)
+            if classifier.predict_proba(feats) >= 0.5:
+                return feats
+            return None
+
+        run = []
+        run_decisions = []
+        run_kind = None
+        run_ref = None
+        pending = None
+
+        def flush_run():
+            if len(run) >= MIN_RUN:
+                reward = min(1.0, 0.5 + 0.15 * (len(run) - MIN_RUN))
+                for feats in run_decisions:
+                    classifier.reinforce(feats, True, reward, lr=0.05, l2=0.02)
+                for item in run:
+                    for tb in item["tbs"]:
+                        self.all_tbs[tb] = "pre"
+            run.clear()
+            run_decisions.clear()
+
+        for f in features:
+
+            if not is_candidate(f):
+                flush_run()
+                run_kind = None
+                run_ref = None
+                pending = None
+                continue
+
+            if run_kind is not None:
+                ext_feats = extends(f, run_kind, run_ref, run[-1])
+                if ext_feats is not None:
+                    run.append(f)
+                    run_decisions.append(ext_feats)
+                    continue
+                flush_run()
+                run_kind = None
+                run_ref = None
+
+            if pending is None:
+                pending = f
+                continue
+
+            kind, ref, feats = relate(pending, f)
+
+            if kind:
+                run = [pending, f]
+                run_decisions = [feats]
+                run_kind = kind
+                run_ref = ref
+                pending = None
+            else:
+                pending = f
+
+        flush_run()

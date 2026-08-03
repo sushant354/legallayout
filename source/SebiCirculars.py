@@ -59,6 +59,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         }
         self.unique_image = unique_images
         self.all_footnote_text = all_footnote_text
+        self.current_page_num = None
         self.footnote_to_add = None
         self.table_footnote_text = []
         self.active_title_levels = []
@@ -1483,12 +1484,14 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         
         if isinstance(footnotes, str):
             footnotes = [footnotes]
-        
+
+        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
+
         for footnote in footnotes:
-            if footnote not in self.all_footnote_text:
+            if footnote not in page_footnote_text:
                 continue
 
-            rawlines = self.all_footnote_text[footnote].split('\n')
+            rawlines = page_footnote_text[footnote].split('\n')
             if not rawlines:
                 continue
             arranged_text = []
@@ -1525,6 +1528,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 self.addPara,
                 self.addSubpara
             ]
+        self.current_page_num = int(page.pg_num)
         self.remove_unwanted_sidenotes(page.side_notes_datas)
         visited_for_table = set()
        
