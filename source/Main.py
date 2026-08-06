@@ -5,10 +5,11 @@ from pathlib import Path
 from collections import defaultdict
 import re
 import codecs
+import html
 import logging
 import shutil
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
-from .Page import Page, SectionState, PreAlignmentClassifier
+from .Page import Page, SectionState
 from .Judgment import JudgmentBuilder
 from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens
 from .Acts import Acts
@@ -97,7 +98,6 @@ class Main:
         self.header_classifier = HeaderRowClassifier.default()
         self.region_merge_classifier = RegionMergeClassifier.default()
         self.continuation_classifier = ContinuationClassifier.default()
-        self.pre_alignment_classifier = PreAlignmentClassifier.default()
         # Column template carried between pages so a borderless table that runs off the
         # bottom of one page can be picked up at the top of the next (set per page in the
         # processing loops, reset here so it never leaks across documents/runs).
@@ -219,6 +219,12 @@ class Main:
                             count=1
                         ).strip()
 
+                        cleaned_text = re.sub(
+                            r'^[.\):\]]\s*',
+                            '',
+                            cleaned_text
+                        )
+
                         if (
                             footnote_num
                             not in page_footnote_text
@@ -329,6 +335,7 @@ class Main:
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
             return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
@@ -349,6 +356,7 @@ class Main:
         else:
             sentence_completion_punctutation = ('.', ':')
             return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
     def buildHTML(self, start_page, end_page): #, section_page_end):
@@ -446,8 +454,9 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
-            page.get_italic_blockquotes(pdf_type)
-            self.amendment.check_for_blockquotes(page)
+            # page.get_italic_blockquotes(pdf_type)
+            # self.amendment.check_for_blockquotes(page)
+            self.amendment.check_for_blockquotes_judgments(page)
             if self.table_extract:
                 page.reclaim_header_footer_for_continuation(self.pending_continuation)
                 self.pending_continuation = page.get_borderless_table(
@@ -456,6 +465,7 @@ class Main:
                     continuation_classifier=self.continuation_classifier,
                 )
                 page.label_borderless_table_tbs()
+            page.detect_sparse_pre()
             # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
             page.get_titles(pdf_type)
@@ -466,7 +476,7 @@ class Main:
             # page.print_levels()
             page.print_all()
             # page.print_tbs()
-    
+
     def process_pages_judgments(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
@@ -477,7 +487,7 @@ class Main:
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
             self.amendment.check_for_blockquotes_judgments(page)
-            page.get_judgments_pre(self.pre_alignment_classifier)
+            page.detect_sparse_pre()
             # page.detect_pre()
            
             # page.get_titles(pdf_type)
@@ -560,10 +570,15 @@ class Main:
         
         if self.pdf_type in {'judgments'}:
             self.detect_header_pre(pages)
+        # elif self.pdf_type in {'sebi'}:
+        #     self.detect_sebi_header_pre(pages)
+
+        self.detect_toc(pages)
 
         previous_page_footnote_font_size  = None
         seen_footnote = set()
         for page in self.all_pgs.values():
+            page.mark_standalone_footnote_markers()
             if self.is_footnote_continuation:
                 previous_page_footnote_font_size, seen_footnote = (
                     page.get_footnotes(
@@ -1230,164 +1245,32 @@ class Main:
                     
         return False
 
-    # def _apply_adaptive_headers_footers(self):
-    #     try:
-    #         # Apply headers
-    #         for header_group in self.adaptive_headers:
-    #             for element in header_group['elements']:
-    #                 page_num = element['page_num']
-    #                 textbox = element['textbox']
-                    
-    #                 if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
-    #                     self.all_pgs[page_num].all_tbs[textbox] = "header"
-    #                     self.logger.debug("Applied adaptive header on page %d: '%s'", 
-    #                                     page_num, element['text'][:50])
-            
-    #         # Apply footers
-    #         for footer_group in self.adaptive_footers:
-    #             for element in footer_group['elements']:
-    #                 page_num = element['page_num']
-    #                 textbox = element['textbox']
-                    
-    #                 if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
-    #                     self.all_pgs[page_num].all_tbs[textbox] = "footer"
-    #                     self.logger.debug("Applied adaptive footer on page %d: '%s'", 
-    #                                     page_num, element['text'][:50])
-            
-    #         self.logger.info("Successfully applied adaptive headers and footers to pages")
-            
-    #     except Exception as e:
-    #         self.logger.exception("Error applying adaptive headers and footers: %s", e)
-    
-
-    def get_pages_excluding_first(self, elements):
-        return {e['page_num'] for e in elements if e['page_num'] != 1}
-
-
-    def sort_groups(self, groups):
-        if not groups:
-            return []
-        return sorted(
-            groups,
-            key=lambda g: g.get("occurrence_rate", 0),
-            reverse=True
-        )
-
-
-    def get_top_k_groups(self, groups, k, min_occ=0.5):
-        if not groups:
-            return []
-
-        groups = self.sort_groups(groups)
-
-        # filter by occurrence threshold
-        groups = [g for g in groups if g.get("occurrence_rate", 0) >= min_occ]
-
-        return groups[:k]
-
-
-    def compute_group_score(self, groups, k=2):
-        if not groups:
-            return 0, set()
-
-        groups = self.sort_groups(groups)[:k]
-
-        total_score = 0
-        all_pages = set()
-
-        for g in groups:
-            pages = self.get_pages_excluding_first(g['elements'])
-            coverage = len(pages)
-            occ = g.get("occurrence_rate", 0)
-
-            total_score += occ * coverage
-            all_pages.update(pages)
-
-        return total_score, all_pages
-
-
-
-    def resolve_header_footer(self, header_groups, footer_groups, k):
-
-        if not header_groups and not footer_groups:
-            return False, False
-
-        if not header_groups:
-            return False, True
-
-        if not footer_groups:
-            return True, False
-
-        # ---- aggregate signals ----
-        h_score, h_pages = self.compute_group_score(header_groups, k)
-        f_score, f_pages = self.compute_group_score(footer_groups, k)
-
-        h_count = len(h_pages)
-        f_count = len(f_pages)
-
-        # -------- CASE 1: Equal coverage --------
-        if h_count == f_count:
-            if h_score > 0 and f_score > 0:
-                return True, True
-            return False, False
-
-        # -------- CASE 2: Unequal coverage --------
-        if h_count > f_count:
-            return True, False
-        else:
-            return False, True
-
-
-    # -------------------------------
-    # Apply (Top-K groups)
-    # -------------------------------
-
-    def apply_groups(self, groups, label):
-        for group in groups:
-            for element in group['elements']:
-
-                page_num = element['page_num']
-                textbox = element['textbox']
-
-                if (
-                    page_num in self.all_pgs and
-                    textbox in self.all_pgs[page_num].all_tbs
-                ):
-                    self.all_pgs[page_num].all_tbs[textbox] = label
-
-
-    def get_adaptive_k(self):
-        total_pages = len(self.all_pgs)
-
-        if total_pages < 3:
-            return 1
-
-        return min(max(1, total_pages // 2), 5)
-
     def _apply_adaptive_headers_footers(self):
         try:
-            K = self.get_adaptive_k()
+            for header_group in self.adaptive_headers:
+                for element in header_group['elements']:
+                    page_num = element['page_num']
+                    textbox = element['textbox']
 
-            # Step 1: Decision using aggregated top-K
-            use_header, use_footer = self.resolve_header_footer(
-                self.adaptive_headers,
-                self.adaptive_footers,
-                K
-            )
+                    if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
+                        self.all_pgs[page_num].all_tbs[textbox] = "header"
+                        self.logger.debug("Applied adaptive header on page %d: '%s'",
+                                        page_num, element['text'][:50])
 
-            # Step 2: Apply only strong top-K groups
-            if use_header:
-                top_headers = self.get_top_k_groups(self.adaptive_headers, K)
-                self.apply_groups(top_headers, "header")
+            for footer_group in self.adaptive_footers:
+                for element in footer_group['elements']:
+                    page_num = element['page_num']
+                    textbox = element['textbox']
 
-            if use_footer:
-                top_footers = self.get_top_k_groups(self.adaptive_footers, K)
-                self.apply_groups(top_footers, "footer")
+                    if page_num in self.all_pgs and textbox in self.all_pgs[page_num].all_tbs:
+                        self.all_pgs[page_num].all_tbs[textbox] = "footer"
+                        self.logger.debug("Applied adaptive footer on page %d: '%s'",
+                                        page_num, element['text'][:50])
 
-            self.logger.info("Adaptive header/footer applied successfully")
+            self.logger.info("Successfully applied adaptive headers and footers to pages")
 
         except Exception as e:
-            self.logger.exception("Error applying adaptive headers/footers: %s", e)
+            self.logger.exception("Error applying adaptive headers and footers: %s", e)
     
     def get_path_cache_xml(self):
         current_file = Path(__file__).resolve()       
@@ -2324,7 +2207,235 @@ class Main:
             if page_obj.all_tbs[tb] is None:
                 page_obj.all_tbs[tb] = "pre_header"
 
-        
+    def detect_sebi_header_pre(self, pages):
+        body_start_re = re.compile(
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+        )
+
+        rows = []
+        for pg_idx, pg in enumerate(pages):
+            page_num = pg_idx + 1
+            if page_num not in self.all_pgs:
+                continue
+            page_obj = self.all_pgs[page_num]
+            for tb, label in page_obj.all_tbs.items():
+                if label is not None:
+                    continue
+                text = re.sub(r'\s+', ' ', tb.extract_text_from_tb()).strip()
+                if not text:
+                    continue
+                x0, y0, x1, y1 = tb.coords
+                rows.append({"page": page_num, "tb": tb, "text": text, "y0": y0})
+
+        if not rows:
+            return
+
+        rows.sort(key=lambda z: (z["page"], -z["y0"]))
+
+        body_start_idx = None
+        for i, row in enumerate(rows):
+            if body_start_re.match(row["text"]):
+                body_start_idx = i
+                break
+
+        if not body_start_idx:
+            return
+
+        for row in rows[:body_start_idx]:
+            page_obj = self.all_pgs[row["page"]]
+            if page_obj.all_tbs[row["tb"]] is None:
+                page_obj.all_tbs[row["tb"]] = "pre_header"
+
+    def detect_toc(self, pages):
+        TOC_HEADING_RE = re.compile(
+            r'^\s*(TABLE\s+OF\s+CONTENTS?|INDEX|CONTENTS?|SYNOPSIS|'
+            r'LIST\s+OF\s+CONTENTS?|'
+            r'ARRANGEMENT\s+OF\s+(?:SECTIONS?|CLAUSES?|PARAGRAPHS?|REGULATIONS?))\s*$',
+            re.I
+        )
+        PAGE_NO_HEADER_RE = re.compile(r'^\s*PAGE\s*(?:NO\.?|NUMBER)\s*$', re.I)
+        ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.I)
+        TOC_ENTRY_RE = re.compile(r'^(.*?\S)[\s.․…]{2,}(\(?[A-Za-z0-9]{1,7}\)?)\.?\s*$')
+        MAX_MISS_STREAK = 2
+        MAX_CONTINUATION_LEN = 120
+        LEVEL_TOL = 10.0
+        MIN_ENTRIES = 3
+        ROW_Y_TOL = 0.6
+
+        def page_token(raw):
+            token = raw.strip().strip('().').strip()
+            if not token:
+                return None
+            if token.isdigit() and len(token) <= 4:
+                return token
+            if ROMAN_RE.match(token):
+                return token
+            return None
+
+        def match_entry(row):
+            if len(row["texts"]) > 1:
+                token = page_token(row["texts"][-1])
+                if token:
+                    body = " ".join(row["texts"][:-1]).strip()
+                    if body:
+                        return body, token
+            match = TOC_ENTRY_RE.match(row["text"])
+            if match:
+                token = page_token(match.group(2))
+                if token:
+                    return match.group(1).strip(), token
+            return None
+
+        rows = []
+        for pg_idx, pg in enumerate(pages):
+            page_num = pg_idx + 1
+            if page_num not in self.all_pgs:
+                continue
+            page_obj = self.all_pgs[page_num]
+            for tb, label in page_obj.all_tbs.items():
+                if label is not None:
+                    continue
+                text = re.sub(r'\s+', ' ', tb.extract_text_from_tb()).strip()
+                if not text:
+                    continue
+                x0, y0, x1, y1 = tb.coords
+                rows.append({
+                    "page": page_num, "tbs": [tb], "texts": [text], "text": text,
+                    "x0": x0, "y0": y0, "x1": x1, "y1": y1,
+                })
+
+        if not rows:
+            return
+
+        rows.sort(key=lambda z: (z["page"], -z["y0"], z["x0"]))
+
+        merged_rows = []
+        i = 0
+        while i < len(rows):
+            group = [rows[i]]
+            j = i + 1
+            while j < len(rows) and rows[j]["page"] == group[0]["page"]:
+                row_height = max(group[-1]["y1"] - group[-1]["y0"], rows[j]["y1"] - rows[j]["y0"], 1.0)
+                if abs(rows[j]["y0"] - group[-1]["y0"]) <= row_height * ROW_Y_TOL:
+                    group.append(rows[j])
+                    j += 1
+                    continue
+                break
+            if len(group) > 1:
+                merged_rows.append({
+                    "page": group[0]["page"],
+                    "tbs": [g["tbs"][0] for g in group],
+                    "texts": [g["text"] for g in group],
+                    "text": " ".join(g["text"] for g in group),
+                    "x0": group[0]["x0"], "y0": group[0]["y0"],
+                    "x1": group[-1]["x1"], "y1": group[0]["y1"],
+                })
+            else:
+                merged_rows.append(rows[i])
+            i = j
+        rows = merged_rows
+
+        heading_idx = None
+        for idx, row in enumerate(rows):
+            if any(TOC_HEADING_RE.match(t) for t in row["texts"]):
+                heading_idx = idx
+                break
+
+        if heading_idx is None:
+            return
+
+        heading_row = rows[heading_idx]
+        consumed_tbs = [(heading_row["page"], tb) for tb in heading_row["tbs"]]
+
+        entries = []
+        pending_prefix = ""
+        pending_start_x0 = None
+        pending_tbs = []
+        miss_streak = 0
+
+        i = heading_idx + 1
+        while i < len(rows):
+            row = rows[i]
+            text = row["text"]
+
+            if len(row["tbs"]) == 1 and PAGE_NO_HEADER_RE.match(text):
+                consumed_tbs.extend((row["page"], tb) for tb in row["tbs"])
+                i += 1
+                continue
+
+            matched = match_entry(row)
+            if matched:
+                body, page_no = matched
+                if pending_prefix:
+                    body = f"{pending_prefix} {body}"
+                entries.append({
+                    "text": body,
+                    "page_no": page_no,
+                    "x0": pending_start_x0 if pending_start_x0 is not None else row["x0"],
+                })
+                consumed_tbs.extend((row["page"], tb) for tb in row["tbs"])
+                consumed_tbs.extend(pending_tbs)
+                pending_prefix = ""
+                pending_start_x0 = None
+                pending_tbs = []
+                miss_streak = 0
+                i += 1
+                continue
+
+            if len(text) <= MAX_CONTINUATION_LEN and miss_streak < MAX_MISS_STREAK:
+                if pending_start_x0 is None:
+                    pending_start_x0 = row["x0"]
+                pending_prefix = f"{pending_prefix} {text}".strip()
+                pending_tbs.extend((row["page"], tb) for tb in row["tbs"])
+                miss_streak += 1
+                i += 1
+                continue
+
+            break
+
+        if len(entries) < MIN_ENTRIES:
+            return
+
+        stack = []
+        for entry in entries:
+            x0 = entry["x0"]
+            while stack and x0 < stack[-1][0] - LEVEL_TOL:
+                stack.pop()
+            if stack and abs(x0 - stack[-1][0]) <= LEVEL_TOL:
+                level = stack[-1][1]
+            elif stack and x0 > stack[-1][0] + LEVEL_TOL:
+                level = stack[-1][1] + 1
+                stack.append((x0, level))
+            else:
+                level = 1
+                stack = [(x0, level)]
+            entry["level"] = level
+
+        out = [
+            '<nav class="toc">',
+            '<p class="toc-title">Table of Contents</p>',
+            '<table class="toc-table">',
+        ]
+        for entry in entries:
+            level = entry["level"]
+            indent = f' style="padding-left: {(level - 1) * 1.5}em;"' if level > 1 else ''
+            title = html.escape(entry["text"])
+            page_no = html.escape(entry["page_no"])
+            out.append(
+                f'<tr class="toc-level-{level}">'
+                f'<td class="toc-entry"{indent}>{title}</td>'
+                f'<td class="toc-page">{page_no}</td></tr>'
+            )
+        out.append('</table>')
+        out.append('</nav>')
+
+        self.html_builder.toc_html = '\n'.join(out) + '\n'
+
+        for page_num, tb in consumed_tbs:
+            page_obj = self.all_pgs[page_num]
+            if page_obj.all_tbs[tb] is None:
+                page_obj.all_tbs[tb] = "toc"
+
 # --- func to define argument parser required for the tool ---
 def get_arg_parser():
     parser = argparse.ArgumentParser(description="To automate pdf Parse and Convert to structured", add_help=True)

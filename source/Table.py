@@ -597,7 +597,129 @@ class TableBuilder:
                 else:
                     # Too many columns difference, truncate to match table1
                     return table2.iloc[:, :table1.shape[1]].copy()
-                    
+
         except Exception as e:
             self.logger.error(f"Error aligning columns: {e}")
             return None
+
+    def build_line_text(self, tb, textline):
+        line_parts = []
+        pending_superscript = []
+
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+
+            is_super = False
+            if 'bbox' in text_el.attrib:
+                try:
+                    char_bbox = tuple(map(float, text_el.attrib['bbox'].split(',')))
+                    if char_bbox in tb.footnotes_superscript:
+                        pending_superscript.append(tb.footnotes_superscript[char_bbox])
+                        is_super = True
+                except Exception:
+                    pass
+
+            if not is_super:
+                if pending_superscript:
+                    marker = ''.join(pending_superscript)
+                    line_parts.append('{{^{{FOOTNOTE ' + marker + '}}}}')
+                    pending_superscript = []
+                line_parts.append(raw)
+
+        if pending_superscript:
+            marker = ''.join(pending_superscript)
+            line_parts.append('{{^{{FOOTNOTE ' + marker + '}}}}')
+
+        return ''.join(line_parts).replace('\n', ' ').strip()
+
+    def extract_textlines(self, tb):
+        lines = []
+        for textline in tb.tbox.findall('.//textline'):
+            bbox = textline.attrib.get('bbox')
+            if not bbox:
+                continue
+            try:
+                x0, y0, x1, y1 = map(float, bbox.split(','))
+            except ValueError:
+                continue
+
+            text = self.build_line_text(tb, textline)
+            if not text:
+                continue
+
+            lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
+        return lines
+
+    def cluster_rows_by_position(self, items):
+        rows = []
+        for item in sorted(items, key=lambda it: (-it['y0'], it['x0'])):
+            placed_row = None
+            for row in rows:
+                ref = row[0]
+                row_height = max(ref['y1'] - ref['y0'], item['y1'] - item['y0'], 1.0)
+                if abs(item['y0'] - ref['y0']) <= row_height * 0.4:
+                    placed_row = row
+                    break
+            if placed_row is not None:
+                placed_row.append(item)
+            else:
+                rows.append([item])
+
+        rows.sort(key=lambda row: -row[0]['y0'])
+        for row in rows:
+            row.sort(key=lambda it: it['x0'])
+        return rows
+
+    def build_row_text(self, row, base_x0, char_width):
+        line = ""
+        for item in row:
+            text = self.normalize_text(item['text'])
+            if not text.strip():
+                continue
+            target_col = max(0, round((item['x0'] - base_x0) / char_width))
+            if target_col > len(line):
+                line += " " * (target_col - len(line))
+            elif line and not line.endswith(" "):
+                line += " "
+            line += text
+        return line
+
+    def render_pre_block(self, lines):
+        ordered = []
+        current_chunk = []
+        for item in lines:
+            if 'raw' in item:
+                if current_chunk:
+                    ordered.append(('text', current_chunk))
+                    current_chunk = []
+                ordered.append(('raw', item))
+                continue
+            current_chunk.append(item)
+        if current_chunk:
+            ordered.append(('text', current_chunk))
+
+        all_text_items = [item for kind, chunk in ordered if kind == 'text' for item in chunk]
+        if not all_text_items:
+            return
+
+        base_x0 = min(item['x0'] for item in all_text_items)
+        total_width = sum(item['x1'] - item['x0'] for item in all_text_items)
+        total_chars = sum(len(item['text']) for item in all_text_items)
+        char_width = total_width / total_chars
+
+        body_lines = []
+        for kind, chunk in ordered:
+            if kind == 'raw':
+                body_lines.append(chunk['raw'])
+                continue
+            for row in self.cluster_rows_by_position(chunk):
+                line = self.build_row_text(row, base_x0, char_width)
+                if line.strip():
+                    body_lines.append(line)
+
+        if not body_lines:
+            return
+
+        self.builder += '<pre>\n' + '\n'.join(body_lines) + '\n</pre>\n'

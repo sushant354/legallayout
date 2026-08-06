@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .Table import TableBuilder
 from .NormalizeText import NormalizeText
-from .SentenceEndDetector import LEGAL_ABBREVIATIONS, EXTENDED_LEGAL_ABBREVIATIONS
+from .SentenceEndDetector import LEGAL_ABBREVIATIONS, EXTENDED_LEGAL_ABBREVIATIONS, is_abbreviation_like_token
 
 
 TAG_FOR_LABEL = {
@@ -38,6 +38,9 @@ class JudgmentBuilder(TableBuilder):
         self.unique_images = unique_images
         self.all_footnote_text = all_footnote_text
         self.footnote_refs_used = []
+        self.current_page_num = None
+        self.toc_html = None
+        self.toc_rendered = False
         self.sentence_completion_punctuation = sentence_completion_punctuation
         self._base_normalize_text = NormalizeText().normalize_text
         self.normalize_text = self._normalize_and_linkify_footnotes
@@ -91,60 +94,31 @@ class JudgmentBuilder(TableBuilder):
   td {
     white-space: pre-wrap;
   }
+
+  nav.toc .toc-title {
+    font-weight: bold;
+  }
+
+  nav.toc .toc-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  nav.toc .toc-table td {
+    border: none;
+    padding: 0.15em 0.4em;
+    white-space: pre-wrap;
+  }
+
+  nav.toc .toc-page {
+    text-align: right;
+    color: #555;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
 '''
-
-    def build_line_text(self, tb, textline):
-        line_parts = []
-        pending_superscript = []
-
-        for text_el in textline.findall('.//text'):
-            raw = text_el.text or ''
-            if not raw:
-                continue
-
-            is_super = False
-            if 'bbox' in text_el.attrib:
-                try:
-                    char_bbox = tuple(map(float, text_el.attrib['bbox'].split(',')))
-                    if char_bbox in tb.footnotes_superscript:
-                        pending_superscript.append(tb.footnotes_superscript[char_bbox])
-                        is_super = True
-                except Exception:
-                    pass
-
-            if not is_super:
-                if pending_superscript:
-                    marker = ''.join(pending_superscript)
-                    line_parts.append('{{^{{FOOTNOTE ' + marker + '}}}}')
-                    pending_superscript = []
-                line_parts.append(raw)
-
-        if pending_superscript:
-            marker = ''.join(pending_superscript)
-            line_parts.append('{{^{{FOOTNOTE ' + marker + '}}}}')
-
-        return ''.join(line_parts).replace('\n', ' ').strip()
-
-    def extract_textlines(self, tb):
-        lines = []
-        for textline in tb.tbox.findall('.//textline'):
-            bbox = textline.attrib.get('bbox')
-            if not bbox:
-                continue
-            try:
-                x0, y0, x1, y1 = map(float, bbox.split(','))
-            except ValueError:
-                continue
-
-            text = self.build_line_text(tb, textline)
-            if not text:
-                continue
-
-            lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
-        return lines
 
     def club_lines_into_rows(self, lines):
         units = []
@@ -191,12 +165,7 @@ class JudgmentBuilder(TableBuilder):
         match = LAST_TOKEN_RE.search(text)
         if not match:
             return False
-        last_token = match.group(1)
-        if len(last_token) == 1 and last_token.isalpha():
-            return True
-        clean_token = re.sub(r'[^\w]', '', last_token).lower()
-        variants = (clean_token + '.', last_token.lower(), clean_token, last_token.lower().rstrip('.'))
-        return any(variant in ABBREVIATIONS for variant in variants)
+        return is_abbreviation_like_token(match.group(1))
 
     def group_rows_into_sentences(self, units):
         result = []
@@ -309,12 +278,12 @@ class JudgmentBuilder(TableBuilder):
             self.emit_tag(tag, item_units)
 
     def render_block(self, tag, lines):
-        units = self.normalize_units(self.club_lines_into_rows(lines))
-        if not units:
+        if tag == "pre":
+            self.render_pre_block(lines)
             return
 
-        if tag == "pre":
-            self.emit_tag(tag, units)
+        units = self.normalize_units(self.club_lines_into_rows(lines))
+        if not units:
             return
 
         if tag != "p":
@@ -392,14 +361,16 @@ class JudgmentBuilder(TableBuilder):
 
     def _normalize_and_linkify_footnotes(self, text):
         text = self._base_normalize_text(text)
-        if not text:
+        if not text or self.current_page_num is None:
             return text
 
         def replace(match):
             footnote_num = match.group(1)
             if footnote_num not in self.footnote_refs_used:
                 self.footnote_refs_used.append(footnote_num)
-            return f'<sup id="fnref{footnote_num}"><a href="#fn{footnote_num}">{footnote_num}</a></sup>'
+            anchor = f"fn-{self.current_page_num}-{footnote_num}"
+            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
 
         return FOOTNOTE_MARKER_RE.sub(replace, text)
 
@@ -433,17 +404,16 @@ class JudgmentBuilder(TableBuilder):
         if not self.footnote_refs_used:
             return
 
-        merged_footnote_text = {}
-        for page_footnotes in self.all_footnote_text.values():
-            merged_footnote_text.update(page_footnotes)
-
+        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
         items = []
-        for footnote_num in self.footnote_refs_used:
-            if footnote_num not in merged_footnote_text:
+        for footnote_num in sorted(self.footnote_refs_used, key=lambda n: int(n) if n.isdigit() else n):
+            if footnote_num not in page_footnote_text:
                 continue
 
-            body = self.arrange_footnote_sentences(merged_footnote_text[footnote_num])
-            items.append(f'<li id="fn{footnote_num}" value="{footnote_num}">{body} <a href="#fnref{footnote_num}">↩</a></li>\n')
+            body = self.arrange_footnote_sentences(page_footnote_text[footnote_num])
+            anchor = f"fn-{self.current_page_num}-{footnote_num}"
+            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            items.append(f'<li id="{anchor}" value="{footnote_num}">{body} <a href="#{ref}">↩</a></li>\n')
 
         if items:
             self.builder += '<section class="footnotes">\n<hr>\n<ol>\n'
@@ -454,6 +424,7 @@ class JudgmentBuilder(TableBuilder):
         self.footnote_refs_used = []
 
     def build(self, page, has_side_notes):
+        self.current_page_num = int(page.pg_num)
         visited_for_table = set()
 
         for tb, label in page.all_tbs.items():
@@ -475,6 +446,13 @@ class JudgmentBuilder(TableBuilder):
                 continue
 
             if label == "footnote":
+                continue
+
+            if label == "toc":
+                if self.toc_html and not self.toc_rendered:
+                    self.flush_block()
+                    self.builder += self.toc_html
+                    self.toc_rendered = True
                 continue
 
             if label == "figure":
@@ -511,6 +489,8 @@ class JudgmentBuilder(TableBuilder):
                 self.current_tag = tag
             self.current_lines.extend(self.extract_textlines(tb))
 
+        self.render_footnote_section()
+
     def close_html(self):
         if not self.builder:
             return None
@@ -520,5 +500,4 @@ class JudgmentBuilder(TableBuilder):
         self.flush_block()
         self.flushTables()
         self.flush_pending_header_footer()
-        self.render_footnote_section()
         return self.close_html()

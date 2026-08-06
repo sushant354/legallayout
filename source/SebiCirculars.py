@@ -1394,6 +1394,10 @@ class SebiCirculars(TableBuilder, SentenceMaker):
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n %s",e, table.head().to_string(index=False))
 
+        if self.footnote_to_add:
+            self.add_footnote(footnotes = self.footnote_to_add)
+            self.footnote_to_add = None
+
     def addAmendment(self, label, tb, side_note_datas, page_height):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
@@ -1537,7 +1541,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             if self.is_act_ended and self.docend_symbol:
                 break
             if label == "header" or label == "footer" \
-                or label == "footnote":
+                or label == "footnote" or label == "toc":
                continue
             
             if label in ('figure',) and (tb.figname not in self.unique_image):

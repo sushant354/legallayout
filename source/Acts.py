@@ -970,6 +970,10 @@ class Acts(TableBuilder, SentenceMaker):
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n %s",e, table.head().to_string(index=False))
 
+        if self.footnote_to_add:
+            self.add_footnote(footnotes = self.footnote_to_add)
+            self.footnote_to_add = None
+
     def addAmendment(self, label, tb, side_note_datas, page_height):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
@@ -1106,7 +1110,7 @@ class Acts(TableBuilder, SentenceMaker):
         for idx, (tb, label) in enumerate(all_items):
             if self.is_act_ended and self.docend_symbol:
                 break
-            if label == "header" or label == "footer" or label == "footnote":
+            if label == "header" or label == "footer" or label == "footnote" or label == "toc":
                continue
             if not ((isinstance(label, tuple) and (label[0] == "table" or \
                                                    label[0] == "borderless_table"))):
