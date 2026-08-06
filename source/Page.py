@@ -8,7 +8,7 @@ import pandas as pd
 
 
 from .TextBox import TextBox
-from .TableExtraction import TableExtraction, BorderlessTableExtraction, PenalizedLogisticClassifier
+from .TableExtraction import TableExtraction, BorderlessTableExtraction
 from .CompareLevel import CompareLevel, CompareLevelSebi
 from .NormalizeText import NormalizeText
 from .Figure import Figure,Pictures
@@ -20,21 +20,6 @@ SMALLSTRING  = 2
 GENSTRING    = 1
 
 
-class PreAlignmentClassifier(PenalizedLogisticClassifier):
-    FEATURE_ORDER = ("diff_norm", "is_table", "anchor_match", "vgap_ratio", "min_span_occupancy")
-
-    @classmethod
-    def default(cls):
-        return cls(
-            weights={
-                "diff_norm": -40.0,
-                "is_table": 0.6,
-                "anchor_match": 2.4,
-                "vgap_ratio": -1.2,
-                "min_span_occupancy": -1.0,
-            },
-            bias=1.2,
-        )
 ROMAN        = 0
 
 class SectionState:
@@ -1684,8 +1669,10 @@ class Page:
 
                             self.all_tbs[tb] = 'footnote'
 
+                            remainder = FOOTNOTE_RE.sub('', text).strip()
+
                             current_footnote_font_size = (
-                                tb.avg_font_size
+                                tb.avg_font_size if remainder else None
                             )
 
                             footnote_started = True
@@ -1698,10 +1685,27 @@ class Page:
                         continue
 
             # -----------------------------------------
+            # bootstrap font size from the first content
+            # line after a marker-only footnote number
+            # -----------------------------------------
+
+            if footnote_started and current_footnote_font_size is None:
+
+                is_bare_number = bool(
+                    re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
+                )
+
+                if not is_bare_number and self.all_tbs[tb] is None:
+                    self.all_tbs[tb] = 'footnote'
+                    current_footnote_font_size = tb.avg_font_size
+
+                continue
+
+            # -----------------------------------------
             # continuation based on font size
             # -----------------------------------------
 
-            if current_footnote_font_size is not None:
+            if current_footnote_font_size is not None and self.all_tbs[tb] is None:
 
                 same_font = (
 
@@ -1717,7 +1721,11 @@ class Page:
                     )
                 )
 
-                if same_font:
+                is_bare_number = bool(
+                    re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
+                )
+
+                if same_font and not is_bare_number:
 
                     self.all_tbs[tb] = 'footnote'
 
@@ -1729,14 +1737,26 @@ class Page:
 
         return current_footnote_font_size, seen_footnotes
 
+    def get_referenced_footnote_nums(self):
+        referenced_nums = set()
+        for tb in self.all_tbs.keys():
+            referenced_nums.update(tb.footnotes_superscript.values())
+        return referenced_nums
+
+    def mark_standalone_footnote_markers(self):
+        referenced_nums = self.get_referenced_footnote_nums()
+        if not referenced_nums:
+            return
+        self._mark_standalone_footnote_citations(referenced_nums)
+
     def detect_footnote_blocks_by_style(self):
         try:
-            referenced_nums = set()
-            for tb in self.all_tbs.keys():
-                referenced_nums.update(tb.footnotes_superscript.values())
+            referenced_nums = self.get_referenced_footnote_nums()
 
             if not referenced_nums:
                 return
+
+            self._mark_standalone_footnote_citations(referenced_nums)
 
             unlabeled_in_order = [tb for tb, label in self.all_tbs.items() if label is None]
             if not unlabeled_in_order:
@@ -1745,10 +1765,16 @@ class Page:
             leading_marker_re = re.compile(r'^\s*\(?([0-9*†‡]{1,3})\)?[.\s]')
             bare_number_re = re.compile(r'^\(?[0-9]{1,4}\)?$')
             dotted_clause_re = re.compile(r'^\d+\.\d+(\.\d+)*[.\s]')
+            embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9*†‡]{1,3})\}\}\}\}')
 
             texts = [tb.extract_text_from_tb().strip() for tb in unlabeled_in_order]
 
             def marker_num(text):
+                embedded_match = embedded_marker_re.match(text)
+                if embedded_match:
+                    value = embedded_match.group(1)
+                    return value if value in referenced_nums else None
+
                 if dotted_clause_re.match(text):
                     return None
                 match = leading_marker_re.match(text)
@@ -1802,6 +1828,50 @@ class Page:
 
         except Exception as e:
             self.logger.warning(f"Page {self.pg_num}: Failed footnote-style detection: {e}")
+
+    def _mark_standalone_footnote_citations(self, referenced_nums):
+        bare_number_re = re.compile(r'^\(?([0-9]{1,3})\)?$')
+        tbs_in_order = list(self.all_tbs.keys())
+
+        for idx, tb in enumerate(tbs_in_order):
+            if self.all_tbs[tb] is not None:
+                continue
+
+            if tb.footnotes_superscript:
+                continue
+
+            text = tb.extract_text_from_tb().strip()
+            match = bare_number_re.match(text)
+            if not match:
+                continue
+
+            num = match.group(1)
+            if num not in referenced_nums:
+                continue
+
+            prev_tb = tbs_in_order[idx - 1] if idx > 0 else None
+            next_tb = tbs_in_order[idx + 1] if idx + 1 < len(tbs_in_order) else None
+
+            raised_inline = False
+            for neighbor in (prev_tb, next_tb):
+                if neighbor is None:
+                    continue
+
+                overlap = min(tb.coords[3], neighbor.coords[3]) - max(tb.coords[1], neighbor.coords[1])
+                if overlap > 0 and tb.coords[1] > neighbor.coords[1]:
+                    raised_inline = True
+                    break
+
+            if not raised_inline:
+                continue
+
+            for ch in tb.tbox.findall('.//text'):
+                raw = ch.text or ""
+                if not raw or "bbox" not in ch.attrib:
+                    continue
+
+                bbox = tuple(map(float, ch.attrib["bbox"].split(",")))
+                tb.footnotes_superscript[bbox] = raw
 
     def _mark_footnote_markers_in_tb(self, tb, referenced_nums, leading_marker_re, dotted_clause_re):
         if tb.footnotes_superscript:
@@ -1953,286 +2023,182 @@ class Page:
         if self.borderless_tabular_datas is None:
             return None
         return getattr(self.borderless_tabular_datas, "continuation_out", None)
-    def get_judgments_pre(self, classifier=None):
-        classifier = classifier or PreAlignmentClassifier.default()
+    def detect_sparse_pre(self):
+        SPARSE_MARGIN_RATIO = 0.30
+        ROW_GAP_RATIO = 0.15
+        SPLIT_GAP_RATIO = ROW_GAP_RATIO / 2.0
+        ROW_Y_TOL_RATIO = 0.4
+        ALIGN_TOL_RATIO = 0.03
+        MAX_GAP_HEIGHT_RATIO = 1.8
+        MIN_GROUP = 2
+        GAP_SHORT_ITEM_WORD_LIMIT = 6
 
-        PAGE_W = float(self.pg_width)
+        body_start = self.body_startX
+        body_end = self.body_endX
+        body_width = body_end - body_start
+        if body_width <= 0:
+            return
 
-        SPAN_OCCUPANCY_RATIO = 0.5
-        LARGE_GAP = PAGE_W * 0.075
-        MIN_RUN = 2
+        split_gap_abs = body_width * SPLIT_GAP_RATIO
 
-        def parse_bbox(elem):
-            try:
-                return tuple(map(float, elem.attrib["bbox"].split(",")))
-            except:
-                return None
-
-        def norm(txt):
-            return re.sub(r"\s+", " ", txt).strip()
-
-        def words_in_textline(tl, y0, y1):
-            words = []
-            cur_x0 = None
-            prev_x1 = None
-            cur_chars = []
-            for ch in tl.findall(".//text"):
-                raw = ch.text
-                if raw is None or raw.strip() == "":
-                    if cur_chars:
-                        words.append((cur_x0, prev_x1, "".join(cur_chars)))
-                    cur_x0 = None
-                    cur_chars = []
-                    continue
-                bbox = parse_bbox(ch)
-                if not bbox or bbox == (0.0, 0.0, 0.0, 0.0):
-                    continue
-                cx0, _, cx1, _ = bbox
-                if cur_x0 is None:
-                    cur_x0 = cx0
-                cur_chars.append(raw)
-                prev_x1 = cx1
-            if cur_chars:
-                words.append((cur_x0, prev_x1, "".join(cur_chars)))
-            return [
-                {"tb": None, "text": t, "x0": x0, "x1": x1, "y0": y0, "y1": y1, "width": x1 - x0, "height": y1 - y0}
-                for x0, x1, t in words
-            ]
-
-        roman = r"""
-        (?:
-            C|XC|XL|L?X{0,3}
-        )
-        (?:
-            IX|IV|V?I{0,3}
-        )
-        """
-
-        bullet_pat = re.compile(
-            rf"""
-            ^
-            [\s"“”'‘’]*
-            (
-                (\(?\d{{1,3}}\)?|\[\d{{1,3}}\])
-                |
-                (\(?[A-Za-z]{{1,3}}\)?|\[[A-Za-z]{{1,3}}\])
-                |
-                (\(?{roman}\)?|\[{roman}\])
-            )
-            [\.\)\]:-]
-            \s*
-            """,
-            re.VERBOSE | re.IGNORECASE
-        )
-
-        words = []
-
+        items = []
         for tb, label in self.all_tbs.items():
-
             if label is not None:
                 continue
-
-            for tl in tb.tbox.findall(".//textline"):
-
-                bb = parse_bbox(tl)
-
-                if not bb:
+            for textline in tb.tbox.findall(".//textline"):
+                bbox = textline.attrib.get("bbox")
+                if not bbox:
+                    continue
+                try:
+                    y0, y1 = map(float, bbox.split(",")[1::2])
+                except ValueError:
                     continue
 
-                _, y0, _, y1 = bb
+                run_chars = []
+                run_x0 = None
+                prev_x1 = None
 
-                for w in words_in_textline(tl, y0, y1):
-                    w["tb"] = tb
-                    words.append(w)
+                def flush_run():
+                    if not run_chars:
+                        return
+                    text = "".join(run_chars).strip()
+                    if text:
+                        items.append({
+                            "tb": tb, "x0": run_x0, "y0": y0, "x1": prev_x1, "y1": y1,
+                            "text": text, "line_id": bbox,
+                        })
 
-        if not words:
-            return
-
-        words_sorted = sorted(words, key=lambda r: (-r["y0"], r["x0"]))
-
-        lines = []
-        current_line = []
-        current_y0 = None
-
-        for w in words_sorted:
-            if current_line and abs(current_y0 - w["y0"]) <= 2.0:
-                current_line.append(w)
-                continue
-            if current_line:
-                lines.append(current_line)
-            current_line = [w]
-            current_y0 = w["y0"]
-
-        if current_line:
-            lines.append(current_line)
-
-        blocked_boxes = set()
-
-        for line in lines:
-            line.sort(key=lambda z: z["x0"])
-            merged = norm(" ".join(x["text"] for x in line))
-            if bullet_pat.match(merged):
-                for x in line:
-                    blocked_boxes.add(x["tb"])
-
-        features = []
-
-        for line in lines:
-
-            usable = [x for x in line if x["tb"] not in blocked_boxes]
-
-            if not usable:
-                continue
-
-            usable.sort(key=lambda z: z["x0"])
-
-            x0 = usable[0]["x0"]
-            x1 = usable[-1]["x1"]
-            y0 = min(x["y0"] for x in usable)
-            y1 = max(x["y1"] for x in usable)
-            span_occupancy = (x1 - x0) / PAGE_W
-            max_gap = max(
-                (cur["x0"] - prev["x1"] for prev, cur in zip(usable, usable[1:])),
-                default=0.0,
-            )
-            anchors = tuple(sorted({round(x["x0"] / 25) for x in usable})) if len(usable) >= 2 else tuple()
-            text = " ".join(x["text"] for x in usable).strip()
-
-            features.append({
-                "tbs": [x["tb"] for x in usable],
-                "x0": x0, "x1": x1, "y0": y0, "y1": y1,
-                "center": (x0 + x1) / 2.0,
-                "height": max(y1 - y0, 1.0),
-                "span_occupancy": span_occupancy,
-                "max_gap": max_gap,
-                "anchors": anchors,
-                "text": text,
-            })
-
-        if not features:
-            return
-
-        def is_short(f):
-            return f["span_occupancy"] < SPAN_OCCUPANCY_RATIO
-
-        def is_table_row(f):
-            return f["max_gap"] > LARGE_GAP and len(f["anchors"]) >= 2
-
-        QUOTE_OPEN_CHARS = ('"', "'", '“', '‘', '„')
-
-        def is_candidate(f):
-            if f["text"].startswith(QUOTE_OPEN_CHARS):
-                return False
-            return is_short(f) or is_table_row(f)
-
-        def anchors_match(a, b):
-            if len(a) < 2 or len(b) < 2 or len(a) != len(b):
-                return False
-            return all(abs(x - y) <= 1 for x, y in zip(a, b))
-
-        def vertically_close(prev_f, f):
-            gap = prev_f["y0"] - f["y1"]
-            return gap <= max(prev_f["height"], f["height"]) * 1.5
-
-        def vgap_ratio(a, b):
-            gap = max(0.0, a["y0"] - b["y1"])
-            return gap / max(a["height"], b["height"], 1.0)
-
-        def build_features(a, b, kind, diff):
-            return {
-                "diff_norm": diff if diff is not None else 0.0,
-                "is_table": 1.0 if kind == "table" else 0.0,
-                "anchor_match": 1.0 if anchors_match(a["anchors"], b["anchors"]) else 0.0,
-                "vgap_ratio": vgap_ratio(a, b),
-                "min_span_occupancy": min(a["span_occupancy"], b["span_occupancy"]),
-            }
-
-        def relate(a, b):
-            if not vertically_close(a, b):
-                return None, None, None
-            for kind in ("center", "right", "left", "table"):
-                if kind == "center":
-                    diff, ref = abs(a["center"] - b["center"]) / PAGE_W, b["center"]
-                elif kind == "right":
-                    diff, ref = abs(a["x1"] - b["x1"]) / PAGE_W, b["x1"]
-                elif kind == "left":
-                    diff, ref = abs(a["x0"] - b["x0"]) / PAGE_W, b["x0"]
-                else:
-                    if not anchors_match(a["anchors"], b["anchors"]):
+                for ch in textline.findall(".//text"):
+                    ch_bbox = ch.attrib.get("bbox")
+                    raw = ch.text or ""
+                    if not ch_bbox or not raw:
                         continue
-                    diff, ref = None, b["anchors"]
-                feats = build_features(a, b, kind, diff)
-                if classifier.predict_proba(feats) >= 0.5:
-                    return kind, ref, feats
-            return None, None, None
+                    try:
+                        cx0, _, cx1, _ = map(float, ch_bbox.split(","))
+                    except ValueError:
+                        continue
 
-        def extends(f, run_kind, run_ref, prev_f):
-            if not vertically_close(prev_f, f):
+                    if raw.strip():
+                        if prev_x1 is not None and (cx0 - prev_x1) > split_gap_abs:
+                            flush_run()
+                            run_chars = []
+                            run_x0 = None
+                        if run_x0 is None:
+                            run_x0 = cx0
+                        prev_x1 = cx1
+
+                    if run_x0 is not None:
+                        run_chars.append(raw)
+
+                flush_run()
+
+        if not items:
+            return
+
+        items.sort(key=lambda it: (-it["y0"], it["x0"]))
+
+        def item_column(item):
+            if not self.is_multicolumn or not self.column_bounds:
                 return None
-            if run_kind == "center":
-                diff = abs(f["center"] - run_ref) / PAGE_W
-            elif run_kind == "right":
-                diff = abs(f["x1"] - run_ref) / PAGE_W
-            elif run_kind == "left":
-                diff = abs(f["x0"] - run_ref) / PAGE_W
-            else:
-                if not anchors_match(f["anchors"], run_ref):
-                    return None
-                diff = None
-            feats = build_features(prev_f, f, run_kind, diff)
-            if classifier.predict_proba(feats) >= 0.5:
-                return feats
+            center = (item["x0"] + item["x1"]) / 2.0
+            for idx, (cx0, cx1) in enumerate(self.column_bounds):
+                if cx0 <= center <= cx1:
+                    return idx
             return None
 
-        run = []
-        run_decisions = []
-        run_kind = None
-        run_ref = None
-        pending = None
-
-        def flush_run():
-            if len(run) >= MIN_RUN:
-                reward = min(1.0, 0.5 + 0.15 * (len(run) - MIN_RUN))
-                for feats in run_decisions:
-                    classifier.reinforce(feats, True, reward, lr=0.05, l2=0.02)
-                for item in run:
-                    for tb in item["tbs"]:
-                        self.all_tbs[tb] = "pre"
-            run.clear()
-            run_decisions.clear()
-
-        for f in features:
-
-            if not is_candidate(f):
-                flush_run()
-                run_kind = None
-                run_ref = None
-                pending = None
-                continue
-
-            if run_kind is not None:
-                ext_feats = extends(f, run_kind, run_ref, run[-1])
-                if ext_feats is not None:
-                    run.append(f)
-                    run_decisions.append(ext_feats)
-                    continue
-                flush_run()
-                run_kind = None
-                run_ref = None
-
-            if pending is None:
-                pending = f
-                continue
-
-            kind, ref, feats = relate(pending, f)
-
-            if kind:
-                run = [pending, f]
-                run_decisions = [feats]
-                run_kind = kind
-                run_ref = ref
-                pending = None
+        rows = []
+        for it in items:
+            placed_row = None
+            for row in rows:
+                ref = row[0]
+                row_height = max(ref["y1"] - ref["y0"], it["y1"] - it["y0"], 1.0)
+                same_line = it["line_id"] == ref["line_id"]
+                if abs(it["y0"] - ref["y0"]) <= row_height * ROW_Y_TOL_RATIO \
+                        and (same_line or item_column(it) == item_column(ref)):
+                    placed_row = row
+                    break
+            if placed_row is not None:
+                placed_row.append(it)
             else:
-                pending = f
+                rows.append([it])
 
-        flush_run()
+        rows.sort(key=lambda row: -row[0]["y0"])
+        for row in rows:
+            row.sort(key=lambda it: it["x0"])
+
+        def classify_row(row):
+            row_x0 = row[0]["x0"]
+            row_x1 = row[-1]["x1"]
+
+            row_col = item_column(row[0])
+            if row_col is not None:
+                ref_start, ref_end = self.column_bounds[row_col]
+                ref_width = ref_end - ref_start
+            else:
+                ref_start, ref_end, ref_width = body_start, body_end, body_width
+            if ref_width <= 0:
+                ref_start, ref_end, ref_width = body_start, body_end, body_width
+
+            max_gap = 0.0
+            if len(row) > 1:
+                max_gap = max(nxt["x0"] - prev["x1"] for prev, nxt in zip(row, row[1:]))
+            if (max_gap / ref_width) >= ROW_GAP_RATIO:
+                return "gap", row_x0
+
+            left_space_ratio = (row_x0 - ref_start) / ref_width
+            right_space_ratio = (ref_end - row_x1) / ref_width
+            if right_space_ratio >= SPARSE_MARGIN_RATIO and left_space_ratio < SPARSE_MARGIN_RATIO:
+                return "left", row_x0
+            if left_space_ratio >= SPARSE_MARGIN_RATIO and right_space_ratio < SPARSE_MARGIN_RATIO:
+                return "right", row_x1
+            if left_space_ratio >= SPARSE_MARGIN_RATIO and right_space_ratio >= SPARSE_MARGIN_RATIO:
+                return "center", (row_x0 + row_x1) / 2.0
+            return None, None
+
+        row_info = [classify_row(row) for row in rows]
+
+        i = 0
+        n = len(rows)
+        while i < n:
+            kind, ref = row_info[i]
+
+            if kind is None:
+                i += 1
+                continue
+
+            group = [rows[i]]
+            group_ref = ref
+            j = i + 1
+            while j < n:
+                nxt_kind, nxt_ref = row_info[j]
+                if nxt_kind != kind:
+                    break
+                prev_row = group[-1]
+                nxt_row = rows[j]
+                row_height = max(
+                    prev_row[0]["y1"] - prev_row[0]["y0"],
+                    nxt_row[0]["y1"] - nxt_row[0]["y0"],
+                    1.0,
+                )
+                if prev_row[0]["y0"] - nxt_row[0]["y0"] > row_height * MAX_GAP_HEIGHT_RATIO:
+                    break
+                if abs(group_ref - nxt_ref) > ALIGN_TOL_RATIO * body_width:
+                    break
+                group.append(nxt_row)
+                group_ref = nxt_ref
+                j += 1
+
+            required_group = MIN_GROUP
+            if kind == "gap" and all(
+                max(len(it["text"].split()) for it in row) <= GAP_SHORT_ITEM_WORD_LIMIT
+                for row in group
+            ):
+                required_group = 1
+
+            if len(group) >= required_group:
+                for row in group:
+                    for it in row:
+                        if self.all_tbs[it["tb"]] is None:
+                            self.all_tbs[it["tb"]] = "pre"
+            i = j
+
