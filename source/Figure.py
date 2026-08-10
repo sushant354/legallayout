@@ -47,6 +47,7 @@ class Pictures:
         min_img_pixels,
         ocr_language,
         scanned_copy,
+        figure_text=False,
         image_base_dir="manifest"
     ):
         self.logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class Pictures:
         self.pg_num = pg_num
         self.ocr_language = ocr_language
         self.unique_images = unique_images
+        self.figure_text = figure_text
 
         try:
             self.pics = self.get_images(
@@ -289,10 +291,13 @@ class Pictures:
                         else:
                             os.remove(temp_path)
                     
-                    text_content, text_language = self.extract_text_content(final_path)
-                    if not text_content:
-                        os.remove(final_path)
-                        continue
+                    if self.figure_text:
+                        text_content, text_language = self.extract_text_content(final_path)
+                        if not text_content:
+                            os.remove(final_path)
+                            continue
+                    else:
+                        text_content, text_language = None, None
 
                     saved_images[img_name] = {
                         "name": img_name,

@@ -31,10 +31,10 @@ class SectionState:
 
 
 class Page:
-    def __init__(self,pg,pdfPath, base_name_of_file, output_dir, 
-                 pdf_type, has_side_notes, is_amendment_pdf, 
+    def __init__(self,pg,pdfPath, base_name_of_file, output_dir,
+                 pdf_type, has_side_notes, is_amendment_pdf,
                  font_mapper, unique_images, min_img_size, ocr_language,
-                 scanned_copy):
+                 scanned_copy, figure_text=False):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.page_in_xml = pg
@@ -49,9 +49,10 @@ class Page:
         self.pdf_type = pdf_type
         self.ocr_language = ocr_language
         self.is_amendment_pdf = is_amendment_pdf
-        self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file, 
+        figure_text = figure_text or pdf_type in ('acts', 'sebi_circulars')
+        self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file,
                                 output_dir, unique_images, min_img_size,
-                                ocr_language, scanned_copy)
+                                ocr_language, scanned_copy, figure_text)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type,
                                             scanned_copy)
         self.borderless_tabular_datas = None

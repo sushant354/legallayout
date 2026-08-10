@@ -1,23 +1,11 @@
 import re
-import fasttext
 from pathlib import Path
 import contextlib
 import logging
-import paddlex.utils.logging as pdx_logging
-
-logger = logging.getLogger("paddlex")
-logger.setLevel(logging.ERROR)
-logger.propagate = False
-
-from paddleocr import PaddleOCR
 import io
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODEL_PATH = PROJECT_ROOT / "model" / "lid.176.bin"
-
-LANG_MODEL = fasttext.load_model(str(MODEL_PATH))
-
-OCR_ENGINES = {}
 
 LANGUAGES = [
     "en",  # English / Latin
@@ -29,20 +17,38 @@ LANGUAGES = [
     "te",  # Telugu
 ]
 
-for lang in LANGUAGES:
-    with contextlib.redirect_stderr(io.StringIO()),\
-            contextlib.redirect_stdout(io.StringIO()):
-        OCR_ENGINES[lang] = PaddleOCR(
-            lang=lang,
-            device="cpu",
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-        )
+_LANG_MODEL = None
+OCR_ENGINES = {}
+
+def _get_lang_model():
+    global _LANG_MODEL
+    if _LANG_MODEL is None:
+        import fasttext
+        _LANG_MODEL = fasttext.load_model(str(MODEL_PATH))
+    return _LANG_MODEL
+
+def _get_ocr_engine(lang):
+    if lang not in OCR_ENGINES:
+        import paddlex.utils.logging as pdx_logging
+        pdx_logger = logging.getLogger("paddlex")
+        pdx_logger.setLevel(logging.ERROR)
+        pdx_logger.propagate = False
+
+        from paddleocr import PaddleOCR
+        with contextlib.redirect_stderr(io.StringIO()),\
+                contextlib.redirect_stdout(io.StringIO()):
+            OCR_ENGINES[lang] = PaddleOCR(
+                lang=lang,
+                device="cpu",
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+            )
+    return OCR_ENGINES[lang]
 
 def extract_text(image_path, lang):
     try:
-        ocr = OCR_ENGINES[lang]
+        ocr = _get_ocr_engine(lang)
 
         result = ocr.predict(image_path)
 
@@ -52,7 +58,7 @@ def extract_text(image_path, lang):
             texts.extend(item.json["res"]["rec_texts"])
 
         return "\n".join(texts)
-    
+
     except Exception as e:
         return None
 
@@ -66,7 +72,7 @@ def detect_language(text):
     text = text.replace("\n", " ")
     text = re.sub(r"\s+", " ", text)
 
-    labels, scores = LANG_MODEL.predict(text)
+    labels, scores = _get_lang_model().predict(text)
 
     return (
         labels[0].replace("__label__", ""),

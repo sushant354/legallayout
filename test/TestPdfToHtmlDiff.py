@@ -72,6 +72,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     is_amendment=test_case.get('is_amendment', False),
                     scanned_copy=test_case.get('scanned_copy', False),
                     table_extract=test_case.get('table_extract', False),
+                    figure_text=test_case.get('figure_text', False),
                     has_doc_end=test_case.get('has_doc_end', False),
                     is_footnote_continuation=test_case.get('is_footnote_continuation', False),
                     ocr_language=test_case.get('ocr_language', 'en'),
@@ -100,6 +101,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     'has_sidenotes' : test_case.get('has_sidenotes', False),
                     'scanned_copy': test_case.get('scanned_copy', False),
                     'table_extract': test_case.get('table_extract', False),
+                    'figure_text': test_case.get('figure_text', False),
                     'status': 'PASS' if diff_result['is_match'] else 'DIFF',
                     'diff_file': diff_result.get('diff_file')
                 })
@@ -147,6 +149,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     has_sidenotes = cls._parse_bool(row.get('has_sidenotes', ''))
                     scanned_copy = cls._parse_bool(row.get('scanned_copy', ''))
                     table_extract = cls._parse_bool(row.get('table_extract', ''))
+                    figure_text = cls._parse_bool(row.get('figure_text', ''))
                     has_doc_end = cls._parse_bool(row.get('has_doc_end', ''))
                     is_footnote_continuation = cls._parse_bool(row.get('is_footnote_continuation', ''))
                     ocr_language = row.get('ocr_language', '').strip() or 'en'
@@ -178,6 +181,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'has_sidenotes' : has_sidenotes,
                         'scanned_copy': scanned_copy,
                         'table_extract': table_extract,
+                        'figure_text': figure_text,
                         'has_doc_end': has_doc_end,
                         'is_footnote_continuation': is_footnote_continuation,
                         'ocr_language': ocr_language,
@@ -197,6 +201,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
                      char_margin = None, word_margin = None, line_margin = None,
                      start_page = None, end_page = None, scanned_copy = False, table_extract = False,
+                     figure_text = False,
                      has_doc_end = False, is_footnote_continuation = False, ocr_language = 'en',
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None):
@@ -225,6 +230,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 ocr_language = ocr_language,
                 is_scanned_copy = scanned_copy,
                 table_extract = table_extract,
+                figure_text = figure_text,
                 public_base_url = public_base_url,
                 server_root = server_root,
                 rights = rights,
@@ -251,7 +257,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
 
             # Clean up cache
             main.clear_cache_pdf()
-            main.clear_cache()
+            main.clear_xml_cache()
 
             return True
 
@@ -331,6 +337,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 f.write(f"Sidenotes: {result.get('has_sidenotes', False)}\n")
                 f.write(f"Scanned copy: {result.get('scanned_copy', False)}\n")
                 f.write(f"Table extract: {result.get('table_extract', False)}\n")
+                f.write(f"Figure text: {result.get('figure_text', False)}\n")
                 f.write(f"Status: {result['status']}\n")
                 if result.get('diff_file'):
                     f.write(f"Diff file: {result['diff_file']}\n")
@@ -378,11 +385,15 @@ def update_golden_files(actual_dir, expected_dir):
 
     copied_files = 0
     for actual_file in actual_dir.iterdir():
+        target_file = expected_dir / actual_file.name
         if actual_file.is_file():
-            target_file = expected_dir / actual_file.name
             shutil.copy2(actual_file, target_file)
             copied_files += 1
             print(f"[UPDATED] {target_file}")
+        elif actual_file.is_dir():
+            shutil.copytree(actual_file, target_file, dirs_exist_ok=True)
+            copied_files += 1
+            print(f"[UPDATED] {target_file}/")
 
     print(f"\n✅ Updated {copied_files} golden file(s) in {expected_dir}")
 

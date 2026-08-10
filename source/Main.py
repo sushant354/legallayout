@@ -24,7 +24,8 @@ class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
                  table_extract, public_base_url=None, server_root=None,
-                 rights=None, provider_id=None, provider_name=None, attribution=None): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 rights=None, provider_id=None, provider_name=None, attribution=None,
+                 figure_text=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
             raise ValueError(
@@ -92,6 +93,7 @@ class Main:
         self.ocr_language = ocr_language
         self.is_scanned_copy = is_scanned_copy
         self.table_extract = table_extract
+        self.figure_text = figure_text
         self.public_base_url = public_base_url
         # Public URL of the IIIF manifest (egazette only), set by write_manifest() once
         self.manifest_url = None
@@ -546,11 +548,11 @@ class Main:
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
 
-            page = Page(pg, self.pdf_path, base_name_of_file, output_dir, 
-                        self.pdf_type, self.has_side_notes, self.is_amendment_pdf, 
-                        self.fontmapper, self.unique_images, self.min_img_pixels, 
+            page = Page(pg, self.pdf_path, base_name_of_file, output_dir,
+                        self.pdf_type, self.has_side_notes, self.is_amendment_pdf,
+                        self.fontmapper, self.unique_images, self.min_img_pixels,
                         self.ocr_language,
-                        self.is_scanned_copy)
+                        self.is_scanned_copy, self.figure_text)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes()#pg)
@@ -1591,7 +1593,9 @@ class Main:
         except Exception as e:
             self.logger.exception("Failed to write  content: %s", e)
     
-    def clear_cache(self):
+    def clear_xml_cache(self):
+        if self.is_scanned_copy:
+            return
         if not hasattr(self, "xml_path") or not self.xml_path:
             self.logger.warning("No xml_path attribute set for this instance")
             return
@@ -2478,6 +2482,12 @@ def get_arg_parser():
                         required = False, default = False, help = 'mention if the pdf copy is scanned')
     parser.add_argument('-te', '--table-extract', dest = 'table_extract', action = 'store_true',
                         required = False, default = False, help = 'mention if the pdf has borderless table or pdf is scanned copy to extract table content')
+    parser.add_argument('-ftx', '--figure-text', dest = 'figure_text', action = 'store_true',
+                        required = False, default = False,
+                        help = 'extract OCR text for figures (checked against a fasttext language-confidence '
+                               'threshold) and include it in the html output; images without confident text are '
+                               'dropped. Default: keep every figure as-is, with no OCR/confidence check. Has no '
+                               'effect for acts/sebi_circulars (bluebell output never includes figure text).')
     parser.add_argument('-pu', '--public-base-url', dest = 'public_base_url', action = 'store',
                         required = False, default = None,
                         help = 'public URL that --output-directory will be served from (e.g. '
@@ -2575,6 +2585,7 @@ if __name__ == "__main__":
     ocr_language = args.ocr_language
     is_scanned_copy = args.scanned_copy
     table_extract = args.table_extract
+    figure_text = args.figure_text
     public_base_url = args.public_base_url
     server_root = args.server_root
     rights = args.rights
@@ -2584,7 +2595,8 @@ if __name__ == "__main__":
     main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, has_sidenotes, has_doc_end,
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
-                rights, provider_id, provider_name, attribution)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
+                rights, provider_id, provider_name, attribution,
+                figure_text)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
@@ -2596,4 +2608,4 @@ if __name__ == "__main__":
         main.buildHTML(start_page, end_page) #end)
     main.clear_cache_pdf()
     if not args.keep_xml:
-        main.clear_cache()
+        main.clear_xml_cache()
