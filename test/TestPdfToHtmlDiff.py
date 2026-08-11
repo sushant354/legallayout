@@ -57,7 +57,8 @@ def process_case(job):
             rights=job['rights'],
             provider_id=job['provider_id'],
             provider_name=job['provider_name'],
-            attribution=job['attribution']
+            attribution=job['attribution'],
+            font_conv_map=job['font_conv']
         )
 
         # Parse PDF
@@ -237,7 +238,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
 
         for key in ('pdf_type', 'char_margin', 'word_margin', 'line_margin',
                     'start_page', 'end_page', 'server_root', 'public_base_url',
-                    'rights', 'provider_id', 'provider_name', 'attribution'):
+                    'rights', 'provider_id', 'provider_name', 'attribution',
+                    'font_conv'):
             job[key] = params.get(key)
 
         for key in ('is_amendment', 'has_sidenotes', 'scanned_copy', 'table_extract',
@@ -345,6 +347,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     provider_id = row.get('provider_id', '').strip() or None
                     provider_name = row.get('provider_name', '').strip() or None
                     attribution = row.get('attribution', '').strip() or None
+                    font_conv = row.get('font_conv', '').strip() or None
 
                     base_name = pdf_path.stem
                     if scanned_copy:
@@ -382,6 +385,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'provider_id': provider_id,
                         'provider_name': provider_name,
                         'attribution': attribution,
+                        'font_conv': font_conv,
                         'expected_html': cls.expected_output_dir / f"{base_name}.{expected_file}",
                         'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
@@ -402,7 +406,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      figure_text = False,
                      has_doc_end = False, is_footnote_continuation = False, ocr_language = 'en',
                      min_img_pixels = 0, server_root = None, public_base_url = None,
-                     rights = None, provider_id = None, provider_name = None, attribution = None):
+                     rights = None, provider_id = None, provider_name = None, attribution = None,
+                     font_conv = None):
         """Process a single PDF file and generate HTML output, in this process."""
         job = self._build_job(test_case, {
             'pdf_type': pdf_type, 'is_amendment': is_amendment,
@@ -415,7 +420,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'ocr_language': ocr_language, 'min_img_pixels': min_img_pixels,
             'server_root': server_root, 'public_base_url': public_base_url,
             'rights': rights, 'provider_id': provider_id,
-            'provider_name': provider_name, 'attribution': attribution
+            'provider_name': provider_name, 'attribution': attribution,
+            'font_conv': font_conv
         })
 
         return self._apply_case_result(test_case, process_case(job))
