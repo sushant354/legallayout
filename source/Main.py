@@ -18,6 +18,12 @@ from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
 
+try:
+    from indic2unicode.fontconv import FontConv
+    INDIC2UNICODE_AVAILABLE = True
+except ImportError:
+    INDIC2UNICODE_AVAILABLE = False
+
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
@@ -102,7 +108,175 @@ class Main:
         # bottom of one page can be picked up at the top of the next (set per page in the
         # processing loops, reset here so it never leaks across documents/runs).
         self.pending_continuation = None
+        # Legacy (non unicode) indic font handling, see convert_indic_fonts()
+        self.font_conv = self.get_font_conv()
+        self.indic_font_res = self.get_indic_font_res()
+        # pdf font name -> font key in FontConv.converters (None if not a legacy font)
+        self.indic_font_keys = {}
+        # (font key, text drawn in that font) -> converted unicode text
+        self.indic_text_cache = {}
         # self.fontmapper.extract_fonts()
+
+    # --- func to get the indic2unicode font convertor, None if unavailable ---
+    def get_font_conv(self):
+        if not INDIC2UNICODE_AVAILABLE:
+            self.logger.info(
+                "indic2unicode is not installed, conversion of text in legacy "
+                "indic fonts is disabled"
+            )
+            return None
+
+        try:
+            return FontConv()
+        except Exception as e:
+            self.logger.warning(
+                "Could not initialize indic2unicode FontConv, conversion of "
+                "text in legacy indic fonts is disabled: %s", e
+            )
+            return None
+
+    # --- func to get the regexps that match a pdf font to a legacy indic font ---
+    def get_indic_font_res(self):
+        if self.font_conv is None:
+            return []
+
+        return [
+            (re.compile('.*%s.*' % re.escape(font_key), re.IGNORECASE), font_key)
+            for font_key in self.font_conv.converters
+        ]
+
+    # --- func to get the legacy indic font a pdf font name corresponds to ---
+    def get_indic_font_key(self, font_name):
+        if font_name in self.indic_font_keys:
+            return self.indic_font_keys[font_name]
+
+        font_key = None
+
+        for font_re, key in self.indic_font_res:
+            if font_re.search(font_name):
+                font_key = key
+                break
+
+        self.indic_font_keys[font_name] = font_key
+
+        if font_key:
+            self.logger.info(
+                "Text in font %s will be converted to unicode using %s",
+                font_name, font_key
+            )
+
+        return font_key
+
+    # --- func to convert text drawn in a legacy indic font into unicode ---
+    def indic_to_unicode(self, font_key, text):
+        cache_key = (font_key, text)
+
+        if cache_key in self.indic_text_cache:
+            return self.indic_text_cache[cache_key]
+
+        try:
+            converted = self.font_conv.to_unicode(font_key, text)
+        except Exception as e:
+            self.logger.warning(
+                "Failed to convert text [%s] in font %s to unicode: %s",
+                text, font_key, e
+            )
+            converted = text
+
+        if not isinstance(converted, str):
+            converted = text
+
+        self.indic_text_cache[cache_key] = converted
+
+        return converted
+
+    def convert_indic_fonts(self, pages):
+        """Rewrites text drawn in legacy indic fonts into unicode, in place.
+
+        Legacy fonts like Chanakya/Kruti Dev (the Gazette of India) or
+        Aryan2/Divya/Surekh (LokSabha) overload ascii codepoints with
+        devanagari glyphs, so what pdfminer extracts for them is not readable
+        text at all. Every <text> element whose 'font' attribute matches one of
+        the fonts supported by indic2unicode is replaced with its unicode
+        equivalent here, i.e. before any layout analysis runs, so that all the
+        downstream consumers of the xml (Page, TextBox, HTMLBuilder,
+        TableExtraction, ...) see unicode without knowing about fonts.
+        """
+        if self.font_conv is None or not pages:
+            return
+
+        for page in pages:
+            try:
+                self.convert_indic_fonts_in_page(page)
+            except Exception as e:
+                self.logger.error(
+                    "Failed conversion of legacy indic fonts on page %s: %s",
+                    page.get("id"), e
+                )
+
+    def convert_indic_fonts_in_page(self, page):
+        for element in page.iter():
+            # a <text> element never has children of its own, so every one of
+            # them is grouped under exactly one parent and converted just once
+            texts = [child for child in element if child.tag == 'text']
+
+            if texts:
+                self.convert_indic_fonts_in_texts(texts)
+
+    # --- func to convert sibling text elements, one font run at a time ---
+    def convert_indic_fonts_in_texts(self, texts):
+        # conversion is contextual - matras get reordered and glyph pairs get
+        # composed - so it is applied to the longest run of consecutive chars
+        # sharing the same font instead of one char at a time
+        run = []
+        run_font_key = None
+
+        for text in texts:
+            # elements without a font (pdfminer emits those for the spaces and
+            # newlines that it inserts itself) end the current run
+            font_name = text.attrib.get("font")
+
+            font_key = self.get_indic_font_key(font_name) if font_name else None
+
+            if font_key != run_font_key:
+                self.convert_indic_font_run(run, run_font_key)
+                run = []
+                run_font_key = font_key
+
+            if font_key:
+                run.append(text)
+
+        self.convert_indic_font_run(run, run_font_key)
+
+    # --- func to convert one run of chars sharing the same legacy indic font ---
+    def convert_indic_font_run(self, run, font_key):
+        if not run or not font_key:
+            return
+
+        original = ''.join(text.text or '' for text in run)
+
+        if not original.strip():
+            return
+
+        converted = self.indic_to_unicode(font_key, original)
+
+        if converted == original:
+            return
+
+        # conversion is not one char in, one char out - a single legacy glyph
+        # can become a consonant + halant + matra sequence, and a pair of them
+        # can collapse into one char - so the converted text is spread
+        # proportionally over the chars it came from. That keeps it in reading
+        # order and keeps every char's own coordinates, which the layout code
+        # (first/last char coords, per char gaps within a textline) relies on.
+        no_of_chars = len(run)
+        length = len(converted)
+
+        for idx, text in enumerate(run):
+            start = (idx * length) // no_of_chars
+            end = ((idx + 1) * length) // no_of_chars
+
+            text.text = converted[start:end]
 
     def get_all_footnote_text(self):
 
@@ -1316,6 +1490,8 @@ class Main:
             self.logger.debug("Parsing pages from XML: %s", self.xml_path)
             pages = self.parserTool.get_pages_from_xml(self.xml_path, start_page, end_page)
             if pages:
+                self.logger.debug("Converting text in legacy indic fonts to unicode...")
+                self.convert_indic_fonts(pages)
                 self.set_htmlbuilder()
                 self.logger.debug("Extracting header and footer info...")
                 self.get_page_header_footer(pages, base_name_of_file, self.output_dir)
