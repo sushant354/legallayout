@@ -90,7 +90,7 @@ SEC 6.
 				TC
 
 				TC
-					A A A nnexure 1 nnexure 2 nnexure 3
+					A nnexure 1 A nnexure 2 A nnexure 3
 				TC
 					22
 					27
@@ -99,7 +99,7 @@ SEC 6.
 				TC
 
 				TC
-					A A A Annexure 4 nnexure 5 nnexure 6 ppendix- List of circulars rescinded
+					Annexure 4 A nnexure 5 A nnexure 6 A ppendix- List of circulars rescinded
 				TC
 					31
 					35
@@ -906,6 +906,10 @@ ATTACHMENT FORM C (Indicative format){{^{{FOOTNOTE 15}}}}
 				TH
 
 				TH
+
+				TH
+
+				TH
 					Exchange on which the trade was executed
 			TR
 				TC
@@ -915,7 +919,11 @@ ATTACHMENT FORM C (Indicative format){{^{{FOOTNOTE 15}}}}
 				TC
 					Buy
 				TC
+
+				TC
 					Sell
+				TC
+
 				TC
 
 			TR
@@ -924,9 +932,13 @@ ATTACHMENT FORM C (Indicative format){{^{{FOOTNOTE 15}}}}
 				TC
 
 				TC
-					Notional Value Number of units (contracts \* lot size)
+					Notional Value
 				TC
-					Number of units Notional Value (contracts \* lot size)
+					Number of units (contracts \* lot size)
+				TC
+					Notional Value
+				TC
+					Number of units (contracts \* lot size)
 				TC
 
 			TR
@@ -936,9 +948,11 @@ ATTACHMENT FORM C (Indicative format){{^{{FOOTNOTE 15}}}}
 					17
 				TC
 					18
+				TC
 					19
 				TC
 					20
+				TC
 					21
 				TC
 					22
@@ -1118,11 +1132,15 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TH
 
+				TH
+
 			TR
 				TC
 					8
 				TC
 					If any amount collected for Code of Conduct violation(s)
+				TC
+
 				TC
 
 				TC
@@ -1141,11 +1159,15 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TC
 
+				TC
+
 			TR
 				TC
 
 				TC
 					ii. Details of transfer
+				TC
+
 				TC
 
 				TC
@@ -1163,6 +1185,8 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 					Details
 				TC
 
+				TC
+
 			TR
 				TC
 
@@ -1170,6 +1194,8 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TC
 					Name of the transferor
+				TC
+
 				TC
 
 				TC
@@ -1185,6 +1211,8 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TC
 
+				TC
+
 			TR
 				TC
 
@@ -1192,6 +1220,8 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TC
 					Transaction reference Number
+				TC
+
 				TC
 
 				TC
@@ -1207,6 +1237,8 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TC
 
+				TC
+
 			TR
 				TC
 
@@ -1218,11 +1250,15 @@ ANNEXURE Annexure  2  -  Report  by  (Name  of  the  listed  company/  Intermedi
 
 				TC
 
+				TC
+
 			TR
 				TC
 					9
 				TC
 					Any other relevant information
+				TC
+
 				TC
 
 				TC
@@ -1338,7 +1374,7 @@ ANNEXURE Annexure 6
 				TC
 					2
 				TC
-					Total number of listed companies on which implementation of framework for restricting trading by their immediate Designated Persons ("DPs") and relatives, by Freezing PAN at security level, is applicable
+					Total number of listed companies on which implementation of framework for restricting trading by Designated Persons ("DPs") and their immediate relatives, by Freezing PAN at security level, is applicable
 				TC
 
 			TR
@@ -1627,7 +1663,7 @@ APPENDIX APPENDIX: LIST OF CIRCULARS RESCINDED
 				SEBI/HO/ISD/ISD-PoD- 2/P/CIR/2025/55
 			TC
 				Trading Window closure period under Clause 4 of Schedule B read with Regulation
-				9 of Securities and Exchange Board of India(Prohibition of Insider Trading) Regulations, 2015 of ("PIT Regulations") –Extension automated implementation of trading window closure to Immediate Relatives of Designated Persons, on account of declaration of financial results.
+				9 of Securities and Exchange Board of India(Prohibition of Insider Trading) Regulations, 2015 ("PIT Regulations") –Extension of automated implementation of trading window closure to Immediate Relatives of Designated Persons, on account of declaration of financial results.
 			TC
 				Complete
 	\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*\*

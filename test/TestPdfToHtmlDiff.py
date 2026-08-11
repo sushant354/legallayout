@@ -7,8 +7,13 @@ import argparse
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import difflib
+import fnmatch
 import logging
 import csv
+
+# so that this file works when run as a script too, and not just through
+# 'python -m unittest' from the project root
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from source.Main import Main
 
@@ -126,6 +131,13 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     def test_pdf_to_html_conversion(self):
         """Test PDF to HTML conversion for all PDFs defined in CSV."""
         if not self.test_cases:
+            selected = self.get_selected_cases()
+
+            if selected:
+                self.skipTest(
+                    f"No test case in test_cases.csv matched: {', '.join(selected)}"
+                )
+
             self.skipTest("No PDF test cases found in test_cases.csv")
 
         results = []
@@ -169,6 +181,34 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     @staticmethod
     def _parse_bool(value):
         return value.strip().lower() in ['true', 'yes', '1']
+
+    @staticmethod
+    def get_selected_cases():
+        """The cases asked for on DIFF_TEST_CASES, empty when the whole csv runs."""
+        configured = os.environ.get('DIFF_TEST_CASES', '').strip()
+
+        return [name.strip() for name in configured.split(',') if name.strip()]
+
+    @classmethod
+    def is_case_selected(cls, selected, filename, pdf_name):
+        """Whether a csv row was asked for, by file name, stem or case name.
+
+        'sebi1.pdf', 'sebi1' and 'sebi*' all pick the sebi1 case, and the name a
+        case is reported under ('changeofnames_scanned') works too, which is the
+        only way to pick one of the two cases a single pdf can produce.
+        """
+        if not selected:
+            return True
+
+        names = {filename.lower(), Path(filename).stem.lower(), pdf_name.lower()}
+
+        for wanted in selected:
+            wanted = wanted.lower()
+
+            if any(fnmatch.fnmatchcase(name, wanted) for name in names):
+                return True
+
+        return False
 
     @staticmethod
     def get_worker_count(no_of_jobs):
@@ -265,6 +305,9 @@ class TestPdfToHtmlDiff(unittest.TestCase):
 
     @classmethod
     def _load_test_cases_from_csv(cls):
+        selected = cls.get_selected_cases()
+        skipped = []
+
         try:
             with open(cls.csv_file, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
@@ -306,6 +349,13 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     base_name = pdf_path.stem
                     if scanned_copy:
                         base_name += '_scanned'
+
+                    # base_name is only known here, so the row is filtered now
+                    # rather than as soon as its filename was read
+                    if not cls.is_case_selected(selected, filename, base_name):
+                        skipped.append(base_name)
+                        continue
+
                     if pdf_type in {'acts', 'sebi_circulars'}:
                         expected_file = 'bluebell'
                     else:
@@ -337,6 +387,14 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     })
         except Exception as e:
             print(f"Error reading CSV file {cls.csv_file}: {e}")
+
+        if selected:
+            print(f"Selected {len(cls.test_cases)} of {len(cls.test_cases) + len(skipped)} "
+                  f"case(s) in {cls.csv_file.name}: "
+                  f"{', '.join(tc['pdf_name'] for tc in cls.test_cases) or 'none'}")
+
+            if not cls.test_cases and skipped:
+                print(f"Available cases are: {', '.join(skipped)}")
 
     def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
                      char_margin = None, word_margin = None, line_margin = None,
@@ -528,11 +586,25 @@ if __name__ == "__main__":
         help="How many PDFs to convert at the same time (1 disables parallelism). "
              "Defaults to the DIFF_TEST_WORKERS env var, then to 4."
     )
+    parser.add_argument(
+        "--cases",
+        nargs='+',
+        default=None,
+        metavar="CASE",
+        help="Run only these cases from test_cases.csv instead of all of them. "
+             "A case can be given as a file name (sebi1.pdf), a stem (sebi1), the "
+             "name it is reported under (changeofnames_scanned) or a glob (sebi*). "
+             "Defaults to the DIFF_TEST_CASES env var."
+    )
     args, remaining = parser.parse_known_args()
 
     if args.workers:
         # picked up by TestPdfToHtmlDiff.get_worker_count()
         os.environ['DIFF_TEST_WORKERS'] = str(args.workers)
+
+    if args.cases:
+        # picked up by TestPdfToHtmlDiff.get_selected_cases()
+        os.environ['DIFF_TEST_CASES'] = ','.join(args.cases)
 
     # If update flag is passed → update golden files directly
     if args.update_golden:

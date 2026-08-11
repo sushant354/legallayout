@@ -74,7 +74,21 @@ ANNEXURE ANNEXURE I
 	SUBPART - SEBI
 		SEC 1.
 			The file should be an excel file. 2. The name of the file and the subject of the email shall specify the type of intermediary and the name of the intermediary. For example – "Registrar to an issue – ABC co. Ltd." 3. The file shall contain the following details:
-			Name  Address  Category  Registration No Designated email id Name  of compliance officer The file shall be emailed to intermediary@sebi.gov.in.
+			TABLE
+				TR
+					TH
+						Name
+					TH
+						Address
+					TH
+						Category
+					TH
+						Registration No
+					TH
+						Designated email id
+					TH
+						Name of compliance officer
+			The file shall be emailed to intermediary@sebi.gov.in.
 		SEC 3.
 			Periodic Reporting on change in status or constitution{{^{{FOOTNOTE 3}}}}
 			FOOTNOTE 3
@@ -204,10 +218,113 @@ ATTACHMENT FORM - B
 			PARA 6.18.2.
 				An  investor  shall  use  login  credentials  for  lodging  complaint  on SCORES ("Login for registered user" section). Details on how to lodge a complaint on SCORES is at Annexure VI.
 ANNEXURE How to lodge a complaint on SCORES with effect from August 01, 2018.   ANNEXURE VI
-	SCORES Portal / http://www.scores.gov.in CLICK User Registration Under " (  Register Here " ) Press submit to complete the registration. An Email/ SMS informing User ID and Password will be sent to investor.
-	CLICK ( As per nature of complaint Login to  SCORES and Click on " Complaint Registration " Enter Details like   Period of cause of event, Date of grievance taken up with the entity, address of direct complaint to the entity,   Share certificate number /   folio number etc  .
-	TYPE Complaint details in brief (1000  characters ) Upload supporting documents ( upto 2 MB in PDF format ) CLICK Add
-{{IMG media/Image168.png}} Enter Character shown in image CLICK Submit Complaint Registration Number is generated and sent to email id and to mobile number of the complainant.
+	SCORES Portal / http://www.scores.gov.in
+	TABLE
+		TR
+			TH
+				CLICK
+			TH
+
+			TH
+
+		TR
+			TC
+
+			TC
+				User Registration Register Here " ) ( Under "
+			TC
+
+		TR
+			TC
+
+			TC
+
+			TC
+
+	Press submit to complete the registration. An Email/ SMS informing User ID and Password will be sent to investor.
+	TABLE
+		TR
+			TH
+				CLICK
+			TH
+
+			TH
+
+		TR
+			TC
+
+			TC
+
+			TC
+
+		TR
+			TC
+
+			TC
+				( As per nature of complaint )
+			TC
+
+	TABLE
+		TR
+			TH
+				Enter
+			TH
+
+			TH
+
+		TR
+			TC
+
+			TC
+
+			TC
+				Details like Period of cause of event, Date of grievance taken up with the entity,
+		TR
+			TC
+
+			TC
+				address of direct complaint to the entity, Share certificate number / folio number etc.
+			TC
+
+	TABLE
+		TR
+			TH
+				TYPE
+			TH
+
+			TH
+
+		TR
+			TC
+
+			TC
+
+			TC
+				Complaint details in brief (1000 characters )
+	Upload supporting documents ( upto 2 MB in PDF format )
+	TABLE
+		TR
+			TH
+				CLICK
+			TH
+
+		TR
+			TC
+
+			TC
+				Add
+		TR
+			TC
+				Enter
+			TC
+
+		TR
+			TC
+
+			TC
+
+	Complaint Registration Number is generated and sent to
+	email id and to mobile number of the complainant.
 	SEC 6.18.3.
 		The complainant may use SCORES to submit the grievance directly to companies / intermediaries and the complaint shall be forwarded to  the  entity  for  resolution.  The  entity  is  required  to  redress  the grievance  within  30  days,  failing  which  the  complaint  shall  be registered in SCORES
 	SEC 6.18.4.
