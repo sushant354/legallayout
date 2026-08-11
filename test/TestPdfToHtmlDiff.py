@@ -1,14 +1,91 @@
 import os
+import sys
 import unittest
 import tempfile
 import shutil
 import argparse
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import difflib
 import logging
 import csv
 
 from source.Main import Main
+
+
+def process_case(job):
+    """Convert a single PDF, in a worker process of its own.
+
+    Nothing is shared with the parent process here, so the output filename that
+    Main settles on (it depends on the page count, which is only known once the
+    PDF has been parsed) is returned rather than written back into the test case.
+    """
+    source_path = Path(job['pdf_path'])
+    output_dir = Path(job['output_dir'])
+    pdf_path_for_main = job['pdf_path']
+
+    renamed_copy = None
+    if job['pdf_name'] != source_path.stem:
+        renamed_copy = output_dir / f"{job['pdf_name']}{source_path.suffix}"
+        shutil.copy2(source_path, renamed_copy)
+        pdf_path_for_main = str(renamed_copy)
+
+    result = {'pdf_name': job['pdf_name'], 'success': False,
+              'filename': None, 'error': None}
+
+    try:
+        main = Main(
+            pdfPath=pdf_path_for_main,
+            is_amendment_pdf=job['is_amendment'],
+            output_dir=str(output_dir),
+            pdf_type=job['pdf_type'],
+            has_side_notes=job['has_sidenotes'],
+            has_doc_end=job['has_doc_end'],
+            is_footnote_continuation=job['is_footnote_continuation'],
+            min_img_pixels=job['min_img_pixels'],
+            ocr_language=job['ocr_language'],
+            is_scanned_copy=job['scanned_copy'],
+            table_extract=job['table_extract'],
+            figure_text=job['figure_text'],
+            public_base_url=job['public_base_url'],
+            server_root=job['server_root'],
+            rights=job['rights'],
+            provider_id=job['provider_id'],
+            provider_name=job['provider_name'],
+            attribution=job['attribution']
+        )
+
+        # Parse PDF
+        parse_success = main.parsePDF(job['pdf_type'], job['char_margin'],
+                                      job['word_margin'], job['line_margin'],
+                                      job['start_page'], job['end_page'])
+        if not parse_success:
+            result['error'] = 'parsePDF() reported a failure'
+            return result
+
+        # Build HTML
+        main.buildHTML(job['start_page'], job['end_page'])
+
+        result['filename'] = TestPdfToHtmlDiff._compute_output_filename(
+            job['pdf_name'], job['start_page'], job['end_page'],
+            main.total_pgs, job['suffix']
+        )
+
+        # Clean up cache
+        main.clear_cache_pdf()
+        main.clear_xml_cache()
+
+        result['success'] = True
+        return result
+
+    except Exception as e:
+        logging.error(f"Error processing PDF {job['pdf_name']}: {e}")
+        result['error'] = str(e)
+        return result
+
+    finally:
+        if renamed_copy and renamed_copy.exists():
+            renamed_copy.unlink()
 
 
 class TestPdfToHtmlDiff(unittest.TestCase):
@@ -53,38 +130,18 @@ class TestPdfToHtmlDiff(unittest.TestCase):
 
         results = []
 
-        for i, test_case in enumerate(self.test_cases):
+        # every PDF is converted first, several at a time, and only then compared
+        case_results = self._process_all_pdfs()
+
+        for test_case, case_result in zip(self.test_cases, case_results):
             print ('TESTCASE: ',test_case)
             with self.subTest(pdf=test_case['pdf_name'], pdf_type=test_case.get('pdf_type', 'default')):
-                # Process PDF with configured parameters
-                success = self._process_pdf(
-                    test_case,
-                    pdf_type=test_case.get('pdf_type'),
-                    # start_page=test_case.get('start_page'),
-                    # end_page=test_case.get('end_page'),
-                    has_sidenotes = test_case.get('has_sidenotes'),
-                    char_margin = test_case.get('char_margin',None),
-                    word_margin = test_case.get('word_margin', None),
-                    line_margin = test_case.get('line_margin',None),
-                    start_page  = test_case.get('start_page', None),
-                    end_page = test_case.get('end_page', None),
-                    # output_dir = test_case.get('output_dir',''),
-                    is_amendment=test_case.get('is_amendment', False),
-                    scanned_copy=test_case.get('scanned_copy', False),
-                    table_extract=test_case.get('table_extract', False),
-                    figure_text=test_case.get('figure_text', False),
-                    has_doc_end=test_case.get('has_doc_end', False),
-                    is_footnote_continuation=test_case.get('is_footnote_continuation', False),
-                    ocr_language=test_case.get('ocr_language', 'en'),
-                    min_img_pixels=test_case.get('min_img_pixels', 0),
-                    server_root=test_case.get('server_root'),
-                    public_base_url=test_case.get('public_base_url'),
-                    rights=test_case.get('rights'),
-                    provider_id=test_case.get('provider_id'),
-                    provider_name=test_case.get('provider_name'),
-                    attribution=test_case.get('attribution')
+                success = self._apply_case_result(test_case, case_result)
+                self.assertTrue(
+                    success,
+                    f"Failed to process PDF: {test_case['pdf_name']} "
+                    f"({case_result.get('error')})"
                 )
-                self.assertTrue(success, f"Failed to process PDF: {test_case['pdf_name']}")
 
                 # Verify HTML was generated
                 self.assertTrue(
@@ -112,6 +169,89 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     @staticmethod
     def _parse_bool(value):
         return value.strip().lower() in ['true', 'yes', '1']
+
+    @staticmethod
+    def get_worker_count(no_of_jobs):
+        """Number of PDFs to convert at the same time."""
+        configured = os.environ.get('DIFF_TEST_WORKERS', '').strip()
+
+        if configured.isdigit() and int(configured) > 0:
+            workers = int(configured)
+        else:
+            # the OCR paths load a model of their own in every process, so this
+            # stays well below the core count to keep the memory use sane
+            workers = min(4, os.cpu_count() or 1)
+
+        return max(1, min(workers, no_of_jobs))
+
+    def _build_job(self, test_case, params):
+        """Everything a worker process needs to convert one PDF, as plain data."""
+        job = {
+            'pdf_path': test_case['pdf_path'],
+            'pdf_name': test_case['pdf_name'],
+            'output_dir': str(self.actual_output_dir),
+            'suffix': test_case['actual_html'].suffix,
+            'ocr_language': params.get('ocr_language') or 'en',
+            'min_img_pixels': params.get('min_img_pixels') or 0
+        }
+
+        for key in ('pdf_type', 'char_margin', 'word_margin', 'line_margin',
+                    'start_page', 'end_page', 'server_root', 'public_base_url',
+                    'rights', 'provider_id', 'provider_name', 'attribution'):
+            job[key] = params.get(key)
+
+        for key in ('is_amendment', 'has_sidenotes', 'scanned_copy', 'table_extract',
+                    'figure_text', 'has_doc_end', 'is_footnote_continuation'):
+            job[key] = bool(params.get(key))
+
+        return job
+
+    def _apply_case_result(self, test_case, case_result):
+        """Point the test case at the file the worker actually wrote."""
+        if case_result.get('filename'):
+            test_case['actual_html'] = self.actual_output_dir / case_result['filename']
+            test_case['expected_html'] = self.expected_output_dir / case_result['filename']
+
+        return case_result['success']
+
+    def _process_all_pdfs(self):
+        """Convert every PDF, several at a time, keeping the results in case order."""
+        jobs = [self._build_job(test_case, test_case) for test_case in self.test_cases]
+
+        workers = self.get_worker_count(len(jobs))
+
+        if workers == 1:
+            return [process_case(job) for job in jobs]
+
+        print(f"Converting {len(jobs)} PDF(s) using {workers} worker processes...")
+
+        results = [None] * len(jobs)
+        done = 0
+
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(process_case, job): idx
+                for idx, job in enumerate(jobs)
+            }
+
+            for future in as_completed(futures):
+                idx = futures[future]
+
+                try:
+                    results[idx] = future.result()
+                except Exception as e:
+                    # the worker died outright, e.g. it was killed for using too
+                    # much memory - report it as a failure of that one PDF
+                    results[idx] = {
+                        'pdf_name': jobs[idx]['pdf_name'], 'success': False,
+                        'filename': None, 'error': f"worker process failed: {e}"
+                    }
+
+                done += 1
+                print(f"  [{done}/{len(jobs)}] {results[idx]['pdf_name']}: "
+                      f"{'OK' if results[idx]['success'] else 'FAILED'}")
+
+        return results
 
     @staticmethod
     def _compute_output_filename(base_stem, start_page, end_page, total_pgs, suffix):
@@ -205,69 +345,22 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      has_doc_end = False, is_footnote_continuation = False, ocr_language = 'en',
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None):
-        """Process a single PDF file and generate HTML output."""
-        source_path = Path(test_case['pdf_path'])
-        pdf_path_for_main = test_case['pdf_path']
-        renamed_copy = None
-        if test_case['pdf_name'] != source_path.stem:
-            renamed_copy = self.actual_output_dir / f"{test_case['pdf_name']}{source_path.suffix}"
-            shutil.copy2(source_path, renamed_copy)
-            pdf_path_for_main = str(renamed_copy)
+        """Process a single PDF file and generate HTML output, in this process."""
+        job = self._build_job(test_case, {
+            'pdf_type': pdf_type, 'is_amendment': is_amendment,
+            'has_sidenotes': has_sidenotes, 'char_margin': char_margin,
+            'word_margin': word_margin, 'line_margin': line_margin,
+            'start_page': start_page, 'end_page': end_page,
+            'scanned_copy': scanned_copy, 'table_extract': table_extract,
+            'figure_text': figure_text, 'has_doc_end': has_doc_end,
+            'is_footnote_continuation': is_footnote_continuation,
+            'ocr_language': ocr_language, 'min_img_pixels': min_img_pixels,
+            'server_root': server_root, 'public_base_url': public_base_url,
+            'rights': rights, 'provider_id': provider_id,
+            'provider_name': provider_name, 'attribution': attribution
+        })
 
-        try:
-            # Create Main instance
-            main = Main(
-                pdfPath=pdf_path_for_main,
-                # start=start_page,
-                # end=end_page,
-                is_amendment_pdf=is_amendment,
-                output_dir=str(self.actual_output_dir),
-                pdf_type=pdf_type,
-                has_side_notes = has_sidenotes,
-                has_doc_end = has_doc_end,
-                is_footnote_continuation = is_footnote_continuation,
-                min_img_pixels = min_img_pixels,
-                ocr_language = ocr_language,
-                is_scanned_copy = scanned_copy,
-                table_extract = table_extract,
-                figure_text = figure_text,
-                public_base_url = public_base_url,
-                server_root = server_root,
-                rights = rights,
-                provider_id = provider_id,
-                provider_name = provider_name,
-                attribution = attribution
-            )
-
-            # Parse PDF
-            parse_success = main.parsePDF(pdf_type, char_margin, word_margin, line_margin,\
-                                          start_page, end_page)
-            if not parse_success:
-                return False
-
-            # Build HTML
-            main.buildHTML(start_page, end_page)
-
-            suffix = test_case['actual_html'].suffix
-            filename = self._compute_output_filename(
-                test_case['pdf_name'], start_page, end_page, main.total_pgs, suffix
-            )
-            test_case['actual_html'] = self.actual_output_dir / filename
-            test_case['expected_html'] = self.expected_output_dir / filename
-
-            # Clean up cache
-            main.clear_cache_pdf()
-            main.clear_xml_cache()
-
-            return True
-
-        except Exception as e:
-            logging.error(f"Error processing PDF {test_case['pdf_name']}: {e}")
-            return False
-
-        finally:
-            if renamed_copy and renamed_copy.exists():
-                renamed_copy.unlink()
+        return self._apply_case_result(test_case, process_case(job))
 
     def _compare_html_output(self, test_case):
         """Compare actual HTML output with expected baseline."""
@@ -428,10 +521,23 @@ if __name__ == "__main__":
         action="store_true",
         help="If set, overwrites expected_html files with actual_html outputs."
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="How many PDFs to convert at the same time (1 disables parallelism). "
+             "Defaults to the DIFF_TEST_WORKERS env var, then to 4."
+    )
     args, remaining = parser.parse_known_args()
+
+    if args.workers:
+        # picked up by TestPdfToHtmlDiff.get_worker_count()
+        os.environ['DIFF_TEST_WORKERS'] = str(args.workers)
 
     # If update flag is passed → update golden files directly
     if args.update_golden:
         update_golden_files(actual_html_dir, expected_html_dir)
     else:
+        # unittest reads sys.argv itself, so keep only what it understands
+        sys.argv = [sys.argv[0]] + remaining
         unittest.main()

@@ -280,17 +280,51 @@ class HTMLBuilder(TableBuilder):
           #    self.close_levels()
           if self.stack_for_level and self.stack_for_level[-1] == 0:
              self.close_levels()
-          table_html = (
-              table.replace('\n', '&#10;', regex=True)   # preserve newline inside HTML
-                  .to_html(escape=False, index=False, header=False)
-                  .replace("<table", "<table style='white-space: pre-wrap;'")
-            )
-          self.builder += self.normalize_text(table_html)
+          self.builder += self.normalize_text(self.build_table_html(table))
           # self.builder += self.normalize_text(table.to_html(index=False, header = False, border=1).replace("\\n",""))
           self.builder += "\n" 
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n",e, table.head().to_string(index=False))
-  
+
+    # --- func to build the html of a table, a cell at a time ---
+    def build_table_html(self, table):
+        # pandas' to_html() is deliberately not used here. From pandas 3.0 on it
+        # rewrites every pair of spaces inside a cell into '&nbsp;&nbsp;', which
+        # this table has no use for (it is rendered with white-space: pre-wrap)
+        # and which silently makes the html depend on the installed pandas
+        # version. The markup below is the same as the one to_html() produced.
+        lines = [
+            "<table style='white-space: pre-wrap;' border=\"1\" class=\"dataframe\">",
+            "  <tbody>"
+        ]
+
+        # itertuples keeps the columns in order and, unlike indexing by column
+        # name, coexists with the duplicate column names a detected table can have
+        for row in table.itertuples(index=False, name=None):
+            lines.append("    <tr>")
+
+            for value in row:
+                lines.append("      <td>%s</td>" % self.get_table_cell_text(value))
+
+            lines.append("    </tr>")
+
+        lines.extend(["  </tbody>", "</table>"])
+
+        return "\n".join(lines)
+
+    # --- func to get the text of a single table cell as it goes into the html ---
+    def get_table_cell_text(self, value):
+        try:
+            if value is None or pd.isna(value):
+                return "NaN"
+        except (TypeError, ValueError):
+            # not a scalar, fall through and render it like any other value
+            pass
+
+        # newlines are written as a character reference so that they survive in
+        # the cell instead of being collapsed into a space when it is rendered
+        return str(value).replace("\n", "&#10;").strip()
+
     def close_sections(self):
        while self.stack_for_section:
           self.stack_for_section.pop()
