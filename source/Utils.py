@@ -1,24 +1,29 @@
 import re
 from pathlib import Path
-import contextlib
-import logging
-import io
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODEL_PATH = PROJECT_ROOT / "model" / "lid.176.bin"
 
-LANGUAGES = [
-    "en",  # English / Latin
-    "hi",  # Hindi
-    "mr",  # Marathi
-    "ne",  # Nepali
-    "sa",  # Sanskrit
-    "ta",  # Tamil
-    "te",  # Telugu
+TESSERACT_LANGUAGES = [
+    "eng",  # English
+    "asm",  # Assamese
+    "ben",  # Bengali
+    "guj",  # Gujarati
+    "hin",  # Hindi
+    "kan",  # Kannada
+    "mal",  # Malayalam
+    "mar",  # Marathi
+    "nep",  # Nepali
+    "ori",  # Odia
+    "pan",  # Punjabi
+    "san",  # Sanskrit
+    "snd",  # Sindhi
+    "tam",  # Tamil
+    "tel",  # Telugu
+    "urd",  # Urdu
 ]
 
 _LANG_MODEL = None
-OCR_ENGINES = {}
 
 def _get_lang_model():
     global _LANG_MODEL
@@ -27,39 +32,13 @@ def _get_lang_model():
         _LANG_MODEL = fasttext.load_model(str(MODEL_PATH))
     return _LANG_MODEL
 
-def _get_ocr_engine(lang):
-    if lang not in OCR_ENGINES:
-        import paddlex.utils.logging as pdx_logging
-        pdx_logger = logging.getLogger("paddlex")
-        pdx_logger.setLevel(logging.ERROR)
-        pdx_logger.propagate = False
-
-        from paddleocr import PaddleOCR
-        with contextlib.redirect_stderr(io.StringIO()),\
-                contextlib.redirect_stdout(io.StringIO()):
-            OCR_ENGINES[lang] = PaddleOCR(
-                lang=lang,
-                device="cpu",
-                use_doc_orientation_classify=False,
-                use_doc_unwarping=False,
-                use_textline_orientation=False,
-            )
-    return OCR_ENGINES[lang]
-
 def extract_text(image_path, lang):
     try:
-        ocr = _get_ocr_engine(lang)
-
-        result = ocr.predict(image_path)
-
-        texts = []
-
-        for item in result:
-            texts.extend(item.json["res"]["rec_texts"])
-
-        return "\n".join(texts)
-
-    except Exception as e:
+        import pytesseract
+        return pytesseract.image_to_string(
+            str(image_path), lang=lang, config="--oem 3 --psm 6"
+        ).strip()
+    except Exception:
         return None
 
 

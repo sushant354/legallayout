@@ -144,7 +144,7 @@ pip install -r requirements.txt
 - **pandas, numpy**: Data processing
 - **matplotlib**: Visualization support
 - **pymupdf**: Additional PDF handling
-- **pytesseract, paddleocr, paddlepaddle**: OCR for scanned copies
+- **pytesseract**: OCR for scanned copies and figure-text extraction
 - **chrome-lens-py**: Chrome-Lens based OCR extraction path
 - **fasttext**: Language identification (`model/lid.176.bin`, tracked via Git LFS)
 - **iiif-prezi3**: IIIF Presentation API 3.0 manifest generation for `egazette`/`sebi` output

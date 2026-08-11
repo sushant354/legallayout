@@ -48,7 +48,8 @@ class Pictures:
         ocr_language,
         scanned_copy,
         figure_text=False,
-        image_base_dir="manifest"
+        image_base_dir="manifest",
+        pdf_type=None
     ):
         self.logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class Pictures:
         self.ocr_language = ocr_language
         self.unique_images = unique_images
         self.figure_text = figure_text
+        self.pdf_type = pdf_type
 
         try:
             self.pics = self.get_images(
@@ -90,7 +92,7 @@ class Pictures:
             for img in self.walk_layout(element)
         ]
 
-    def register_global(self, img_name, path, text_content = None, text_language = None):
+    def register_global(self, img_name, path, text_content = None, text_language = None, width = None, height = None):
         reg = self.unique_images.setdefault(
             img_name,
             {
@@ -98,6 +100,8 @@ class Pictures:
                 "path": path,
                 "text": text_content if text_content else "",
                 "language": text_language,
+                "width": width,
+                "height": height,
                 "pages": set()
             }
         )
@@ -107,9 +111,41 @@ class Pictures:
 
 
     def remove_hash(self, img_name):
-    
+
         if img_name in self.pics:
             del self.pics[img_name]
+
+    def remove_empty_dirs_up_to(self, start_dir, stop_dir):
+        current = start_dir
+        while current and current != stop_dir and os.path.isdir(current):
+            try:
+                os.rmdir(current)
+            except OSError:
+                break
+            current = os.path.dirname(current)
+
+    def has_visual_content(self, image_path):
+        try:
+            with Image.open(image_path) as img:
+                img_array = np.array(img.convert("RGB"))
+                height, width = img_array.shape[:2]
+
+                tile_size = 32
+
+                max_contrast_pct = 0.0
+                for y in range(0, height, tile_size):
+                    for x in range(0, width, tile_size):
+                        tile = img_array[y:y + tile_size, x:x + tile_size]
+                        if tile.size == 0:
+                            continue
+                        channel_std = tile.reshape(-1, tile.shape[-1]).std(axis=0)
+                        tile_contrast_pct = (channel_std.max() / 255.0) * 100
+                        max_contrast_pct = max(max_contrast_pct, tile_contrast_pct)
+
+                return max_contrast_pct > 2
+        except Exception as e:
+            self.logger.warning(f"Failed to analyze image {image_path}: {e}")
+            return True
 
     def extract_text_content(self, image_path):
         try:
@@ -263,10 +299,15 @@ class Pictures:
 
                     img_name = lt_image.name
 
-                    final_path = os.path.join(
-                        file_dir,
-                        f"{img_name}.png"
-                    )
+                    if self.pdf_type in ('egazette', 'sebi'):
+                        canonical_dir = os.path.join(
+                            file_dir, img_name, "full", "max", "0"
+                        )
+                        os.makedirs(canonical_dir, exist_ok=True)
+                        final_path = os.path.join(canonical_dir, "default.png")
+                    else:
+                        canonical_dir = None
+                        final_path = os.path.join(file_dir, f"{img_name}.png")
 
                     with Image.open(temp_path) as img:
                         converted = img
@@ -281,21 +322,19 @@ class Pictures:
                             converted = img.convert("RGB")
 
                         converted.save(final_path, "PNG")
-                    
-                    if temp_path != final_path:
-                        if not os.path.exists(final_path):
-                            os.replace(
-                                temp_path,
-                                final_path
-                            )
-                        else:
-                            os.remove(temp_path)
-                    
+                        img_width, img_height = converted.size
+
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+
+                    if self.figure_text and not self.has_visual_content(final_path):
+                        os.remove(final_path)
+                        if canonical_dir:
+                            self.remove_empty_dirs_up_to(canonical_dir, file_dir)
+                        continue
+
                     if self.figure_text:
                         text_content, text_language = self.extract_text_content(final_path)
-                        if not text_content:
-                            os.remove(final_path)
-                            continue
                     else:
                         text_content, text_language = None, None
 
@@ -303,14 +342,18 @@ class Pictures:
                         "name": img_name,
                         "path": final_path,
                         "text": text_content,
-                        "language": text_language
+                        "language": text_language,
+                        "width": img_width,
+                        "height": img_height
                     }
 
                     self.register_global(
                         img_name,
                         final_path,
                         text_content,
-                        text_language
+                        text_language,
+                        img_width,
+                        img_height
                     )
 
                 except Exception:

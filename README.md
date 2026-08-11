@@ -12,7 +12,7 @@ It extracts text and layout information from PDFs, classifies content into heade
 - Document-type-specific processing for `acts`, `sebi`/`sebi_circulars`, and `egazette`
 - Amendment detection and structuring for legal amendment documents
 - Table extraction, including borderless-table detection with cross-page continuation (`camelot-py` for bordered tables, plus lightweight logistic-regression classifiers trained online via reinforcement learning for header-row, region-merge, and continuation decisions on borderless tables — see [Borderless-table detection](#borderless-table-detection))
-- OCR-based extraction path (Chrome-Lens / Tesseract / PaddleOCR) for scanned copies
+- OCR-based extraction: Chrome-Lens for the scanned-copy (`-sc`) page-text path; Tesseract for optional per-image figure-text extraction (`-ftx`), supporting English plus 15 Indian regional languages via `-ol/--ocr-language`
 - IIIF Presentation API 3.0 manifest generation for `egazette`/`sebi` image documents — configurable public URL and server-root-relative URLs, an IIIF Image API Level 0 service per image, OCR text surfaced as searchable annotations, and optional rights/attribution/provider metadata (see [IIIF manifest generation](#iiif-manifest-generation))
 - XML caching of intermediate pdfminer output for faster iteration
 
@@ -20,6 +20,7 @@ It extracts text and layout information from PDFs, classifies content into heade
 
 - Python 3
 - [Git LFS](https://git-lfs.com/) (the fastText language model `model/lid.176.bin` is tracked via LFS)
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) system binary, with language data for whichever `-ol/--ocr-language` codes you plan to use (e.g. on Debian/Ubuntu: `apt install tesseract-ocr tesseract-ocr-all`). Without it, `-ftx/--figure-text` OCR silently produces no text rather than failing loudly.
 
 ## Installation
 
@@ -56,7 +57,7 @@ python -m source.Main -i test/test_pdfs/act1.pdf -o output/ -t acts
 | `-de, --doc-end` | PDF has a document-end symbol (`---`) |
 | `-fnc, --footnote-continuation` | Footnotes continue across pages |
 | `-sc, --scanned-copy` | PDF is a scanned copy (routes through OCR) |
-| `-ol, --ocr-language` | OCR language code (default: `en`) |
+| `-ol, --ocr-language` | Tesseract language code for figure-text OCR (default: `eng`); one of `eng`, `asm`, `ben`, `guj`, `hin`, `kan`, `mal`, `mar`, `nep`, `ori`, `pan`, `san`, `snd`, `tam`, `tel`, `urd` |
 | `-te, --table-extract` | Enable borderless-table extraction |
 | `-mip, --min-img-pixels` | Minimum pixel area threshold for image filtering |
 | `-pu, --public-base-url` | Public URL the output directory will be served from (e.g. `https://gazettes.servantsofknowledge.in/gzdl/html/andhra_extraordinary/2025-01-01`); used as the base for every URI in the IIIF manifest (`egazette`/`sebi` types only). Falls back to the `PUBLIC_BASE_URL` env var, then `http://localhost:8000` |

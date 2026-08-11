@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import shutil
 import warnings
 from pathlib import Path
 
@@ -83,8 +82,7 @@ class IIIFManifest:
     def _manifest_uri(self, *parts):
         return "/".join([self.manifest_base_uri, *parts])
 
-    def _write_level0_image_service(self, image_path, img_name):
-
+    def _write_level0_image_service(self, image_path):
         image_path = Path(image_path)
         with Image.open(image_path) as im:
             width, height = im.size
@@ -93,12 +91,12 @@ class IIIFManifest:
         if format_token == "jpeg":
             format_token = "jpg"
 
-        service_dir = self.images_dir / img_name
-        canonical_dir = service_dir / "full" / "max" / "0"
-        canonical_dir.mkdir(parents=True, exist_ok=True)
-        canonical_path = canonical_dir / f"default.{format_token}"
-        shutil.copyfile(image_path, canonical_path)
-
+        # image_path is already written by Figure.py directly at the IIIF Level 0
+        # compliant location (images/<img_name>/full/max/0/default.<ext>) - there is
+        # exactly one physical copy of the image, shared by both the HTML <img> tag and
+        # this Image API service. parents[3] walks back up past 0/max/full to the
+        # per-image service directory.
+        service_dir = image_path.parents[3]
         service_id = self.build_uri(service_dir, sub_dir="images")
 
         info = {
@@ -114,7 +112,7 @@ class IIIFManifest:
             json.dumps(info, indent=2), encoding="utf-8"
         )
 
-        canonical_image_uri = f"{service_id}/full/max/0/default.{format_token}"
+        canonical_image_uri = self.build_uri(image_path, sub_dir="images")
         return service_id, canonical_image_uri, format_token
 
     def get_manifest_uri(self):
@@ -187,7 +185,7 @@ class IIIFManifest:
                 canvas.set_hwd_from_file(str(image_path))
 
                 service_id, canonical_image_url, _fmt_token = self._write_level0_image_service(
-                    image_path, page_id
+                    image_path
                 )
 
                 anno_page = canvas.add_image(

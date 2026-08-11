@@ -317,13 +317,15 @@ class Main:
     
     def remove_empty_parent_dir(self, file_path):
         try:
-            parent_dir = os.path.dirname(file_path)
-            if parent_dir and os.path.isdir(parent_dir):
-                os.rmdir(parent_dir)
+            current = os.path.dirname(file_path)
+            while current and os.path.isdir(current) and os.path.basename(current) != "images":
+                os.rmdir(current)
 
                 self.logger.debug(
-                    f"Removed empty image directory: {parent_dir}"
+                    f"Removed empty image directory: {current}"
                 )
+
+                current = os.path.dirname(current)
 
         except OSError:
             pass
@@ -2477,7 +2479,8 @@ def get_arg_parser():
     parser.add_argument('-mip', '--min-img-pixels', dest = 'min_img_pixels', action = 'store', \
                       required = False,  default = 0,  help = 'minimum pixel area threshold for initial filtering (area = dimension^2). Images are further filtered based on text content detection.')
     parser.add_argument('-ol', '--ocr-language', dest='ocr_language', action='store', \
-                      required=False, default='en', help='language code for OCR (default: en, two letter code)')
+                      required=False, default='eng', choices=TESSERACT_LANGUAGES,
+                      help=f'tesseract language code for OCR (default: eng). One of: {", ".join(TESSERACT_LANGUAGES)}')
     parser.add_argument('-sc', '--scanned-copy', dest = 'scanned_copy', action = 'store_true',
                         required = False, default = False, help = 'mention if the pdf copy is scanned')
     parser.add_argument('-te', '--table-extract', dest = 'table_extract', action = 'store_true',

@@ -52,7 +52,8 @@ class Page:
         figure_text = figure_text or pdf_type in ('acts', 'sebi_circulars')
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file,
                                 output_dir, unique_images, min_img_size,
-                                ocr_language, scanned_copy, figure_text)
+                                ocr_language, scanned_copy, figure_text,
+                                pdf_type=pdf_type)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type,
                                             scanned_copy)
         self.borderless_tabular_datas = None

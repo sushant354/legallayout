@@ -75,7 +75,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     figure_text=test_case.get('figure_text', False),
                     has_doc_end=test_case.get('has_doc_end', False),
                     is_footnote_continuation=test_case.get('is_footnote_continuation', False),
-                    ocr_language=test_case.get('ocr_language', 'en'),
+                    ocr_language=test_case.get('ocr_language', 'eng'),
                     min_img_pixels=test_case.get('min_img_pixels', 0),
                     server_root=test_case.get('server_root'),
                     public_base_url=test_case.get('public_base_url'),
@@ -152,7 +152,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     figure_text = cls._parse_bool(row.get('figure_text', ''))
                     has_doc_end = cls._parse_bool(row.get('has_doc_end', ''))
                     is_footnote_continuation = cls._parse_bool(row.get('is_footnote_continuation', ''))
-                    ocr_language = row.get('ocr_language', '').strip() or 'en'
+                    ocr_language = row.get('ocr_language', '').strip() or 'eng'
                     min_img_pixels_raw = row.get('min_img_pixels', '').strip()
                     min_img_pixels = int(min_img_pixels_raw) if min_img_pixels_raw.isdigit() else 0
                     server_root_raw = row.get('server_root', '').strip()
@@ -202,7 +202,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      char_margin = None, word_margin = None, line_margin = None,
                      start_page = None, end_page = None, scanned_copy = False, table_extract = False,
                      figure_text = False,
-                     has_doc_end = False, is_footnote_continuation = False, ocr_language = 'en',
+                     has_doc_end = False, is_footnote_continuation = False, ocr_language = 'eng',
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None):
         """Process a single PDF file and generate HTML output."""
@@ -360,7 +360,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                 has_doc_end = False,
                 is_footnote_continuation = False,
                 min_img_pixels = 0,
-                ocr_language = 'en',
+                ocr_language = 'eng',
                 is_scanned_copy = False,
                 table_extract = False
             )
