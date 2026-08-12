@@ -1,4 +1,7 @@
 import re
+import io
+import contextlib
+import logging
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -23,7 +26,20 @@ TESSERACT_LANGUAGES = [
     "urd",  # Urdu
 ]
 
+OCR_ENGINES_AVAILABLE = ["tesseract", "paddleocr"]
+
+TESSERACT_TO_PADDLE_LANG = {
+    "eng": "en",
+    "hin": "hi",
+    "mar": "mr",
+    "nep": "ne",
+    "san": "sa",
+    "tam": "ta",
+    "tel": "te",
+}
+
 _LANG_MODEL = None
+_PADDLE_OCR_ENGINES = {}
 
 def _get_lang_model():
     global _LANG_MODEL
@@ -32,12 +48,53 @@ def _get_lang_model():
         _LANG_MODEL = fasttext.load_model(str(MODEL_PATH))
     return _LANG_MODEL
 
-def extract_text(image_path, lang):
+def _get_paddle_ocr_engine(paddle_lang):
+    if paddle_lang not in _PADDLE_OCR_ENGINES:
+        import paddlex.utils.logging as pdx_logging
+        pdx_logger = logging.getLogger("paddlex")
+        pdx_logger.setLevel(logging.ERROR)
+        pdx_logger.propagate = False
+
+        from paddleocr import PaddleOCR
+        with contextlib.redirect_stderr(io.StringIO()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            _PADDLE_OCR_ENGINES[paddle_lang] = PaddleOCR(
+                lang=paddle_lang,
+                device="cpu",
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+            )
+    return _PADDLE_OCR_ENGINES[paddle_lang]
+
+def _extract_text_tesseract(image_path, lang):
+    import pytesseract
+    return pytesseract.image_to_string(
+        str(image_path), lang=lang, config="--oem 3 --psm 6"
+    ).strip()
+
+def _extract_text_paddleocr(image_path, lang):
+    paddle_lang = TESSERACT_TO_PADDLE_LANG.get(lang)
+    if paddle_lang is None:
+        raise ValueError(
+            f"paddleocr engine has no mapping for language code '{lang}'. "
+            f"Supported languages for paddleocr: {', '.join(sorted(TESSERACT_TO_PADDLE_LANG))}"
+        )
+
+    ocr = _get_paddle_ocr_engine(paddle_lang)
+    result = ocr.predict(str(image_path))
+
+    texts = []
+    for item in result:
+        texts.extend(item.json["res"]["rec_texts"])
+
+    return "\n".join(texts).strip()
+
+def extract_text(image_path, lang, engine="tesseract"):
     try:
-        import pytesseract
-        return pytesseract.image_to_string(
-            str(image_path), lang=lang, config="--oem 3 --psm 6"
-        ).strip()
+        if engine == "paddleocr":
+            return _extract_text_paddleocr(image_path, lang)
+        return _extract_text_tesseract(image_path, lang)
     except Exception:
         return None
 

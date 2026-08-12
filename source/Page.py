@@ -34,7 +34,7 @@ class Page:
     def __init__(self,pg,pdfPath, base_name_of_file, output_dir,
                  pdf_type, has_side_notes, is_amendment_pdf,
                  font_mapper, unique_images, min_img_size, ocr_language,
-                 scanned_copy, figure_text=False):
+                 scanned_copy, figure_text=False, ocr_engine="tesseract"):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.page_in_xml = pg
@@ -48,12 +48,13 @@ class Page:
         self.has_side_notes = has_side_notes
         self.pdf_type = pdf_type
         self.ocr_language = ocr_language
+        self.ocr_engine = ocr_engine
         self.is_amendment_pdf = is_amendment_pdf
         figure_text = figure_text or pdf_type in ('acts', 'sebi_circulars')
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file,
                                 output_dir, unique_images, min_img_size,
                                 ocr_language, scanned_copy, figure_text,
-                                pdf_type=pdf_type)
+                                pdf_type=pdf_type, ocr_engine=ocr_engine)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type,
                                             scanned_copy)
         self.borderless_tabular_datas = None
