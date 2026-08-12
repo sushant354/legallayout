@@ -28,7 +28,7 @@ except ImportError:
     INDIC2UNICODE_AVAILABLE = False
 
 try:
-    from indic2unicode.tools.fix_tounicode import ToUnicodeFixer, FONT_CONVERTERS
+    from indic2unicode.tools.fix_tounicode import ToUnicodeFixer, get_font_converter
     TOUNICODE_FIX_AVAILABLE = True
 except ImportError:
     TOUNICODE_FIX_AVAILABLE = False
@@ -328,7 +328,11 @@ class Main:
         font_res = []
 
         for font_name in sorted(fixed_fonts):
-            font_key = FONT_CONVERTERS.get(font_name)
+            # the name is the one the pdf carries, which is not always the
+            # spelling the converter is listed under: Arial Unicode MS is
+            # embedded as ArialUnicodeMS too, so the lookup is by a spelling
+            # that the separators and the case do not change
+            font_key = get_font_converter(font_name)
 
             if font_key is None or font_key not in self.font_conv.converters:
                 self.logger.warning(
