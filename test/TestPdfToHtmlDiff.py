@@ -4,11 +4,193 @@ import tempfile
 import shutil
 import argparse
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 import difflib
 import logging
 import csv
 
 from source.Main import Main
+
+
+def compute_output_filename(base_stem, start_page, end_page, total_pgs, suffix):
+    if start_page or end_page:
+        if start_page is None:
+            start_page = 1
+        elif end_page is None:
+            end_page = total_pgs - 1 + int(start_page)
+        return f"{base_stem}pg:{start_page}_pg:{end_page}{suffix}"
+    return f"{base_stem}{suffix}"
+
+
+def compare_html_output(test_case, expected_output_dir, diff_output_dir):
+    actual_html = test_case['actual_html']
+    expected_html = test_case['expected_html']
+
+    with open(actual_html, 'r', encoding='utf-8') as f:
+        actual_content = f.read()
+
+    if not expected_html.exists():
+        expected_output_dir.mkdir(exist_ok=True)
+        with open(expected_html, 'w', encoding='utf-8') as f:
+            f.write(actual_content)
+        return {'is_match': True, 'message': 'Created baseline file'}
+
+    with open(expected_html, 'r', encoding='utf-8') as f:
+        expected_content = f.read()
+
+    if actual_content.strip() == expected_content.strip():
+        return {'is_match': True}
+
+    diff_file = diff_output_dir / f"{test_case['pdf_name']}_diff.html"
+    diff_lines = list(difflib.unified_diff(
+        expected_content.splitlines(keepends=True),
+        actual_content.splitlines(keepends=True),
+        fromfile=f"expected/{expected_html.name}",
+        tofile=f"actual/{actual_html.name}"
+    ))
+
+    with open(diff_file, 'w', encoding='utf-8') as f:
+        f.write(''.join(diff_lines))
+
+    return {
+        'is_match': False,
+        'diff_file': str(diff_file),
+        'message': f'Content differs - diff saved to {diff_file}'
+    }
+
+
+def process_pdf(test_case, actual_output_dir):
+    test_case = dict(test_case)
+    source_path = Path(test_case['pdf_path'])
+    pdf_path_for_main = test_case['pdf_path']
+    renamed_copy = None
+    if test_case['pdf_name'] != source_path.stem:
+        renamed_copy = actual_output_dir / f"{test_case['pdf_name']}{source_path.suffix}"
+        shutil.copy2(source_path, renamed_copy)
+        pdf_path_for_main = str(renamed_copy)
+
+    start_page = test_case.get('start_page')
+    end_page = test_case.get('end_page')
+
+    try:
+        main = Main(
+            pdfPath=pdf_path_for_main,
+            is_amendment_pdf=test_case.get('is_amendment', False),
+            output_dir=str(actual_output_dir),
+            pdf_type=test_case.get('pdf_type'),
+            has_side_notes=test_case.get('has_sidenotes', False),
+            has_doc_end=test_case.get('has_doc_end', False),
+            is_footnote_continuation=test_case.get('is_footnote_continuation', False),
+            min_img_pixels=test_case.get('min_img_pixels', 0),
+            ocr_language=test_case.get('ocr_language', 'eng'),
+            ocr_engine=test_case.get('ocr_engine', 'tesseract'),
+            is_scanned_copy=test_case.get('scanned_copy', False),
+            table_extract=test_case.get('table_extract', False),
+            figure_text=test_case.get('figure_text', False),
+            public_base_url=test_case.get('public_base_url'),
+            server_root=test_case.get('server_root'),
+            rights=test_case.get('rights'),
+            provider_id=test_case.get('provider_id'),
+            provider_name=test_case.get('provider_name'),
+            attribution=test_case.get('attribution')
+        )
+
+        parse_success = main.parsePDF(
+            test_case.get('pdf_type'),
+            test_case.get('char_margin'),
+            test_case.get('word_margin'),
+            test_case.get('line_margin'),
+            start_page,
+            end_page
+        )
+        if not parse_success:
+            return False, test_case
+
+        main.buildHTML(start_page, end_page)
+
+        suffix = test_case['actual_html'].suffix
+        filename = compute_output_filename(
+            test_case['pdf_name'], start_page, end_page, main.total_pgs, suffix
+        )
+        test_case['actual_html'] = actual_output_dir / filename
+        test_case['expected_html'] = test_case['expected_html'].parent / filename
+
+        main.clear_cache_pdf()
+        main.clear_xml_cache()
+
+        return True, test_case
+
+    except Exception as e:
+        logging.error(f"Error processing PDF {test_case['pdf_name']}: {e}")
+        return False, test_case
+
+    finally:
+        if renamed_copy and renamed_copy.exists():
+            renamed_copy.unlink()
+
+
+def run_test_case(test_case, actual_output_dir, expected_output_dir, diff_output_dir):
+    result = {
+        'pdf_name': test_case['pdf_name'],
+        'pdf_type': test_case.get('pdf_type', 'default'),
+        'is_amendment': test_case.get('is_amendment', False),
+        'has_sidenotes': test_case.get('has_sidenotes', False),
+        'scanned_copy': test_case.get('scanned_copy', False),
+        'table_extract': test_case.get('table_extract', False),
+        'figure_text': test_case.get('figure_text', False),
+    }
+
+    success, test_case = process_pdf(test_case, actual_output_dir)
+    if not success:
+        result['status'] = 'ERROR'
+        result['message'] = f"Failed to process PDF: {test_case['pdf_name']}"
+        return result
+
+    if not test_case['actual_html'].exists():
+        result['status'] = 'ERROR'
+        result['message'] = f"HTML output not generated for: {test_case['pdf_name']}"
+        return result
+
+    diff_result = compare_html_output(test_case, expected_output_dir, diff_output_dir)
+    result['status'] = 'PASS' if diff_result['is_match'] else 'DIFF'
+    result['diff_file'] = diff_result.get('diff_file')
+    return result
+
+
+def generate_test_report(results, diff_output_dir):
+    report_file = diff_output_dir / "test_report.txt"
+
+    with open(report_file, 'w') as f:
+        f.write("PDF to HTML Conversion Test Report\n")
+        f.write("=" * 40 + "\n\n")
+
+        total_tests = len(results)
+        passed_tests = sum(1 for r in results if r['status'] == 'PASS')
+
+        f.write(f"Total PDFs tested: {total_tests}\n")
+        f.write(f"Passed: {passed_tests}\n")
+        f.write(f"With differences: {total_tests - passed_tests}\n\n")
+
+        f.write("Detailed Results:\n")
+        f.write("-" * 50 + "\n")
+
+        for result in results:
+            f.write(f"PDF: {result['pdf_name']}\n")
+            f.write(f"Type: {result.get('pdf_type', 'default')}\n")
+            f.write(f"Amendment: {result.get('is_amendment', False)}\n")
+            f.write(f"Sidenotes: {result.get('has_sidenotes', False)}\n")
+            f.write(f"Scanned copy: {result.get('scanned_copy', False)}\n")
+            f.write(f"Table extract: {result.get('table_extract', False)}\n")
+            f.write(f"Figure text: {result.get('figure_text', False)}\n")
+            f.write(f"Status: {result['status']}\n")
+            if result.get('diff_file'):
+                f.write(f"Diff file: {result['diff_file']}\n")
+            if result.get('message') and result['status'] == 'ERROR':
+                f.write(f"Message: {result['message']}\n")
+            f.write("\n")
+
+    print(f"\nTest report generated: {report_file}")
 
 
 class TestPdfToHtmlDiff(unittest.TestCase):
@@ -53,75 +235,20 @@ class TestPdfToHtmlDiff(unittest.TestCase):
 
         results = []
 
-        for i, test_case in enumerate(self.test_cases):
-            print ('TESTCASE: ',test_case)
+        for test_case in self.test_cases:
             with self.subTest(pdf=test_case['pdf_name'], pdf_type=test_case.get('pdf_type', 'default')):
-                # Process PDF with configured parameters
-                success = self._process_pdf(
-                    test_case,
-                    pdf_type=test_case.get('pdf_type'),
-                    # start_page=test_case.get('start_page'),
-                    # end_page=test_case.get('end_page'),
-                    has_sidenotes = test_case.get('has_sidenotes'),
-                    char_margin = test_case.get('char_margin',None),
-                    word_margin = test_case.get('word_margin', None),
-                    line_margin = test_case.get('line_margin',None),
-                    start_page  = test_case.get('start_page', None),
-                    end_page = test_case.get('end_page', None),
-                    # output_dir = test_case.get('output_dir',''),
-                    is_amendment=test_case.get('is_amendment', False),
-                    scanned_copy=test_case.get('scanned_copy', False),
-                    table_extract=test_case.get('table_extract', False),
-                    figure_text=test_case.get('figure_text', False),
-                    has_doc_end=test_case.get('has_doc_end', False),
-                    is_footnote_continuation=test_case.get('is_footnote_continuation', False),
-                    ocr_language=test_case.get('ocr_language', 'eng'),
-                    min_img_pixels=test_case.get('min_img_pixels', 0),
-                    server_root=test_case.get('server_root'),
-                    public_base_url=test_case.get('public_base_url'),
-                    rights=test_case.get('rights'),
-                    provider_id=test_case.get('provider_id'),
-                    provider_name=test_case.get('provider_name'),
-                    attribution=test_case.get('attribution')
+                result = run_test_case(
+                    test_case, self.actual_output_dir, self.expected_output_dir, self.diff_output_dir
                 )
-                self.assertTrue(success, f"Failed to process PDF: {test_case['pdf_name']}")
+                results.append(result)
+                print(f"[{result['status']}] {result['pdf_name']} - TESTCASE: {test_case}")
+                self.assertNotEqual(result['status'], 'ERROR', result.get('message'))
 
-                # Verify HTML was generated
-                self.assertTrue(
-                    test_case['actual_html'].exists(),
-                    f"HTML output not generated for: {test_case['pdf_name']}"
-                )
-
-                # Compare with expected output or record baseline
-                diff_result = self._compare_html_output(test_case)
-                results.append({
-                    'pdf_name': test_case['pdf_name'],
-                    'pdf_type': test_case.get('pdf_type', 'default'),
-                    'is_amendment': test_case.get('is_amendment', False),
-                    'has_sidenotes' : test_case.get('has_sidenotes', False),
-                    'scanned_copy': test_case.get('scanned_copy', False),
-                    'table_extract': test_case.get('table_extract', False),
-                    'figure_text': test_case.get('figure_text', False),
-                    'status': 'PASS' if diff_result['is_match'] else 'DIFF',
-                    'diff_file': diff_result.get('diff_file')
-                })
-
-        # Generate summary report
-        self._generate_test_report(results)
+        generate_test_report(results, self.diff_output_dir)
 
     @staticmethod
     def _parse_bool(value):
         return value.strip().lower() in ['true', 'yes', '1']
-
-    @staticmethod
-    def _compute_output_filename(base_stem, start_page, end_page, total_pgs, suffix):
-        if start_page or end_page:
-            if start_page is None:
-                start_page = 1
-            elif end_page is None:
-                end_page = total_pgs - 1 + int(start_page)
-            return f"{base_stem}pg:{start_page}_pg:{end_page}{suffix}"
-        return f"{base_stem}{suffix}"
 
     @classmethod
     def _load_test_cases_from_csv(cls):
@@ -153,6 +280,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     has_doc_end = cls._parse_bool(row.get('has_doc_end', ''))
                     is_footnote_continuation = cls._parse_bool(row.get('is_footnote_continuation', ''))
                     ocr_language = row.get('ocr_language', '').strip() or 'eng'
+                    ocr_engine = row.get('ocr_engine', '').strip() or 'tesseract'
                     min_img_pixels_raw = row.get('min_img_pixels', '').strip()
                     min_img_pixels = int(min_img_pixels_raw) if min_img_pixels_raw.isdigit() else 0
                     server_root_raw = row.get('server_root', '').strip()
@@ -185,6 +313,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'has_doc_end': has_doc_end,
                         'is_footnote_continuation': is_footnote_continuation,
                         'ocr_language': ocr_language,
+                        'ocr_engine': ocr_engine,
                         'min_img_pixels': min_img_pixels,
                         'server_root': server_root,
                         'public_base_url': public_base_url,
@@ -198,161 +327,12 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         except Exception as e:
             print(f"Error reading CSV file {cls.csv_file}: {e}")
 
-    def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
-                     char_margin = None, word_margin = None, line_margin = None,
-                     start_page = None, end_page = None, scanned_copy = False, table_extract = False,
-                     figure_text = False,
-                     has_doc_end = False, is_footnote_continuation = False, ocr_language = 'eng',
-                     min_img_pixels = 0, server_root = None, public_base_url = None,
-                     rights = None, provider_id = None, provider_name = None, attribution = None):
-        """Process a single PDF file and generate HTML output."""
-        source_path = Path(test_case['pdf_path'])
-        pdf_path_for_main = test_case['pdf_path']
-        renamed_copy = None
-        if test_case['pdf_name'] != source_path.stem:
-            renamed_copy = self.actual_output_dir / f"{test_case['pdf_name']}{source_path.suffix}"
-            shutil.copy2(source_path, renamed_copy)
-            pdf_path_for_main = str(renamed_copy)
-
-        try:
-            # Create Main instance
-            main = Main(
-                pdfPath=pdf_path_for_main,
-                # start=start_page,
-                # end=end_page,
-                is_amendment_pdf=is_amendment,
-                output_dir=str(self.actual_output_dir),
-                pdf_type=pdf_type,
-                has_side_notes = has_sidenotes,
-                has_doc_end = has_doc_end,
-                is_footnote_continuation = is_footnote_continuation,
-                min_img_pixels = min_img_pixels,
-                ocr_language = ocr_language,
-                is_scanned_copy = scanned_copy,
-                table_extract = table_extract,
-                figure_text = figure_text,
-                public_base_url = public_base_url,
-                server_root = server_root,
-                rights = rights,
-                provider_id = provider_id,
-                provider_name = provider_name,
-                attribution = attribution
-            )
-
-            # Parse PDF
-            parse_success = main.parsePDF(pdf_type, char_margin, word_margin, line_margin,\
-                                          start_page, end_page)
-            if not parse_success:
-                return False
-
-            # Build HTML
-            main.buildHTML(start_page, end_page)
-
-            suffix = test_case['actual_html'].suffix
-            filename = self._compute_output_filename(
-                test_case['pdf_name'], start_page, end_page, main.total_pgs, suffix
-            )
-            test_case['actual_html'] = self.actual_output_dir / filename
-            test_case['expected_html'] = self.expected_output_dir / filename
-
-            # Clean up cache
-            main.clear_cache_pdf()
-            main.clear_xml_cache()
-
-            return True
-
-        except Exception as e:
-            logging.error(f"Error processing PDF {test_case['pdf_name']}: {e}")
-            return False
-
-        finally:
-            if renamed_copy and renamed_copy.exists():
-                renamed_copy.unlink()
-
-    def _compare_html_output(self, test_case):
-        """Compare actual HTML output with expected baseline."""
-        actual_html = test_case['actual_html']
-        expected_html = test_case['expected_html']
-
-        # Read actual HTML content
-        with open(actual_html, 'r', encoding='utf-8') as f:
-            actual_content = f.read()
-
-        # If expected file doesn't exist, create it as baseline
-        if not expected_html.exists():
-            self.expected_output_dir.mkdir(exist_ok=True)
-            with open(expected_html, 'w', encoding='utf-8') as f:
-                f.write(actual_content)
-            return {'is_match': True, 'message': 'Created baseline file'}
-
-        # Read expected HTML content
-        with open(expected_html, 'r', encoding='utf-8') as f:
-            expected_content = f.read()
-
-        # Compare content
-        if actual_content.strip() == expected_content.strip():
-            return {'is_match': True}
-
-        # Generate diff if content differs
-        diff_file = self.diff_output_dir / f"{test_case['pdf_name']}_diff.html"
-        diff_lines = list(difflib.unified_diff(
-            expected_content.splitlines(keepends=True),
-            actual_content.splitlines(keepends=True),
-            fromfile=f"expected/{expected_html.name}",
-            tofile=f"actual/{actual_html.name}",
-            lineterm=''
-        ))
-
-        with open(diff_file, 'w', encoding='utf-8') as f:
-            f.write(''.join(diff_lines))
-
-        return {
-            'is_match': False,
-            'diff_file': str(diff_file),
-            'message': f'Content differs - diff saved to {diff_file}'
-        }
-
-    def _generate_test_report(self, results):
-        """Generate a summary test report."""
-        report_file = self.diff_output_dir / "test_report.txt"
-
-        with open(report_file, 'w') as f:
-            f.write("PDF to HTML Conversion Test Report\n")
-            f.write("=" * 40 + "\n\n")
-
-            total_tests = len(results)
-            passed_tests = sum(1 for r in results if r['status'] == 'PASS')
-
-            f.write(f"Total PDFs tested: {total_tests}\n")
-            f.write(f"Passed: {passed_tests}\n")
-            f.write(f"With differences: {total_tests - passed_tests}\n\n")
-
-            f.write("Detailed Results:\n")
-            f.write("-" * 50 + "\n")
-
-            for result in results:
-                f.write(f"PDF: {result['pdf_name']}\n")
-                f.write(f"Type: {result.get('pdf_type', 'default')}\n")
-                f.write(f"Amendment: {result.get('is_amendment', False)}\n")
-                f.write(f"Sidenotes: {result.get('has_sidenotes', False)}\n")
-                f.write(f"Scanned copy: {result.get('scanned_copy', False)}\n")
-                f.write(f"Table extract: {result.get('table_extract', False)}\n")
-                f.write(f"Figure text: {result.get('figure_text', False)}\n")
-                f.write(f"Status: {result['status']}\n")
-                if result.get('diff_file'):
-                    f.write(f"Diff file: {result['diff_file']}\n")
-                f.write("\n")
-
-        print(f"\nTest report generated: {report_file}")
-
     def test_edge_cases(self):
         """Test edge cases and error conditions."""
         # Test with non-existent PDF
         with self.assertLogs(level='ERROR'):
             main = Main(
                 pdfPath="non_existent.pdf",
-                # start=None,
-                # end=None,
                 is_amendment_pdf=False,
                 output_dir=str(self.actual_output_dir),
                 pdf_type=None,
@@ -376,6 +356,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         # if cls.actual_output_dir.exists():
         #     shutil.rmtree(cls.actual_output_dir)
 
+
 def update_golden_files(actual_dir, expected_dir):
     if not actual_dir.exists():
         print(f"[ERROR] Actual output directory not found: {actual_dir}")
@@ -398,12 +379,49 @@ def update_golden_files(actual_dir, expected_dir):
     print(f"\n✅ Updated {copied_files} golden file(s) in {expected_dir}")
 
 
+def run_parallel(test_cases, actual_output_dir, expected_output_dir, diff_output_dir, workers):
+    results = []
+    print(f"Running {len(test_cases)} test case(s) across {workers} worker process(es)...")
+
+    spawn_context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=workers, mp_context=spawn_context) as executor:
+        futures = {
+            executor.submit(run_test_case, test_case, actual_output_dir, expected_output_dir, diff_output_dir): test_case
+            for test_case in test_cases
+        }
+
+        for future in as_completed(futures):
+            test_case = futures[future]
+            try:
+                result = future.result()
+            except Exception as e:
+                result = {
+                    'pdf_name': test_case['pdf_name'],
+                    'pdf_type': test_case.get('pdf_type', 'default'),
+                    'status': 'ERROR',
+                    'message': str(e)
+                }
+            results.append(result)
+            print(f"[{result['status']}] {result['pdf_name']} - TESTCASE: {test_case}")
+
+    generate_test_report(results, diff_output_dir)
+
+    failed = [r for r in results if r['status'] != 'PASS']
+    if failed:
+        print(f"\n{len(failed)} of {len(results)} test case(s) did not pass.")
+    else:
+        print(f"\nAll {len(results)} test case(s) passed.")
+
+    return len(failed) == 0
+
+
 if __name__ == "__main__":
     # Create test directory structure if it doesn't exist
     test_dir = Path(__file__).parent
     test_pdfs_dir = test_dir / "test_pdfs"
     actual_html_dir = test_dir / "actual_html"
     expected_html_dir = test_dir / "expected_html"
+    diff_results_dir = test_dir / "diff_results"
     csv_file = test_dir / "test_cases.csv"
 
     if not test_pdfs_dir.exists():
@@ -414,10 +432,12 @@ if __name__ == "__main__":
     if not actual_html_dir.exists():
         actual_html_dir.mkdir()
         print(f"Created actual HTML output directory: {actual_html_dir}")
-    
+
     if not expected_html_dir.exists():
         expected_html_dir.mkdir()
         print(f"Created expected HTML directory: {expected_html_dir}")
+
+    diff_results_dir.mkdir(exist_ok=True)
 
     if not csv_file.exists():
         print(f"CSV file not found. A sample will be created at: {csv_file}")
@@ -428,10 +448,23 @@ if __name__ == "__main__":
         action="store_true",
         help="If set, overwrites expected_html files with actual_html outputs."
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of worker processes to run test cases in parallel (default: 1, sequential)."
+    )
     args, remaining = parser.parse_known_args()
 
     # If update flag is passed → update golden files directly
     if args.update_golden:
         update_golden_files(actual_html_dir, expected_html_dir)
+    elif args.workers > 1:
+        TestPdfToHtmlDiff.setUpClass()
+        ok = run_parallel(
+            TestPdfToHtmlDiff.test_cases, actual_html_dir, expected_html_dir,
+            diff_results_dir, args.workers
+        )
+        raise SystemExit(0 if ok else 1)
     else:
         unittest.main()

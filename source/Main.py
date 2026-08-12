@@ -23,7 +23,7 @@ class Main:
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
                  table_extract, public_base_url=None, server_root=None,
                  rights=None, provider_id=None, provider_name=None, attribution=None,
-                 figure_text=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 figure_text=False, ocr_engine="tesseract"): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
             raise ValueError(
@@ -61,6 +61,13 @@ class Main:
                 f"[!] provider_id ('{provider_id}') doesn't look like a URI - ignoring it."
             )
             provider_id = None
+        if ocr_engine == "paddleocr" and ocr_language not in TESSERACT_TO_PADDLE_LANG:
+            self.logger.warning(
+                f"[!] ocr_language ('{ocr_language}') has no paddleocr equivalent. "
+                f"Languages supported for ocr_engine='paddleocr': "
+                f"{', '.join(sorted(TESSERACT_TO_PADDLE_LANG))}. Falling back to 'eng'."
+            )
+            ocr_language = "eng"
 
         self.pdf_path = pdfPath
         self.output_dir = output_dir
@@ -89,6 +96,7 @@ class Main:
         self.html_builder = None
         self.min_img_pixels = min_img_pixels
         self.ocr_language = ocr_language
+        self.ocr_engine = ocr_engine
         self.is_scanned_copy = is_scanned_copy
         self.table_extract = table_extract
         self.figure_text = figure_text
@@ -512,7 +520,7 @@ class Main:
                         self.pdf_type, self.has_side_notes, self.is_amendment_pdf,
                         self.fontmapper, self.unique_images, self.min_img_pixels,
                         self.ocr_language,
-                        self.is_scanned_copy, self.figure_text)
+                        self.is_scanned_copy, self.figure_text, self.ocr_engine)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes()#pg)
@@ -1617,6 +1625,9 @@ def get_arg_parser():
     parser.add_argument('-ol', '--ocr-language', dest='ocr_language', action='store', \
                       required=False, default='eng', choices=TESSERACT_LANGUAGES,
                       help=f'tesseract language code for OCR (default: eng). One of: {", ".join(TESSERACT_LANGUAGES)}')
+    parser.add_argument('-oe', '--ocr-engine', dest='ocr_engine', action='store', \
+                      required=False, default='tesseract', choices=OCR_ENGINES_AVAILABLE,
+                      help=f'OCR engine to use for figure text extraction (default: tesseract). One of: {", ".join(OCR_ENGINES_AVAILABLE)}')
     parser.add_argument('-sc', '--scanned-copy', dest = 'scanned_copy', action = 'store_true',
                         required = False, default = False, help = 'mention if the pdf copy is scanned')
     parser.add_argument('-te', '--table-extract', dest = 'table_extract', action = 'store_true',
@@ -1722,6 +1733,7 @@ if __name__ == "__main__":
     if min_img_pixels and isinstance(min_img_pixels, str):
         min_img_pixels = int(min_img_pixels)
     ocr_language = args.ocr_language
+    ocr_engine = args.ocr_engine
     is_scanned_copy = args.scanned_copy
     table_extract = args.table_extract
     figure_text = args.figure_text
@@ -1735,7 +1747,7 @@ if __name__ == "__main__":
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
-                figure_text)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
+                figure_text, ocr_engine)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])

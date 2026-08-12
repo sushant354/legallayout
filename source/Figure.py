@@ -49,12 +49,14 @@ class Pictures:
         scanned_copy,
         figure_text=False,
         image_base_dir="manifest",
-        pdf_type=None
+        pdf_type=None,
+        ocr_engine="tesseract"
     ):
         self.logger = logging.getLogger(__name__)
 
         self.pg_num = pg_num
         self.ocr_language = ocr_language
+        self.ocr_engine = ocr_engine
         self.unique_images = unique_images
         self.figure_text = figure_text
         self.pdf_type = pdf_type
@@ -190,7 +192,7 @@ class Pictures:
                     #     config=config
                     # ).strip()
 
-                    ocr_text = extract_text(image_path, self.ocr_language)
+                    ocr_text = extract_text(image_path, self.ocr_language, self.ocr_engine)
 
                     if not ocr_text:
                         self.logger.info(f"OCR found no text in {image_path}.")
