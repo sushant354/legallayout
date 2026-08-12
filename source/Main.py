@@ -7,6 +7,7 @@ import re
 import codecs
 import logging
 import shutil
+import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool
 from .Page import Page, SectionState
 from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens
@@ -25,6 +26,12 @@ try:
     INDIC2UNICODE_AVAILABLE = True
 except ImportError:
     INDIC2UNICODE_AVAILABLE = False
+
+try:
+    from indic2unicode.tools.fix_tounicode import ToUnicodeFixer, FONT_CONVERTERS
+    TOUNICODE_FIX_AVAILABLE = True
+except ImportError:
+    TOUNICODE_FIX_AVAILABLE = False
 
 try:
     from camelot import handlers as camelot_handlers
@@ -156,8 +163,8 @@ class Main:
         self.font_conv = self.get_font_conv()
         # mappings given by the caller come first, so that a font can be pointed at
         # a converter its name does not name, or at a different one than it does
-        self.indic_font_res = self.get_font_conv_map_res(font_conv_map) + \
-                              self.get_indic_font_res()
+        self.font_conv_map_res = self.get_font_conv_map_res(font_conv_map)
+        self.indic_font_res = self.font_conv_map_res + self.get_indic_font_res()
         # pdf font name -> font key in FontConv.converters (None if not a legacy font)
         self.indic_font_keys = {}
         # (font key, text drawn in that font) -> converted unicode text
@@ -241,6 +248,103 @@ class Main:
                 font_res.append(
                     (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
                 )
+
+        return font_res
+
+    # --- func to repair the broken ToUnicode maps a pdf's fonts may carry ---
+    def repair_tounicode(self):
+        """Rewrites the broken ToUnicode maps of the pdf into a repaired copy.
+
+        A gazette set in Arial Unicode MS carries a ToUnicode map that was
+        built by pairing the glyphs of a run with the characters of that run
+        one by one, which devanagari shaping makes slip: निर्माण is extracted
+        as जिमावण. The glyphs are drawn correctly, so only the extraction is
+        wrong and the map can be built again from the names the font gives to
+        its own glyphs, see indic2unicode/tools/fix_tounicode.py.
+
+        The repair is done before anything reads the pdf, and only for the
+        fonts that are known to carry a broken map, so pdfminer and camelot
+        both get the characters that are really there. What they get is still
+        in the order in which the glyphs are drawn, so the text of a repaired
+        font is pointed at the converter that only reorders it rather than at
+        the one named after the font, which is for an unrepaired pdf.
+        """
+        if not TOUNICODE_FIX_AVAILABLE:
+            self.logger.debug(
+                "indic2unicode's ToUnicodeFixer is not available, the ToUnicode "
+                "maps of %s are left as they are", self.pdf_path
+            )
+            return
+
+        if not os.path.exists(self.pdf_path) or not self.is_pdf_file(self.pdf_path):
+            return
+
+        try:
+            fixer = ToUnicodeFixer()
+            doc = pymupdf.open(self.pdf_path)
+            num = fixer.fix_document(doc)
+
+            if not num:
+                doc.close()
+                return
+
+            # the repaired copy keeps the name of the document, everything
+            # that is written out is named after it
+            fixed_dir = os.path.join(self.get_path_cache_pdf(), 'tounicode')
+            os.makedirs(fixed_dir, exist_ok = True)
+            fixed_path = os.path.join(fixed_dir, os.path.basename(self.pdf_path))
+            doc.save(fixed_path)
+            doc.close()
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not repair the ToUnicode maps of %s, its text is "
+                "extracted as it is: %s", self.pdf_path, e
+            )
+            return
+
+        self.logger.info(
+            "Repaired %d glyphs of the ToUnicode maps of the font(s) %s, "
+            "parsing %s instead", num, ', '.join(sorted(fixer.fixed_fonts)),
+            fixed_path
+        )
+
+        self.pdf_path = fixed_path
+        # the fonts of the repaired pdf are read from the repaired copy too
+        if self.fontmapper is not None:
+            self.fontmapper.pdf_path = fixed_path
+
+        self.indic_font_res = self.font_conv_map_res + \
+                              self.get_repaired_font_res(fixer.fixed_fonts) + \
+                              self.get_indic_font_res()
+        # a font may already have been looked up while the map was broken
+        self.indic_font_keys = {}
+        self.indic_text_cache = {}
+
+    # --- func to get the regexps for the fonts whose map was repaired ---
+    def get_repaired_font_res(self, fixed_fonts):
+        if self.font_conv is None:
+            return []
+
+        font_res = []
+
+        for font_name in sorted(fixed_fonts):
+            font_key = FONT_CONVERTERS.get(font_name)
+
+            if font_key is None or font_key not in self.font_conv.converters:
+                self.logger.warning(
+                    "[!] The ToUnicode map of %s was repaired but there is no "
+                    "converter to put its text in the order unicode wants, so "
+                    "it stays in the order the glyphs are drawn in", font_name
+                )
+                continue
+
+            self.logger.info(
+                "Text in the repaired font %s will be reordered using %s",
+                font_name, font_key
+            )
+            font_res.append(
+                (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
+            )
 
         return font_res
 
@@ -1617,6 +1721,10 @@ class Main:
     # --- parse pdf using pdfminer to convert to XML ---       
     def parsePDF(self, pdf_type, char_margin, word_margin, line_margin, \
                 start_page, end_page):
+        # a font whose ToUnicode map is broken is repaired in a copy of the pdf
+        # before anything reads it, so that the xml parsed here and camelot
+        # both get the characters that are really on the page
+        self.repair_tounicode()
         # camelot reads the pdf itself rather than the xml parsed here, so the
         # legacy indic font conversion is installed into it for the whole run
         with self.camelot_font_conversion():
