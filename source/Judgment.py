@@ -115,6 +115,12 @@ class JudgmentBuilder(TableBuilder):
     color: #555;
     white-space: nowrap;
   }
+
+  img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
 </style>
 </head>
 <body>
@@ -126,7 +132,11 @@ class JudgmentBuilder(TableBuilder):
 
         def flush_row():
             if current_row:
-                units.append({'kind': 'text', 'value': ' '.join(l['text'] for l in current_row)})
+                units.append({
+                    'kind': 'text',
+                    'value': ' '.join(l['text'] for l in current_row),
+                    'page_num': current_row[0].get('page_num'),
+                })
 
         for item in lines:
             if 'raw' in item:
@@ -156,7 +166,7 @@ class JudgmentBuilder(TableBuilder):
             if unit['kind'] == 'raw':
                 result.append(unit)
                 continue
-            text = self.normalize_text(unit['value'])
+            text = self.normalize_text(unit['value'], unit.get('page_num'))
             if text.strip():
                 result.append({'kind': 'text', 'value': text})
         return result
@@ -331,10 +341,20 @@ class JudgmentBuilder(TableBuilder):
     def addFigure(self, tb, page):
         try:
             if tb.figname in self.unique_images:
-                img_path = self.extract_img_path(self.unique_images[tb.figname].get("path", ""))
-                self.builder += f'<a href="{img_path}" target="_blank">[View Image]</a>\n'
+                img_data = self.unique_images[tb.figname]
+                img_path = self.extract_img_path(img_data.get("path", ""))
+                width = img_data.get("width")
+                height = img_data.get("height")
 
-                text_content = self.unique_images[tb.figname].get("text", "")
+                size_attrs = ""
+                if width:
+                    size_attrs += f' width="{width}"'
+                if height:
+                    size_attrs += f' height="{height}"'
+
+                self.builder += f'<img src="{img_path}"{size_attrs} loading="lazy">\n'
+
+                text_content = img_data.get("text", "")
                 if text_content:
                     self.builder += f'<p class="figure-text">{text_content}</p>\n'
         except Exception as e:
@@ -359,17 +379,19 @@ class JudgmentBuilder(TableBuilder):
             self.builder += '\n' + '\n'.join(self.pending_header_footer) + '\n'
             self.pending_header_footer = []
 
-    def _normalize_and_linkify_footnotes(self, text):
+    def _normalize_and_linkify_footnotes(self, text, page_num=None):
         text = self._base_normalize_text(text)
-        if not text or self.current_page_num is None:
+        resolved_page_num = page_num if page_num is not None else self.current_page_num
+        if not text or resolved_page_num is None:
             return text
 
         def replace(match):
             footnote_num = match.group(1)
-            if footnote_num not in self.footnote_refs_used:
-                self.footnote_refs_used.append(footnote_num)
-            anchor = f"fn-{self.current_page_num}-{footnote_num}"
-            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            ref_key = (resolved_page_num, footnote_num)
+            if ref_key not in self.footnote_refs_used:
+                self.footnote_refs_used.append(ref_key)
+            anchor = f"fn-{resolved_page_num}-{footnote_num}"
+            ref = f"fnref-{resolved_page_num}-{footnote_num}"
             return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
 
         return FOOTNOTE_MARKER_RE.sub(replace, text)
@@ -404,15 +426,17 @@ class JudgmentBuilder(TableBuilder):
         if not self.footnote_refs_used:
             return
 
-        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
         items = []
-        for footnote_num in sorted(self.footnote_refs_used, key=lambda n: int(n) if n.isdigit() else n):
+        for page_num, footnote_num in sorted(
+            self.footnote_refs_used, key=lambda pair: (pair[0], int(pair[1]))
+        ):
+            page_footnote_text = self.all_footnote_text.get(page_num, {})
             if footnote_num not in page_footnote_text:
                 continue
 
             body = self.arrange_footnote_sentences(page_footnote_text[footnote_num])
-            anchor = f"fn-{self.current_page_num}-{footnote_num}"
-            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            anchor = f"fn-{page_num}-{footnote_num}"
+            ref = f"fnref-{page_num}-{footnote_num}"
             items.append(f'<li id="{anchor}" value="{footnote_num}">{body} <a href="#{ref}">↩</a></li>\n')
 
         if items:
@@ -487,9 +511,10 @@ class JudgmentBuilder(TableBuilder):
             if tag != self.current_tag:
                 self.flush_block()
                 self.current_tag = tag
-            self.current_lines.extend(self.extract_textlines(tb))
-
-        self.render_footnote_section()
+            lines = self.extract_textlines(tb)
+            for line in lines:
+                line['page_num'] = self.current_page_num
+            self.current_lines.extend(lines)
 
     def close_html(self):
         if not self.builder:
@@ -500,4 +525,5 @@ class JudgmentBuilder(TableBuilder):
         self.flush_block()
         self.flushTables()
         self.flush_pending_header_footer()
+        self.render_footnote_section()
         return self.close_html()
