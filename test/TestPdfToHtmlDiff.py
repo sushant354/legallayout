@@ -306,6 +306,30 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         return f"{base_stem}{suffix}"
 
     @classmethod
+    def _resolve_server_root(cls, server_root_raw):
+        """The server_root column of the csv, as a path on this machine.
+
+        The manifest urls a case is compared on carry the path from the server
+        root down to the output directory, so the two have to stand in the same
+        relation on every machine the test runs on. A relative value is what
+        gives that: it is resolved against the repository itself (which always
+        holds the output directory, test/actual_html), so '.' means the repo is
+        the server root and the urls carry 'test/actual_html'. An absolute path
+        is taken as given, and only works where the repo really sits under it.
+        """
+        server_root_raw = server_root_raw.strip()
+
+        if not server_root_raw:
+            return None
+
+        server_root = Path(server_root_raw).expanduser()
+
+        if not server_root.is_absolute():
+            server_root = cls.test_dir.parent / server_root
+
+        return str(server_root.resolve())
+
+    @classmethod
     def _load_test_cases_from_csv(cls):
         selected = cls.get_selected_cases()
         skipped = []
@@ -340,8 +364,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     ocr_language = row.get('ocr_language', '').strip() or 'en'
                     min_img_pixels_raw = row.get('min_img_pixels', '').strip()
                     min_img_pixels = int(min_img_pixels_raw) if min_img_pixels_raw.isdigit() else 0
-                    server_root_raw = row.get('server_root', '').strip()
-                    server_root = str(Path(server_root_raw).expanduser()) if server_root_raw else None
+                    server_root = cls._resolve_server_root(row.get('server_root', ''))
                     public_base_url = row.get('public_base_url', '').strip() or None
                     rights = row.get('rights', '').strip() or None
                     provider_id = row.get('provider_id', '').strip() or None

@@ -42,6 +42,13 @@ regulations.pdf,sebi,false,3,
 - **is_amendment**: Set to `true` if PDF contains amendments, `false` otherwise (optional)
 - **start_page**: Starting page number for processing (optional)
 - **end_page**: Ending page number for processing (optional)
+- **server_root**: Web server document root for IIIF manifest URLs, i.e. `-sr`
+  (optional). **Keep it relative**: it is resolved against the repository, not
+  the current directory, so `.` means the repo is the server root and the
+  manifest URLs carry `test/actual_html/...` on every machine. An absolute path
+  is taken as given and only works where the repo really sits under it, which
+  makes the case fail everywhere else (`output_dir is not located within
+  server_root`)
 
 ### 3. Run the Diff Test
 ```bash

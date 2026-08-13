@@ -7,10 +7,12 @@ ToUnicode map, the case -fc/--font-conv exists for) is visible from its
 sample alone.
 
     python -m source.FontSurvey -i <directory> [-r] [-mw 100] [-j fonts.json]
+    python -m source.FontSurvey -i "pdfs/**/sebi*.pdf"
 """
 
 import os
 import re
+import glob
 import json
 import codecs
 import logging
@@ -24,6 +26,11 @@ import pymupdf
 # fonts are usually embedded as subsets, named 'ABCDEF+RealName'. the subset
 # tag is per-file, so it is stripped for identity and kept only as a detail
 SUBSET_PREFIX_RE = re.compile(r'^[A-Z]{6}\+')
+
+# an input containing any of these is a wildcard pattern to expand ourselves
+# rather than a path to open - the shell does it for an unquoted argument, but
+# not for a quoted one, and not for one that matched nothing
+GLOB_MAGIC_RE = re.compile(r'[*?\[]')
 
 
 def strip_subset_prefix(name):
@@ -111,17 +118,62 @@ class FontSurvey:
         self.failed    = []
         self.logger    = logging.getLogger('fontsurvey')
 
-    def get_pdf_paths(self, inpath, recursive):
-        inpath = Path(inpath)
-        if inpath.is_file():
-            return [inpath]
+    def get_dir_pdfs(self, directory, recursive):
+        paths = directory.rglob('*') if recursive else directory.glob('*')
+        return [p for p in paths \
+                if p.is_file() and p.suffix.lower() == '.pdf']
 
-        if not inpath.is_dir():
-            raise ValueError(f'not a file or directory: {inpath}')
+    def expand_target(self, path, recursive, from_glob = False):
+        """One already-expanded path: a directory of pdfs, or a pdf itself."""
+        if path.is_dir():
+            return self.get_dir_pdfs(path, recursive)
 
-        paths = inpath.rglob('*') if recursive else inpath.glob('*')
-        return sorted(p for p in paths \
-                      if p.is_file() and p.suffix.lower() == '.pdf')
+        if path.is_file():
+            # a pattern like '*' legitimately sweeps in non-pdfs, so those are
+            # dropped quietly; a file named outright is taken at its word and
+            # left to fail loudly at open() if it isn't really a pdf
+            if from_glob and path.suffix.lower() != '.pdf':
+                return []
+            return [path]
+
+        if from_glob:
+            return []
+        raise ValueError(f'not a file or directory: {path}')
+
+    def get_pdf_paths(self, inpaths, recursive):
+        if isinstance(inpaths, (str, Path)):
+            inpaths = [inpaths]
+
+        paths = []
+        for inpath in inpaths:
+            # ~ and any wildcard survive if the shell was not the one that
+            # expanded them (a quoted pattern, or one that matched nothing)
+            expanded = os.path.expanduser(str(inpath))
+            if GLOB_MAGIC_RE.search(expanded):
+                matches = glob.glob(expanded, recursive = True)
+                if not matches:
+                    self.logger.warning(f'pattern matched nothing: {inpath}')
+                for match in sorted(matches):
+                    paths.extend(self.expand_target(Path(match), recursive, \
+                                                    from_glob = True))
+            else:
+                paths.extend(self.expand_target(Path(expanded), recursive))
+
+        # the same file can be reached by more than one pattern or by both a
+        # pattern and a directory, so identity is the resolved path
+        unique = {p.resolve(): p for p in paths}
+        if not unique:
+            raise ValueError(\
+                f'no pdf files found: {", ".join(str(p) for p in inpaths)}')
+        return sorted(unique.keys())
+
+    def get_display_base(self, paths):
+        """The deepest directory all the pdfs sit under, to name them by."""
+        try:
+            return Path(os.path.commonpath([str(p.parent) for p in paths]))
+        except ValueError:
+            # different drives, or nothing to compare
+            return None
 
     def get_record(self, name):
         if name not in self.fonts:
@@ -180,11 +232,11 @@ class FontSurvey:
                     self.logger.warning(\
                         f'{filepath} page {page.number + 1}: {e}')
 
-    def survey(self, inpath, recursive = False):
-        paths = self.get_pdf_paths(inpath, recursive)
-        self.logger.info(f'surveying {len(paths)} pdf file(s) under {inpath}')
+    def survey(self, inpaths, recursive = False):
+        paths = self.get_pdf_paths(inpaths, recursive)
+        self.logger.info(f'surveying {len(paths)} pdf file(s)')
 
-        relative_to = Path(inpath) if Path(inpath).is_dir() else None
+        relative_to = self.get_display_base(paths)
         for path in paths:
             self.logger.debug(f'reading {path}')
             self.survey_pdf(path, relative_to)
@@ -269,12 +321,19 @@ def get_arg_parser():
     parser = argparse.ArgumentParser(\
         description = 'Find the unique fonts used across a directory of pdfs, '
                       'with a sample of the words drawn in each one.')
-    parser.add_argument('-i', '--input-path', dest = 'input_path', \
-                        action = 'store', required = True, \
-                        help = 'directory of pdf files (or a single pdf)')
+    parser.add_argument('-i', '--input-path', dest = 'input_paths', \
+                        action = 'store', required = True, nargs = '+', \
+                        metavar = 'PATH', \
+                        help = 'directories of pdf files, single pdfs, or '
+                               'wildcard patterns - any mix of them. A '
+                               'pattern works whether the shell expands it '
+                               '(pdfs/*.pdf) or it is quoted and expanded '
+                               'here ("pdfs/*.pdf"); quote it to use ** for '
+                               'recursive matching ("pdfs/**/*.pdf")')
     parser.add_argument('-r', '--recursive', dest = 'recursive', \
                         action = 'store_true', \
-                        help = 'also read pdfs in subdirectories')
+                        help = 'also read pdfs in subdirectories of any '
+                               'directory given')
     parser.add_argument('-mw', '--max-words', dest = 'max_words', \
                         action = 'store', type = int, default = 100, \
                         help = 'distinct words to keep per font (default 100)')
@@ -306,7 +365,7 @@ if __name__ == '__main__':
 
     survey = FontSurvey(max_words = args.max_words)
     try:
-        survey.survey(args.input_path, recursive = args.recursive)
+        survey.survey(args.input_paths, recursive = args.recursive)
     except ValueError as e:
         raise SystemExit(f'error: {e}')
 

@@ -74,6 +74,14 @@ def set_lt_char_text(char, value):
 XML_TEXT_ACCESSORS = (get_xml_text_font, get_xml_text_text, set_xml_text_text)
 LT_CHAR_ACCESSORS = (get_lt_char_font, get_lt_char_text, set_lt_char_text)
 
+# --- names a legacy indic font is known by in a pdf, when they are not the
+# --- name of its indic2unicode converter: Kruti Dev is written with a space
+# --- (and usually a face number after it, 'Kruti Dev 010'), so the converter
+# --- key 'krutidev' never matches the name the pdf carries
+INDIC_FONT_NAME_ALIASES = {
+    'krutidev': [r'kruti[\s_-]*dev'],
+}
+
 
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
@@ -357,10 +365,19 @@ class Main:
         if self.font_conv is None:
             return []
 
-        return [
-            (re.compile('.*%s.*' % re.escape(font_key), re.IGNORECASE), font_key)
-            for font_key in self.font_conv.converters
-        ]
+        font_res = []
+
+        for font_key in self.font_conv.converters:
+            patterns = [re.escape(font_key)]
+            # a font whose pdf name is not its converter's name (Kruti Dev)
+            patterns.extend(INDIC_FONT_NAME_ALIASES.get(font_key, []))
+
+            font_res.extend(
+                (re.compile('.*%s.*' % pattern, re.IGNORECASE), font_key)
+                for pattern in patterns
+            )
+
+        return font_res
 
     # --- func to get the legacy indic font a pdf font name corresponds to ---
     def get_indic_font_key(self, font_name):

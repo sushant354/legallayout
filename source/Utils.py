@@ -19,6 +19,9 @@ LANGUAGES = [
 
 _LANG_MODEL = None
 OCR_ENGINES = {}
+# languages whose ocr engine has already been reported as unusable
+OCR_FAILURES = set()
+LOGGER = logging.getLogger(__name__)
 
 def _get_lang_model():
     global _LANG_MODEL
@@ -60,6 +63,19 @@ def extract_text(image_path, lang):
         return "\n".join(texts)
 
     except Exception as e:
+        # an ocr engine that cannot be built at all (paddlepaddle missing, no
+        # model) fails on every image and reads downstream as 'this image has
+        # no text', which silently drops every figure of the document, so the
+        # reason is said out loud once rather than swallowed image by image
+        if lang not in OCR_FAILURES:
+            OCR_FAILURES.add(lang)
+            LOGGER.warning(
+                "[!] OCR of images in '%s' is failing, images with no other "
+                "text of their own will be dropped: %s", lang, e
+            )
+
+        LOGGER.debug("OCR failed for %s: %s", image_path, e)
+
         return None
 
 
