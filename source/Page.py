@@ -871,7 +871,7 @@ class Page:
         for tb, label in sorted_items:
             x0, y0, x1, y1 = tb.coords
             is_full_width = (x1 - x0) >= full_width_ratio * combined_width and x0 < split_x < x1
-            if is_full_width:
+            if is_full_width or label is not None:
                 flush()
                 bands.append([(tb, label)])
             else:

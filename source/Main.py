@@ -394,7 +394,6 @@ class Main:
 
     # --- classify the page texboxes sidenotes, section, para, titles(headings) ---
     def process_pages_acts(self, pdf_type):
-        self.pending_continuation = None
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.print_tbs()
@@ -407,14 +406,6 @@ class Main:
             # print(page.is_single_column_page)
             if self.is_amendment_pdf:
                 self.amendment.check_for_amendment_acts(page)#,self.section_start_page,self.section_end_page)
-            if self.table_extract:
-                page.reclaim_header_footer_for_continuation(self.pending_continuation)
-                self.pending_continuation = page.get_borderless_table(
-                    pdf_type, self.header_classifier, self.region_merge_classifier,
-                    continuation_template=self.pending_continuation,
-                    continuation_classifier=self.continuation_classifier,
-                )
-                page.label_borderless_table_tbs()
             page.get_article(self.article_state, self)
             page.get_section_para(self.section_state, self)#, self.section_start_page,self.section_end_page)
             page.get_titles(pdf_type)
@@ -431,7 +422,6 @@ class Main:
                                                 '.”', '.’', ';”' , ';’', ':-', '.]',
                                                 ',-', ':-', ';-', '--')
 
-        self.pending_continuation = None
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             page.get_width_ofTB_moreThan_Half_of_pg()
@@ -439,14 +429,6 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
-            if self.table_extract:
-                page.reclaim_header_footer_for_continuation(self.pending_continuation)
-                self.pending_continuation = page.get_borderless_table(
-                    pdf_type, self.header_classifier, self.region_merge_classifier,
-                    continuation_template=self.pending_continuation,
-                    continuation_classifier=self.continuation_classifier,
-                )
-                page.label_borderless_table_tbs()
             page.get_bulletins_sebi_circulars(self.section_state)
             page.get_titles(pdf_type)
             prev_sent_end_status = page.get_title_hierarchy(self.title_state, prev_sent_end_status, sentence_completion_punctutation)   
@@ -469,14 +451,6 @@ class Main:
             # page.get_italic_blockquotes(pdf_type)
             # self.amendment.check_for_blockquotes(page)
             self.amendment.check_for_blockquotes_judgments(page)
-            if self.table_extract:
-                page.reclaim_header_footer_for_continuation(self.pending_continuation)
-                self.pending_continuation = page.get_borderless_table(
-                    pdf_type, self.header_classifier, self.region_merge_classifier,
-                    continuation_template=self.pending_continuation,
-                    continuation_classifier=self.continuation_classifier,
-                )
-                page.label_borderless_table_tbs()
             page.detect_sparse_pre()
             # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
@@ -517,14 +491,6 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
-            if self.table_extract:
-                page.reclaim_header_footer_for_continuation(self.pending_continuation)
-                self.pending_continuation = page.get_borderless_table(
-                    pdf_type, self.header_classifier, self.region_merge_classifier,
-                    continuation_template=self.pending_continuation,
-                    continuation_classifier=self.continuation_classifier,
-                )
-                page.label_borderless_table_tbs()
             page.get_titles(pdf_type)
             # page.get_bulletins(self.section_state)
             page.sort_all_boxes()
@@ -575,11 +541,23 @@ class Main:
         if not self.is_scanned_copy:
             self.adaptive_header_footer_detection(pages, self.pdf_type)
 
+        if self.table_extract and self.pdf_type != 'judgments':
+            self.logger.info("Detecting borderless tables...")
+            self.pending_continuation = None
+            for page in self.all_pgs.values():
+                page.reclaim_header_footer_for_continuation(self.pending_continuation)
+                self.pending_continuation = page.get_borderless_table(
+                    self.pdf_type, self.header_classifier, self.region_merge_classifier,
+                    continuation_template=self.pending_continuation,
+                    continuation_classifier=self.continuation_classifier,
+                )
+                page.label_borderless_table_tbs()
+
         self.logger.info("Detecting multicolumn page layouts...")
         for page in self.all_pgs.values():
             page.detect_multicolumn_layout()
             page.apply_column_reading_order()
-        
+
         if self.pdf_type in {'judgments'}:
             self.detect_header_pre(pages)
         # elif self.pdf_type in {'sebi'}:
@@ -1641,6 +1619,11 @@ class Main:
             else:
                 self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
 
+    def clear_ocr_engines(self):
+        if self.ocr_engine == "paddleocr":
+            clear_paddle_ocr_engines()
+            self.logger.info("Released paddleocr model(s) held by this run")
+
 
     def detect_header_pre(self, pages):
 
@@ -2617,10 +2600,13 @@ if __name__ == "__main__":
     word_margin = args.word_margin # str(margins['word_margin'])
     line_margin = args.line_margin # str(margins['line_margin'])
     logger.info(f'char_margin : {char_margin}, word_margin: {word_margin}, line_margin: {line_margin}')
-    is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin, \
-                               start_page, end_page)
-    if is_success:
-        main.buildHTML(start_page, end_page) #end)
-    main.clear_cache_pdf()
-    if not args.keep_xml:
-        main.clear_xml_cache()
+    try:
+        is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin, \
+                                   start_page, end_page)
+        if is_success:
+            main.buildHTML(start_page, end_page) #end)
+    finally:
+        main.clear_cache_pdf()
+        if not args.keep_xml:
+            main.clear_xml_cache()
+        main.clear_ocr_engines()

@@ -1,4 +1,5 @@
 import os
+import sys
 import unittest
 import tempfile
 import shutil
@@ -73,6 +74,7 @@ def process_pdf(test_case, actual_output_dir):
     start_page = test_case.get('start_page')
     end_page = test_case.get('end_page')
 
+    main = None
     try:
         main = Main(
             pdfPath=pdf_path_for_main,
@@ -116,9 +118,6 @@ def process_pdf(test_case, actual_output_dir):
         test_case['actual_html'] = actual_output_dir / filename
         test_case['expected_html'] = test_case['expected_html'].parent / filename
 
-        main.clear_cache_pdf()
-        main.clear_xml_cache()
-
         return True, test_case
 
     except Exception as e:
@@ -126,6 +125,10 @@ def process_pdf(test_case, actual_output_dir):
         return False, test_case
 
     finally:
+        if main is not None:
+            main.clear_cache_pdf()
+            main.clear_xml_cache()
+            main.clear_ocr_engines()
         if renamed_copy and renamed_copy.exists():
             renamed_copy.unlink()
 
@@ -199,11 +202,16 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     Compares generated HTML against expected baseline files or detects changes.
     """
 
+    # Set by __main__ (before setUpClass runs) to restrict which CSV(s) get loaded,
+    # e.g. ["test_judgment_cases.csv"]. None/empty means "load every registered CSV".
+    selected_csvs = None
+
     @classmethod
     def setUpClass(cls):
         """Set up test environment and locate test PDFs."""
         cls.test_dir = Path(__file__).parent
         cls.test_pdfs_dir = cls.test_dir / "test_pdfs"
+        cls.test_judgment_pdfs_dir = cls.test_dir / "test_judgment_pdfs"
         cls.expected_output_dir = cls.test_dir / "expected_html"
         cls.actual_output_dir = cls.test_dir / "actual_html"
         cls.diff_output_dir = cls.test_dir / "diff_results"
@@ -215,11 +223,25 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         # Set up logging for tests
         logging.basicConfig(level=logging.WARNING)  # Reduce noise during tests
 
-        cls.test_cases = []
         cls.csv_file = cls.test_dir / "test_cases.csv"
+        cls.judgment_csv_file = cls.test_dir / "test_judgment_cases.csv"
+        cls.csv_registry = {
+            cls.csv_file.name: (cls.csv_file, cls.test_pdfs_dir),
+            cls.judgment_csv_file.name: (cls.judgment_csv_file, cls.test_judgment_pdfs_dir),
+        }
 
-        # Read test cases from CSV file
-        cls._load_test_cases_from_csv()
+        cls.test_cases = []
+        selected = cls.selected_csvs or list(cls.csv_registry.keys())
+        for name in selected:
+            name = Path(name).name
+            if name not in cls.csv_registry:
+                print(f"Warning: unknown --csv selection '{name}' (known: "
+                      f"{', '.join(cls.csv_registry)}) - skipping")
+                continue
+            csv_path, pdfs_dir = cls.csv_registry[name]
+            # Read test cases from this CSV file; output always goes to the shared
+            # actual_html/expected_html/diff_results dirs regardless of which CSV(s) ran.
+            cls._load_test_cases_from_csv(csv_path, pdfs_dir)
 
     def setUp(self):
         """Set up for each test case."""
@@ -251,16 +273,16 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         return value.strip().lower() in ['true', 'yes', '1']
 
     @classmethod
-    def _load_test_cases_from_csv(cls):
+    def _load_test_cases_from_csv(cls, csv_file, pdfs_dir):
         try:
-            with open(cls.csv_file, 'r', encoding='utf-8') as f:
+            with open(csv_file, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     filename = row['filename'].strip()
                     if not filename:
                         continue
 
-                    pdf_path = cls.test_pdfs_dir / filename
+                    pdf_path = pdfs_dir / filename
                     if not pdf_path.exists():
                         print(f"Warning: PDF file not found: {pdf_path}")
                         continue
@@ -325,7 +347,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
         except Exception as e:
-            print(f"Error reading CSV file {cls.csv_file}: {e}")
+            print(f"Error reading CSV file {csv_file}: {e}")
 
     def test_edge_cases(self):
         """Test edge cases and error conditions."""
@@ -454,7 +476,20 @@ if __name__ == "__main__":
         default=1,
         help="Number of worker processes to run test cases in parallel (default: 1, sequential)."
     )
+    parser.add_argument(
+        "--csv",
+        dest="csv_files",
+        action="append",
+        default=None,
+        help="Which test-cases CSV to run (by filename, e.g. test_cases.csv or "
+             "test_judgment_cases.csv). Repeatable. Default: run every registered CSV. "
+             "Output always goes to actual_html/ (and expected_html/, diff_results/) "
+             "regardless of which CSV(s) are selected."
+    )
     args, remaining = parser.parse_known_args()
+
+    if args.csv_files:
+        TestPdfToHtmlDiff.selected_csvs = args.csv_files
 
     # If update flag is passed → update golden files directly
     if args.update_golden:
@@ -467,4 +502,4 @@ if __name__ == "__main__":
         )
         raise SystemExit(0 if ok else 1)
     else:
-        unittest.main()
+        unittest.main(argv=[sys.argv[0]] + remaining)

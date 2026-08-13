@@ -1,5 +1,6 @@
 import re
 import io
+import os
 import contextlib
 import logging
 from pathlib import Path
@@ -50,6 +51,10 @@ def _get_lang_model():
 
 def _get_paddle_ocr_engine(paddle_lang):
     if paddle_lang not in _PADDLE_OCR_ENGINES:
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("MKL_NUM_THREADS", "1")
+        os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
         import paddlex.utils.logging as pdx_logging
         pdx_logger = logging.getLogger("paddlex")
         pdx_logger.setLevel(logging.ERROR)
@@ -89,6 +94,9 @@ def _extract_text_paddleocr(image_path, lang):
         texts.extend(item.json["res"]["rec_texts"])
 
     return "\n".join(texts).strip()
+
+def clear_paddle_ocr_engines():
+    _PADDLE_OCR_ENGINES.clear()
 
 def extract_text(image_path, lang, engine="tesseract"):
     try:
