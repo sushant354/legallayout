@@ -82,6 +82,22 @@ INDIC_FONT_NAME_ALIASES = {
     'krutidev': [r'kruti[\s_-]*dev'],
 }
 
+# --- how much of a space's own width has to sit inside the glyph next to it
+# --- before it counts as painted over rather than as a real word break, see
+# --- Main.drop_overlapping_spaces(). A space that is genuinely there does
+# --- overlap its neighbour a little - kerning pulls a letter back over the
+# --- space before it, most of a space's width for a '.' followed by a capital
+# --- - so nothing short of the whole of it being covered says anything. That
+# --- is what an overprinted space looks like anyway: it sits entirely within
+# --- the glyph drawn over it, having advanced the pen by nothing at all
+SPACE_OVERLAP_RATIO = 0.95
+
+# --- when the two glyphs on either side of a space overlap each other by this
+# --- much of their own width, the text itself is drawn overlapping - rotated
+# --- watermarks come out of pdfminer with every char's bbox covering the next
+# --- one's - and no conclusion can be drawn from a space overlapping too
+NEIGHBOUR_OVERLAP_RATIO = 0.1
+
 
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
@@ -423,6 +439,128 @@ class Main:
         self.indic_text_cache[cache_key] = converted
 
         return converted
+
+    def drop_overlapping_spaces(self, pages):
+        """Removes spaces that the glyph next to them is drawn on top of.
+
+        A pdf can paint a space that never advances the pen, the following
+        glyph then being drawn back over it. That happens on devanagari text
+        in particular, where a conjunct is two glyphs and the space lands
+        between them. pdfminer has no way of telling such a space from a real
+        one and reports it as an ordinary space, which splits one word into
+        two everywhere downstream ('िभन् न' for 'िभन्न'). They are recognised
+        here by their coordinates - the space sits inside its neighbour's
+        bbox instead of beside it - and dropped from the xml before the indic
+        font conversion (which would otherwise convert a broken up conjunct)
+        and before any layout analysis, so that all the downstream consumers
+        of the xml see the text without knowing about overprinted spaces.
+        """
+        if not pages:
+            return
+
+        for page in pages:
+            try:
+                self.drop_overlapping_spaces_in_page(page)
+            except Exception as e:
+                self.logger.error(
+                    "Failed removal of overprinted spaces on page %s: %s",
+                    page.get("id"), e
+                )
+
+    def drop_overlapping_spaces_in_page(self, page):
+        for element in page.iter():
+            # a <text> element never has children of its own, so every one of
+            # them is grouped under exactly one parent and looked at just once
+            chars = [child for child in element if child.tag == 'text']
+
+            for char in self.get_overprinted_spaces(chars):
+                element.remove(char)
+
+    # --- func to pick out the spaces drawn over by a neighbouring glyph ---
+    def get_overprinted_spaces(self, chars):
+        overprinted = []
+
+        for idx, char in enumerate(chars):
+            if not self.is_space_char(char):
+                continue
+
+            space = self.get_char_x_range(char)
+
+            # the newlines pdfminer inserts itself carry no bbox, and a space
+            # of no width cannot be overlapped by anything in the first place
+            if space is None:
+                continue
+
+            # the nearest real glyph on either side, not simply the adjacent
+            # elements: a combining matra is emitted with a zero width bbox
+            # sitting on its base consonant and says nothing about spacing
+            previous = self.get_neighbour_x_range(chars, range(idx - 1, -1, -1))
+            following = self.get_neighbour_x_range(chars, range(idx + 1, len(chars)))
+
+            if self.is_overprinted_space(space, previous, following):
+                overprinted.append(char)
+
+        return overprinted
+
+    # --- func to tell a space painted over by its neighbour from a real one ---
+    def is_overprinted_space(self, space, previous, following):
+        if previous and following:
+            drawn_over = self.get_x_overlap(previous, following)
+
+            narrowest = min(
+                previous[1] - previous[0],
+                following[1] - following[0]
+            )
+
+            if drawn_over > NEIGHBOUR_OVERLAP_RATIO * narrowest:
+                return False
+
+        overlap = max(
+            self.get_x_overlap(space, previous),
+            self.get_x_overlap(space, following)
+        )
+
+        return overlap > SPACE_OVERLAP_RATIO * (space[1] - space[0])
+
+    # --- func to walk to the nearest glyph a space can be compared against ---
+    def get_neighbour_x_range(self, chars, indices):
+        for idx in indices:
+            char = chars[idx]
+
+            if self.is_space_char(char):
+                continue
+
+            x_range = self.get_char_x_range(char)
+
+            if x_range is not None:
+                return x_range
+
+        return None
+
+    @staticmethod
+    def is_space_char(char):
+        return bool(char.text) and not char.text.strip()
+
+    @staticmethod
+    def get_char_x_range(char):
+        bbox = char.attrib.get("bbox")
+
+        if not bbox:
+            return None
+
+        try:
+            x0, _, x1, _ = map(float, bbox.split(","))
+        except (ValueError, TypeError):
+            return None
+
+        return (x0, x1) if x1 > x0 else None
+
+    @staticmethod
+    def get_x_overlap(x_range, other):
+        if x_range is None or other is None:
+            return 0.0
+
+        return max(0.0, min(x_range[1], other[1]) - max(x_range[0], other[0]))
 
     def convert_indic_fonts(self, pages):
         """Rewrites text drawn in legacy indic fonts into unicode, in place.
@@ -1795,6 +1933,8 @@ class Main:
             self.logger.debug("Parsing pages from XML: %s", self.xml_path)
             pages = self.parserTool.get_pages_from_xml(self.xml_path, start_page, end_page)
             if pages:
+                self.logger.debug("Removing spaces overprinted by the next glyph...")
+                self.drop_overlapping_spaces(pages)
                 self.logger.debug("Converting text in legacy indic fonts to unicode...")
                 self.convert_indic_fonts(pages)
                 self.set_htmlbuilder()
