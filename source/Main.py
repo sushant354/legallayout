@@ -279,12 +279,14 @@ class Main:
     def repair_tounicode(self):
         """Rewrites the broken ToUnicode maps of the pdf into a repaired copy.
 
-        A gazette set in Arial Unicode MS carries a ToUnicode map that was
-        built by pairing the glyphs of a run with the characters of that run
-        one by one, which devanagari shaping makes slip: निर्माण is extracted
-        as जिमावण. The glyphs are drawn correctly, so only the extraction is
-        wrong and the map can be built again from the names the font gives to
-        its own glyphs, see indic2unicode/tools/fix_tounicode.py.
+        A gazette set in Arial Unicode MS or in Nirmala UI carries a ToUnicode
+        map that was built by pairing the glyphs of a run with the characters
+        of that run one by one, which devanagari shaping makes slip: निर्माण
+        is extracted as जिमावण. The glyphs are drawn correctly, so only the
+        extraction is wrong and the map can be built again from what the font
+        says about its own glyphs - the characters its cmap draws, the names
+        it keeps for them and the rules its GSUB shapes them with - see
+        indic2unicode/tools/fix_tounicode.py.
 
         The repair is done before anything reads the pdf, and only for the
         fonts that are known to carry a broken map, so pdfminer and camelot
@@ -354,8 +356,10 @@ class Main:
         for font_name in sorted(fixed_fonts):
             # the name is the one the pdf carries, which is not always the
             # spelling the converter is listed under: Arial Unicode MS is
-            # embedded as ArialUnicodeMS too, so the lookup is by a spelling
-            # that the separators and the case do not change
+            # embedded as ArialUnicodeMS too and Nirmala UI carries its bold
+            # as a font of its own named Nirmala UI,Bold, so the lookup is by
+            # a spelling that the separators, the style and the case do not
+            # change
             font_key = get_font_converter(font_name)
 
             if font_key is None or font_key not in self.font_conv.converters:
