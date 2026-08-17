@@ -275,6 +275,11 @@ class FontRecord:
         # resources and never used
         self.files      = set()
         self.drawn_files= set()
+        # how many words this font draws in each document, which is what the
+        # file list is ranked on - against the document's own total, not this
+        # font's, so a font drawing all of a short pdf outranks one drawing a
+        # handful of headings in a long one
+        self.file_words = {}
         self.pages      = set()
         self.num_words  = 0
         self.words      = []
@@ -296,16 +301,37 @@ class FontRecord:
             self.tounicode = True
 
     def add_text(self, filepath, pageno, text):
+        num_words = 0
         for word in get_words(text):
             self.num_words += 1
+            num_words      += 1
             if word not in self.word_set and len(self.words) < self.max_words:
                 self.word_set.add(word)
                 self.words.append(word)
         self.files.add(filepath)
         self.drawn_files.add(filepath)
+        self.file_words[filepath] = self.file_words.get(filepath, 0) + num_words
         self.pages.add((filepath, pageno))
 
-    def to_dict(self):
+    def get_file_shares(self, file_totals):
+        """(file, words, share) per drawn-in document, biggest share first.
+
+        share is this font's words in that document over every word drawn in
+        it, so the documents the font dominates lead - which is what makes the
+        list useful for picking a pdf to inspect the font in.
+        """
+        shares = []
+        for filepath in sorted(self.drawn_files):
+            words = self.file_words.get(filepath, 0)
+            total = file_totals.get(filepath, 0)
+            shares.append((filepath, words, words / total if total else 0.0))
+        # word count breaks a tie in share, and the name breaks a tie in both,
+        # so the order is stable for a given survey
+        shares.sort(key = lambda s: (-s[2], -s[1], s[0]))
+        return shares
+
+    def to_dict(self, file_totals = None):
+        shares = self.get_file_shares(file_totals or {})
         return {
             'name':          self.name,
             'subset_names':  sorted(self.subsets),
@@ -315,7 +341,11 @@ class FontRecord:
             'encodings':     sorted(self.encodings),
             'has_tounicode': self.tounicode,
             'num_drawn_files': len(self.drawn_files),
-            'drawn_files':   sorted(self.drawn_files),
+            # ordered by the share of the document's words this font draws,
+            # with that share spelled out alongside
+            'drawn_files':   [f for f, _w, _s in shares],
+            'drawn_file_shares': [{'file': f, 'words': w, 'share': round(s, 4)}
+                                  for f, w, s in shares],
             'num_files':     len(self.files),
             'files':         sorted(self.files),
             'num_pages':     len(self.pages),
@@ -492,19 +522,30 @@ class FontSurvey:
                       key = lambda r: (-len(r.drawn_files), -r.num_words, \
                                        r.name.lower()))
 
+    def get_file_totals(self):
+        """Every word drawn in each document, summed over all of its fonts."""
+        totals = {}
+        for record in self.fonts.values():
+            for filepath, words in record.file_words.items():
+                totals[filepath] = totals.get(filepath, 0) + words
+        return totals
+
     def to_json(self):
+        file_totals = self.get_file_totals()
         return json.dumps({
             'num_pdfs':     len(self.pdfs),
             'pdfs':         self.pdfs,
             'unreadable':   [{'file': f, 'error': e} for f, e in self.failed],
             'max_words':    self.max_words,
             'num_fonts':    len(self.fonts),
-            'fonts':        [r.to_dict() for r in self.get_records()],
+            'fonts':        [r.to_dict(file_totals) \
+                             for r in self.get_records()],
         }, indent = 2, ensure_ascii = False)
 
     def get_report(self, max_files = 10):
-        records = self.get_records()
-        lines   = [
+        records     = self.get_records()
+        file_totals = self.get_file_totals()
+        lines       = [
             '=' * 78,
             f'{len(records)} unique font(s) in {len(self.pdfs)} pdf file(s)',
             '=' * 78,
@@ -519,9 +560,17 @@ class FontSurvey:
                 details += ', no tounicode'
 
             # the documents the font is drawn in are what it is ranked on, so
-            # they are what gets listed; a font never drawn anywhere falls
-            # back to listing where it was merely declared
-            files = sorted(record.drawn_files) or sorted(record.files)
+            # they are what gets listed - the one the font makes up the most of
+            # first; a font never drawn anywhere falls back to listing where it
+            # was merely declared, which carries no share to order by
+            shares = record.get_file_shares(file_totals)
+            if shares:
+                # a font drawing a handful of words in a huge document rounds
+                # to 0%, which reads as 'none of it' - it is not none
+                files = [f'{f} ({s:.0%})' if s >= 0.005 else f'{f} (<1%)' \
+                         for f, _w, s in shares]
+            else:
+                files = sorted(record.files)
             shown = ', '.join(files[:max_files])
             if len(files) > max_files:
                 shown += f', +{len(files) - max_files} more'

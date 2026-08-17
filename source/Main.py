@@ -2383,7 +2383,7 @@ if __name__ == "__main__":
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
-                figure_text, ocr_engine, args.font_conv_map)
+                figure_text, args.font_conv_map, ocr_engine)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
