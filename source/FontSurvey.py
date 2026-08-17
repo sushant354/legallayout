@@ -8,6 +8,15 @@ sample alone.
 
     python -m source.FontSurvey -i <directory> [-r] [-mw 100] [-j fonts.json]
     python -m source.FontSurvey -i "pdfs/**/sebi*.pdf"
+
+It also doubles as the corpus builder for the font classifier in
+machinelearning/: -tf/--training-font names a class of fonts by regexp and
+every run of text drawn in a font matching it is written, one sample per
+line, to <label>.txt in -td/--training-dir; text in every other font goes to
+not_required.txt as the negative class.
+
+    python -m source.FontSurvey -i pdfs/ -r -td training_data \\
+        -tf nirmala='nirmala\\s*ui' -tf krutidev='kruti\\s*dev'
 """
 
 import os
@@ -42,6 +51,113 @@ def get_words(text):
         # punctuation-only tokens ('---', '(1)', bullets) are not words
         if any(c.isalnum() for c in token):
             yield token
+
+
+class TrainingWriter:
+    """Writes the text drawn in each font into a per-class training file.
+
+    A class is named by a regexp matched against the font name the same way
+    -fc/--font-conv matches its font names - anywhere in the name, case
+    insensitively - so one 'nirmala\\s*ui' catches 'NirmalaUI', 'Nirmala UI'
+    and 'Nirmala UI,Bold' alike. The first class whose regexp matches wins,
+    so the classes are tried in the order they were given on the command
+    line. Text drawn in a font no regexp matches is the negative class and
+    goes to not_required.txt - a font that needs no decoding (Times, Arial)
+    draws real words, and that is exactly the contrast the classifier learns.
+
+    One line is one sample: a run of consecutive same-font text on one line
+    of the pdf. Newlines can therefore never appear inside a sample.
+    """
+
+    NOT_REQUIRED = 'not_required'
+    # the label is used as a filename, so keep it to something that is one
+    LABEL_RE     = re.compile(r'^[A-Za-z0-9_-]+$')
+
+    def __init__(self, outdir, label_res):
+        self.outdir    = Path(outdir)
+        self.label_res = label_res
+        self.files     = {}
+        self.counts    = {label: 0 for label, _re in label_res}
+        self.counts[self.NOT_REQUIRED] = 0
+        self.fonts     = {}
+        self.logger    = logging.getLogger('fontsurvey.training')
+        self.outdir.mkdir(parents = True, exist_ok = True)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def get_label(self, fontname):
+        for label, regexp in self.label_res:
+            if regexp.search(fontname or ''):
+                return label
+        return self.NOT_REQUIRED
+
+    def get_file(self, label):
+        if label not in self.files:
+            path = self.outdir.joinpath(f'{label}.txt')
+            self.files[label] = codecs.open(str(path), 'w', encoding = 'utf8')
+        return self.files[label]
+
+    def add_text(self, fontname, text):
+        # a sample is a line, so nothing inside it may be one; the source
+        # spans do not contain newlines, but a pdf can draw anything
+        sample = ' '.join(text.split())
+        if not any(c.isalnum() for c in sample):
+            # rules, bullets and stray punctuation carry no signal at all
+            return
+
+        label = self.get_label(fontname)
+        self.get_file(label).write(sample + '\n')
+        self.counts[label] += 1
+        self.fonts.setdefault(label, set()).add(fontname)
+
+    def close(self):
+        for f in self.files.values():
+            f.close()
+        self.files = {}
+
+    def get_report(self):
+        lines = ['', '=' * 78, f'training corpus in {self.outdir}', '=' * 78]
+        for label in list(self.counts.keys()):
+            fonts = sorted(self.fonts.get(label, ()))
+            shown = ', '.join(fonts[:10])
+            if len(fonts) > 10:
+                shown += f', +{len(fonts) - 10} more'
+            lines.append('')
+            lines.append(f'{label}.txt')
+            lines.append(f'    samples : {self.counts[label]}')
+            lines.append(f'    fonts   : {len(fonts)} ({shown or "none"})')
+            if not self.counts[label]:
+                lines.append('    | (no text matched - check the regexp)')
+        return '\n'.join(lines)
+
+
+def parse_training_fonts(specs):
+    """'-tf nirmala=nirmala\\s*ui' -> [('nirmala', compiled regexp)]."""
+    label_res = []
+    for spec in specs or []:
+        label, sep, pattern = spec.partition('=')
+        label, pattern = label.strip(), pattern.strip()
+        if not sep or not label or not pattern:
+            raise ValueError(f'training font must be LABEL=REGEX: {spec}')
+        if not TrainingWriter.LABEL_RE.match(label):
+            raise ValueError(\
+                f'training label must be a plain filename [A-Za-z0-9_-]: {label}')
+        if label == TrainingWriter.NOT_REQUIRED:
+            raise ValueError(\
+                f'{TrainingWriter.NOT_REQUIRED} is the name of the negative '
+                f'class, it cannot also be a font class')
+        if label in [l for l, _r in label_res]:
+            raise ValueError(f'duplicate training label: {label}')
+        try:
+            label_res.append((label, re.compile(pattern, re.IGNORECASE)))
+        except re.error as e:
+            raise ValueError(f'bad regex for {label}: {pattern}: {e}')
+    return label_res
 
 
 class FontRecord:
@@ -111,11 +227,13 @@ class FontRecord:
 
 
 class FontSurvey:
-    def __init__(self, max_words = 100):
+    def __init__(self, max_words = 100, training = None):
         self.max_words = max_words
         self.fonts     = {}
         self.pdfs      = []
         self.failed    = []
+        # an open TrainingWriter, or None to just survey and not write a corpus
+        self.training  = training
         self.logger    = logging.getLogger('fontsurvey')
 
     def get_dir_pdfs(self, directory, recursive):
@@ -197,16 +315,35 @@ class FontSurvey:
                                    self.has_tounicode(doc, xref))
             record.files.add(filepath)
 
+    def get_line_runs(self, line):
+        """One line's spans, consecutive same-font ones joined into one run.
+
+        A single word is routinely split across spans, so a run - not a span -
+        is the smallest piece of text that is certain to be whole and to be
+        drawn entirely in one font.
+        """
+        runs = []
+        for span in line.get('spans', []):
+            text = span.get('text', '')
+            if not text:
+                continue
+            name = strip_subset_prefix(span.get('font', ''))
+            if runs and runs[-1][0] == name:
+                runs[-1][1] += text
+            else:
+                runs.append([name, text])
+        return runs
+
     def survey_drawn_text(self, page, filepath):
         """The text actually drawn on a page, attributed to its span's font."""
         for block in page.get_text('dict').get('blocks', []):
             for line in block.get('lines', []):
-                for span in line.get('spans', []):
-                    text = span.get('text', '')
+                for name, text in self.get_line_runs(line):
                     if not text.strip():
                         continue
-                    name = strip_subset_prefix(span.get('font', ''))
                     self.get_record(name).add_text(filepath, page.number, text)
+                    if self.training:
+                        self.training.add_text(name, text)
 
     def survey_pdf(self, path, relative_to = None):
         filepath = str(path.relative_to(relative_to) if relative_to else path)
@@ -314,6 +451,9 @@ class FontSurvey:
             lines.append(f'{len(self.failed)} file(s) could not be read:')
             lines.extend(f'    {f}: {e}' for f, e in self.failed)
 
+        if self.training:
+            lines.append(self.training.get_report())
+
         return '\n'.join(lines)
 
 
@@ -337,6 +477,22 @@ def get_arg_parser():
     parser.add_argument('-mw', '--max-words', dest = 'max_words', \
                         action = 'store', type = int, default = 100, \
                         help = 'distinct words to keep per font (default 100)')
+    parser.add_argument('-tf', '--training-font', dest = 'training_fonts', \
+                        action = 'append', default = None, \
+                        metavar = 'LABEL=REGEX', \
+                        help = 'a class of fonts that needs decoding, named '
+                               'by a regexp matched anywhere in the font name, '
+                               'case insensitively (-tf nirmala="nirmala\\s*ui"). '
+                               'Every run of text drawn in a matching font is '
+                               'written as one line of LABEL.txt in '
+                               '--training-dir; text in every other font goes '
+                               'to not_required.txt. Repeatable, first match '
+                               'wins')
+    parser.add_argument('-td', '--training-dir', dest = 'training_dir', \
+                        action = 'store', default = None, \
+                        help = 'directory to write the per-class training '
+                               'files into (default training_data when '
+                               '--training-font is given)')
     parser.add_argument('-o', '--output-file', dest = 'output_file', \
                         action = 'store', default = None, \
                         help = 'write the report here instead of stdout')
@@ -363,11 +519,25 @@ if __name__ == '__main__':
         stream   = codecs.open(args.logfile, 'w', encoding = 'utf8') \
                        if args.logfile else None)
 
-    survey = FontSurvey(max_words = args.max_words)
+    try:
+        label_res = parse_training_fonts(args.training_fonts)
+    except ValueError as e:
+        raise SystemExit(f'error: {e}')
+
+    if args.training_dir and not label_res:
+        raise SystemExit('error: --training-dir needs at least one '
+                         '--training-font to say which fonts need decoding')
+
+    training = TrainingWriter(args.training_dir or 'training_data', label_res) \
+                   if label_res else None
+    survey   = FontSurvey(max_words = args.max_words, training = training)
     try:
         survey.survey(args.input_paths, recursive = args.recursive)
     except ValueError as e:
         raise SystemExit(f'error: {e}')
+    finally:
+        if training:
+            training.close()
 
     report = survey.get_report()
     if args.output_file:
