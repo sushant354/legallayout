@@ -14,7 +14,10 @@ machinelearning/: -tf/--training-font names a class of fonts needing a
 decoder by regexp and every run of text drawn in a font matching it is
 written, one sample per line, to <label>.txt in -td/--training-dir;
 -nf/--not-required-font names the fonts needing no decoder, which make up
-not_required.txt. Text drawn in a font matched by neither is dropped.
+not_required.txt. Text drawn in a font matched by neither is dropped. The
+runs of one font are stitched together in drawing order until a sample is
+-tw/--training-words long, one line of a pdf being far too little evidence
+to classify an encoding from.
 
     python -m source.FontSurvey -i pdfs/ -r -td training_data \\
         -tf nirmala='nirmala\\s*ui' -tf krutidev='kruti\\s*dev' \\
@@ -73,20 +76,34 @@ class TrainingWriter:
     classifier the exact opposite of the truth. The dropped fonts are
     reported so the regexps can be widened to cover them.
 
-    One line is one sample: a run of consecutive same-font text on one line
-    of the pdf. Newlines can therefore never appear inside a sample.
+    One line is one sample and one sample is min_words words of text drawn in
+    one font: a single line of a pdf is far too little evidence to classify
+    an encoding from, so the runs of a font are stitched together in the
+    order they are drawn until the sample is that long and only then written
+    out. Newlines can never appear inside a sample. Stitching stops at the
+    end of each document, so a sample never mixes two pdfs, and whatever a
+    document ends with is written out short rather than dropped.
     """
 
     NOT_REQUIRED = 'not_required'
     # the label is used as a filename, so keep it to something that is one
     LABEL_RE     = re.compile(r'^[A-Za-z0-9_-]+$')
+    # words per sample. enough to carry a distribution of words and phrases,
+    # while still cutting a page of one font into several samples
+    MIN_WORDS    = 50
 
-    def __init__(self, outdir, label_res):
+    def __init__(self, outdir, label_res, min_words = MIN_WORDS):
         self.outdir    = Path(outdir)
         self.label_res = label_res
+        self.min_words = min_words
         self.files     = {}
         self.counts    = {label: 0 for label, _re in label_res}
+        self.words     = {label: 0 for label, _re in label_res}
         self.fonts     = {}
+        # text of a font seen so far but not yet long enough to be a sample,
+        # per font rather than per class, so two fonts of one class drawn
+        # alternately do not interleave inside a sample
+        self.pending   = {}
         # fonts no regexp claimed, and how much text was dropped with them
         self.dropped   = {}
         self.logger    = logging.getLogger('fontsurvey.training')
@@ -112,11 +129,17 @@ class TrainingWriter:
             self.files[label] = codecs.open(str(path), 'w', encoding = 'utf8')
         return self.files[label]
 
+    def write_sample(self, label, fontname, words):
+        self.get_file(label).write(' '.join(words) + '\n')
+        self.counts[label] += 1
+        self.words[label]  += len(words)
+        self.fonts.setdefault(label, set()).add(fontname)
+
     def add_text(self, fontname, text):
         # a sample is a line, so nothing inside it may be one; the source
         # spans do not contain newlines, but a pdf can draw anything
-        sample = ' '.join(text.split())
-        if not any(c.isalnum() for c in sample):
+        words = text.split()
+        if not any(c.isalnum() for c in ''.join(words)):
             # rules, bullets and stray punctuation carry no signal at all
             return
 
@@ -125,11 +148,29 @@ class TrainingWriter:
             self.dropped[fontname] = self.dropped.get(fontname, 0) + 1
             return
 
-        self.get_file(label).write(sample + '\n')
-        self.counts[label] += 1
-        self.fonts.setdefault(label, set()).add(fontname)
+        pending = self.pending.setdefault(fontname, [])
+        pending.extend(words)
+        if len(pending) >= self.min_words:
+            self.write_sample(label, fontname, pending)
+            self.pending[fontname] = []
+
+    def flush(self):
+        """End of a document: write out every part-built sample as it is.
+
+        A pdf that draws a font only a few times is exactly the pdf whose
+        text is most worth having, so a short sample is written rather than
+        held back or discarded.
+        """
+        for fontname, pending in self.pending.items():
+            if not pending:
+                continue
+            label = self.get_label(fontname)
+            if label is not None:
+                self.write_sample(label, fontname, pending)
+        self.pending = {}
 
     def close(self):
+        self.flush()
         for f in self.files.values():
             f.close()
         self.files = {}
@@ -139,7 +180,7 @@ class TrainingWriter:
             return []
 
         total = sum(self.dropped.values())
-        lines = ['', f'dropped: {total} sample(s) in {len(self.dropped)} '
+        lines = ['', f'dropped: {total} text run(s) in {len(self.dropped)} '
                      f'font(s) matched by neither --training-font nor '
                      f'--not-required-font']
         ranked = sorted(self.dropped.items(), key = lambda kv: (-kv[1], kv[0]))
@@ -157,10 +198,17 @@ class TrainingWriter:
             if len(fonts) > 10:
                 shown += f', +{len(fonts) - 10} more'
             lines.append('')
+            count = self.counts[label]
+            words = self.words[label]
             lines.append(f'{label}.txt')
-            lines.append(f'    samples : {self.counts[label]}')
+            lines.append(f'    samples : {count}')
+            # a mean well under --training-words means the class is made of
+            # documents that each draw the font only a little, so most of its
+            # samples are end-of-document leftovers rather than full ones
+            lines.append(f'    words   : {words}' + \
+                         (f' ({words / count:.1f} per sample)' if count else ''))
             lines.append(f'    fonts   : {len(fonts)} ({shown or "none"})')
-            if not self.counts[label]:
+            if not count:
                 lines.append('    | (no text matched - check the regexp)')
 
         lines.extend(self.get_dropped_report())
@@ -419,6 +467,11 @@ class FontSurvey:
                     self.logger.warning(\
                         f'{filepath} page {page.number + 1}: {e}')
 
+        if self.training:
+            # samples are stitched across the pages of a document but never
+            # across two of them
+            self.training.flush()
+
     def survey(self, inpaths, recursive = False):
         paths = self.get_pdf_paths(inpaths, recursive)
         self.logger.info(f'surveying {len(paths)} pdf file(s)')
@@ -544,6 +597,16 @@ def get_arg_parser():
                                'goes to not_required.txt. Repeatable. Text '
                                'drawn in a font matched by neither --training-'
                                'font nor this is dropped, not guessed at')
+    parser.add_argument('-tw', '--training-words', dest = 'training_words', \
+                        action = 'store', type = int, \
+                        default = TrainingWriter.MIN_WORDS, \
+                        help = f'words per training sample (default '
+                               f'{TrainingWriter.MIN_WORDS}): the runs of text '
+                               f'drawn in one font are stitched together in '
+                               f'drawing order until the sample is this long. '
+                               f'1 writes every run as its own sample, which '
+                               f'is usually far too little text to classify '
+                               f'an encoding from')
     parser.add_argument('-td', '--training-dir', dest = 'training_dir', \
                         action = 'store', default = None, \
                         help = 'directory to write the per-class training '
@@ -593,7 +656,11 @@ if __name__ == '__main__':
         raise SystemExit('error: --not-required-font needs at least one '
                          '--training-font to say which fonts need decoding')
 
-    training = TrainingWriter(args.training_dir or 'training_data', label_res) \
+    if args.training_words < 1:
+        raise SystemExit('error: --training-words must be at least 1')
+
+    training = TrainingWriter(args.training_dir or 'training_data', label_res, \
+                              min_words = args.training_words) \
                    if label_res else None
     survey   = FontSurvey(max_words = args.max_words, training = training)
     try:

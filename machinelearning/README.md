@@ -17,8 +17,7 @@ learnable, and this is the pipeline that learns it.
 regexps, matched (anywhere, case insensitively) against the font name:
 
 - `-tf/--training-font LABEL=REGEX` - a class of fonts that **needs** a
-  decoder. Every run of text drawn in a matching font becomes one line of
-  `<label>.txt`.
+  decoder. The text drawn in a matching font is written to `<label>.txt`.
 - `-nf/--not-required-font REGEX` - fonts that need **no** decoder. Their
   text is the negative class, `not_required.txt`. Repeat the option to list
   the families a few at a time.
@@ -28,10 +27,19 @@ python -m source.FontSurvey -i pdfs/ -r -td training_data \
     -tf nirmala='nirmala\s*ui' \
     -tf arialuni='arial\s*unicode' \
     -tf krutidev='kruti\s*dev' \
-    -tf chanakya='chanakya|TT\d+t\d+' \
+    -tf chanakya='chanakya|TT[0-9A-F]+t[0-9]+' \
+    -tf type3='^type3' \
     -nf 'times|arial|calibri|cambria|courier|helvetica' \
     -nf 'liberation|dejavu|nimbus|century|tahoma'
 ```
+
+`type3` is a class like any other: the Type3 fonts of a distilled gazette
+carry a broken `ToUnicode` map that `ToUnicodeFixer.fix_type3_fonts` repairs,
+and their text extracts as devanagari with holes and stray latin in it
+(`रा% &पित क( अनुमित`) - as learnable a signature as latin gibberish is.
+pymupdf names an unnamed Type3 font after its xref (`Type3 (314 0 R)`), which
+differs per file, so the regexp has to be the bare `^type3` and never the
+whole name.
 
 Text drawn in a font matched by neither is **dropped**. That is the whole
 point of naming both sides: a font that in fact needs decoding but is swept
@@ -51,6 +59,30 @@ dropped: 66843 sample(s) in 37 font(s) matched by neither --training-font nor --
 
 The survey's own report (`-o`) lists every font with a sample of the words
 drawn in it - read it first and write the regexps from it.
+
+### Sample size
+
+One line of the file is one sample, and one sample is `-tw/--training-words`
+words (default 50) of text drawn in one font. A single line of a pdf is about
+six words, which is nowhere near enough to tell one encoding from another, so
+the runs of a font are stitched together in the order they are drawn until
+the sample is that long. Stitching stops at the end of each document, so a
+sample never mixes two pdfs, and the tail end of a document is written out
+short rather than dropped - a pdf that draws a font only a few times is
+exactly the pdf whose text is most worth having.
+
+It costs roughly seven eighths of the sample count and is worth it. On
+`test/test_pdfs`, the same five class problem:
+
+| sample          | samples | CA     | macro F1 |
+|-----------------|---------|--------|----------|
+| one run (`-tw 1`) | 6680  | 0.9379 | 0.9044   |
+| 50 words        | 869     | 0.9931 | 0.9690   |
+
+The report prints the mean words per sample per class. A mean well under
+`-tw` means that class is made of documents that each draw the font only a
+little, so most of its samples are end-of-document leftovers - more pdfs, not
+a bigger `-tw`, is what fixes that.
 
 Bootstrapping a class from fonts whose names *do* identify them (Nirmala UI,
 Kruti Dev, Times) is the point: once trained, the model labels the text of the
@@ -104,9 +136,10 @@ classifier   = FontClassifier('fontmodel.pkl')
 label, prob  = classifier.classify(text_drawn_in_one_font)
 ```
 
-A single short line carries little evidence, so classify as much text of one
-font as is available at once (`-w` treats a whole file as one sample) rather
-than line by line.
+Hand it about as much text as a training sample holds - `-tw` words of one
+font, 50 by default - or more. A single short line carries little evidence,
+and it is not what the model was trained on; `-w` treats a whole file as one
+sample.
 
 ## Files
 
