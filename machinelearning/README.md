@@ -13,29 +13,49 @@ learnable, and this is the pipeline that learns it.
 
 ## 1. Build the corpus
 
-`source/FontSurvey.py` writes it. Each `-tf/--training-font` gives a class a
-name and a regexp matched (anywhere, case insensitively) against the font
-name; every run of text drawn in a matching font becomes one line of
-`<label>.txt`. Text in every other font goes to `not_required.txt` - the
-negative class, the fonts that need no decoding at all.
+`source/FontSurvey.py` writes it. Both sides of the corpus are named by
+regexps, matched (anywhere, case insensitively) against the font name:
+
+- `-tf/--training-font LABEL=REGEX` - a class of fonts that **needs** a
+  decoder. Every run of text drawn in a matching font becomes one line of
+  `<label>.txt`.
+- `-nf/--not-required-font REGEX` - fonts that need **no** decoder. Their
+  text is the negative class, `not_required.txt`. Repeat the option to list
+  the families a few at a time.
 
 ```bash
 python -m source.FontSurvey -i pdfs/ -r -td training_data \
     -tf nirmala='nirmala\s*ui' \
     -tf arialuni='arial\s*unicode' \
     -tf krutidev='kruti\s*dev' \
-    -tf chanakya='chanakya|TT\d+t\d+'
+    -tf chanakya='chanakya|TT\d+t\d+' \
+    -nf 'times|arial|calibri|cambria|courier|helvetica' \
+    -nf 'liberation|dejavu|nimbus|century|tahoma'
 ```
 
-The classes are only as clean as the regexps: any font that needs decoding
-but is not named by a `-tf` lands in `not_required.txt` and teaches the model
-the opposite of the truth. The survey report (`-o`) lists every font and a
-sample of its words for exactly this - read it first and write the regexps
-from it.
+Text drawn in a font matched by neither is **dropped**. That is the whole
+point of naming both sides: a font that in fact needs decoding but is swept
+into the negative class by default teaches the model the exact opposite of
+the truth, and there is no way to tell from the font name alone which side an
+unnamed font belongs on - that is the problem this model exists to solve.
+
+The report lists every dropped font with how many samples went with it, so it
+is the worklist for widening the regexps:
+
+```
+dropped: 66843 sample(s) in 37 font(s) matched by neither --training-font nor --not-required-font
+    CIDFont+F1: 57622
+    TAUElangoPanchali: 746
+    Devnagari-ChanakyaNormal: 14
+```
+
+The survey's own report (`-o`) lists every font with a sample of the words
+drawn in it - read it first and write the regexps from it.
 
 Bootstrapping a class from fonts whose names *do* identify them (Nirmala UI,
-Kruti Dev) is the point: once trained, the model labels the text of the fonts
-whose names identify nothing.
+Kruti Dev, Times) is the point: once trained, the model labels the text of the
+fonts whose names identify nothing - which is exactly the text `-tf`/`-nf`
+could not have labelled either, and why it was dropped rather than guessed at.
 
 ## 2. Cross validate and train
 

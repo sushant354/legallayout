@@ -10,13 +10,15 @@ sample alone.
     python -m source.FontSurvey -i "pdfs/**/sebi*.pdf"
 
 It also doubles as the corpus builder for the font classifier in
-machinelearning/: -tf/--training-font names a class of fonts by regexp and
-every run of text drawn in a font matching it is written, one sample per
-line, to <label>.txt in -td/--training-dir; text in every other font goes to
-not_required.txt as the negative class.
+machinelearning/: -tf/--training-font names a class of fonts needing a
+decoder by regexp and every run of text drawn in a font matching it is
+written, one sample per line, to <label>.txt in -td/--training-dir;
+-nf/--not-required-font names the fonts needing no decoder, which make up
+not_required.txt. Text drawn in a font matched by neither is dropped.
 
     python -m source.FontSurvey -i pdfs/ -r -td training_data \\
-        -tf nirmala='nirmala\\s*ui' -tf krutidev='kruti\\s*dev'
+        -tf nirmala='nirmala\\s*ui' -tf krutidev='kruti\\s*dev' \\
+        -nf 'times|arial|calibri'
 """
 
 import os
@@ -56,14 +58,20 @@ def get_words(text):
 class TrainingWriter:
     """Writes the text drawn in each font into a per-class training file.
 
-    A class is named by a regexp matched against the font name the same way
-    -fc/--font-conv matches its font names - anywhere in the name, case
+    Every class is named by a regexp matched against the font name the same
+    way -fc/--font-conv matches its font names - anywhere in the name, case
     insensitively - so one 'nirmala\\s*ui' catches 'NirmalaUI', 'Nirmala UI'
-    and 'Nirmala UI,Bold' alike. The first class whose regexp matches wins,
-    so the classes are tried in the order they were given on the command
-    line. Text drawn in a font no regexp matches is the negative class and
-    goes to not_required.txt - a font that needs no decoding (Times, Arial)
-    draws real words, and that is exactly the contrast the classifier learns.
+    and 'Nirmala UI,Bold' alike. The first regexp that matches wins, and the
+    classes needing a decoder (-tf) are tried before the ones needing none
+    (-nf), so a font matching both is treated as needing one.
+
+    Both sides of the corpus are named explicitly: -tf says which fonts need
+    decoding, -nf says which need none and make up not_required.txt. Text
+    drawn in a font that matches neither is *dropped*, because there is no
+    way to tell which side it belongs on - and a font that in fact needs
+    decoding, silently swept into the negative class, would teach the
+    classifier the exact opposite of the truth. The dropped fonts are
+    reported so the regexps can be widened to cover them.
 
     One line is one sample: a run of consecutive same-font text on one line
     of the pdf. Newlines can therefore never appear inside a sample.
@@ -78,8 +86,9 @@ class TrainingWriter:
         self.label_res = label_res
         self.files     = {}
         self.counts    = {label: 0 for label, _re in label_res}
-        self.counts[self.NOT_REQUIRED] = 0
         self.fonts     = {}
+        # fonts no regexp claimed, and how much text was dropped with them
+        self.dropped   = {}
         self.logger    = logging.getLogger('fontsurvey.training')
         self.outdir.mkdir(parents = True, exist_ok = True)
 
@@ -91,10 +100,11 @@ class TrainingWriter:
         return False
 
     def get_label(self, fontname):
+        """The class this font belongs to, or None to drop its text."""
         for label, regexp in self.label_res:
             if regexp.search(fontname or ''):
                 return label
-        return self.NOT_REQUIRED
+        return None
 
     def get_file(self, label):
         if label not in self.files:
@@ -111,6 +121,10 @@ class TrainingWriter:
             return
 
         label = self.get_label(fontname)
+        if label is None:
+            self.dropped[fontname] = self.dropped.get(fontname, 0) + 1
+            return
+
         self.get_file(label).write(sample + '\n')
         self.counts[label] += 1
         self.fonts.setdefault(label, set()).add(fontname)
@@ -120,9 +134,24 @@ class TrainingWriter:
             f.close()
         self.files = {}
 
+    def get_dropped_report(self, max_fonts = 25):
+        if not self.dropped:
+            return []
+
+        total = sum(self.dropped.values())
+        lines = ['', f'dropped: {total} sample(s) in {len(self.dropped)} '
+                     f'font(s) matched by neither --training-font nor '
+                     f'--not-required-font']
+        ranked = sorted(self.dropped.items(), key = lambda kv: (-kv[1], kv[0]))
+        for fontname, count in ranked[:max_fonts]:
+            lines.append(f'    {fontname or "(unnamed)"}: {count}')
+        if len(ranked) > max_fonts:
+            lines.append(f'    +{len(ranked) - max_fonts} more font(s)')
+        return lines
+
     def get_report(self):
         lines = ['', '=' * 78, f'training corpus in {self.outdir}', '=' * 78]
-        for label in list(self.counts.keys()):
+        for label in self.counts:
             fonts = sorted(self.fonts.get(label, ()))
             shown = ', '.join(fonts[:10])
             if len(fonts) > 10:
@@ -133,11 +162,25 @@ class TrainingWriter:
             lines.append(f'    fonts   : {len(fonts)} ({shown or "none"})')
             if not self.counts[label]:
                 lines.append('    | (no text matched - check the regexp)')
+
+        lines.extend(self.get_dropped_report())
         return '\n'.join(lines)
 
 
-def parse_training_fonts(specs):
-    """'-tf nirmala=nirmala\\s*ui' -> [('nirmala', compiled regexp)]."""
+def compile_font_re(label, pattern):
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error as e:
+        raise ValueError(f'bad regex for {label}: {pattern}: {e}')
+
+
+def parse_training_fonts(specs, not_required_specs = None):
+    """The classes to write, in the order a font name is tried against them.
+
+    '-tf nirmala=nirmala\\s*ui -nf times' -> [('nirmala', re), ('not_required',
+    re)]. Every -nf regexp feeds the one not_required class, so the fonts
+    needing no decoder can be listed a family at a time.
+    """
     label_res = []
     for spec in specs or []:
         label, sep, pattern = spec.partition('=')
@@ -149,14 +192,21 @@ def parse_training_fonts(specs):
                 f'training label must be a plain filename [A-Za-z0-9_-]: {label}')
         if label == TrainingWriter.NOT_REQUIRED:
             raise ValueError(\
-                f'{TrainingWriter.NOT_REQUIRED} is the name of the negative '
-                f'class, it cannot also be a font class')
+                f'{TrainingWriter.NOT_REQUIRED} is the class of the fonts '
+                f'that need no decoding - name those with '
+                f'--not-required-font instead')
         if label in [l for l, _r in label_res]:
             raise ValueError(f'duplicate training label: {label}')
-        try:
-            label_res.append((label, re.compile(pattern, re.IGNORECASE)))
-        except re.error as e:
-            raise ValueError(f'bad regex for {label}: {pattern}: {e}')
+        label_res.append((label, compile_font_re(label, pattern)))
+
+    # the fonts needing a decoder are matched first, so a font caught by both
+    # a -tf and a -nf pattern is decoded rather than used as a counterexample
+    for pattern in not_required_specs or []:
+        pattern = pattern.strip()
+        if not pattern:
+            raise ValueError('--not-required-font needs a regex')
+        label_res.append((TrainingWriter.NOT_REQUIRED, \
+                          compile_font_re(TrainingWriter.NOT_REQUIRED, pattern)))
     return label_res
 
 
@@ -485,9 +535,15 @@ def get_arg_parser():
                                'case insensitively (-tf nirmala="nirmala\\s*ui"). '
                                'Every run of text drawn in a matching font is '
                                'written as one line of LABEL.txt in '
-                               '--training-dir; text in every other font goes '
-                               'to not_required.txt. Repeatable, first match '
-                               'wins')
+                               '--training-dir. Repeatable, first match wins')
+    parser.add_argument('-nf', '--not-required-font', \
+                        dest = 'not_required_fonts', action = 'append', \
+                        default = None, metavar = 'REGEX', \
+                        help = 'fonts that need no decoding, matched the same '
+                               'way; their text is the negative class and '
+                               'goes to not_required.txt. Repeatable. Text '
+                               'drawn in a font matched by neither --training-'
+                               'font nor this is dropped, not guessed at')
     parser.add_argument('-td', '--training-dir', dest = 'training_dir', \
                         action = 'store', default = None, \
                         help = 'directory to write the per-class training '
@@ -520,12 +576,21 @@ if __name__ == '__main__':
                        if args.logfile else None)
 
     try:
-        label_res = parse_training_fonts(args.training_fonts)
+        label_res = parse_training_fonts(args.training_fonts, \
+                                         args.not_required_fonts)
     except ValueError as e:
         raise SystemExit(f'error: {e}')
 
     if args.training_dir and not label_res:
         raise SystemExit('error: --training-dir needs at least one '
+                         '--training-font to say which fonts need decoding')
+    if args.training_fonts and not args.not_required_fonts:
+        raise SystemExit('error: --training-font needs at least one '
+                         '--not-required-font to say which fonts need no '
+                         'decoding - without them the corpus has no negative '
+                         'class to learn against')
+    if args.not_required_fonts and not args.training_fonts:
+        raise SystemExit('error: --not-required-font needs at least one '
                          '--training-font to say which fonts need decoding')
 
     training = TrainingWriter(args.training_dir or 'training_data', label_res) \
