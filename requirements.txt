@@ -15,3 +15,4 @@ iiif-prezi3
 Pillow
 paddlepaddle==3.1.1
 paddleocr==3.7.0
+Orange3

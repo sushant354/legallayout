@@ -7,6 +7,7 @@ import re
 import codecs
 import logging
 import shutil
+import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool
 from .Page import Page, SectionState
 from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens
@@ -18,12 +19,93 @@ from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
 
+from contextlib import contextmanager
+
+try:
+    from indic2unicode.fontconv import FontConv
+    INDIC2UNICODE_AVAILABLE = True
+except ImportError:
+    INDIC2UNICODE_AVAILABLE = False
+
+try:
+    from indic2unicode.tools.fix_tounicode import ToUnicodeFixer, get_font_converter
+    TOUNICODE_FIX_AVAILABLE = True
+except ImportError:
+    TOUNICODE_FIX_AVAILABLE = False
+
+try:
+    from camelot import handlers as camelot_handlers
+    from camelot.utils import get_image_char_and_text_objects
+    # camelot offers no hook of its own, so the conversion is installed by
+    # wrapping the one function all of its layouts come from
+    CAMELOT_LAYOUT_AVAILABLE = hasattr(camelot_handlers, "get_page_layout")
+except ImportError:
+    CAMELOT_LAYOUT_AVAILABLE = False
+
+
+# --- accessors that let one conversion run over both kinds of char it has to
+# --- handle: the <text> elements of the xml, and camelot's own LTChar objects
+
+def get_xml_text_font(text):
+    return text.attrib.get("font")
+
+
+def get_xml_text_text(text):
+    return text.text
+
+
+def set_xml_text_text(text, value):
+    text.text = value
+
+
+def get_lt_char_font(char):
+    # LTAnno, the spaces and newlines pdfminer inserts itself, carries no font
+    return getattr(char, "fontname", None)
+
+
+def get_lt_char_text(char):
+    return char.get_text()
+
+
+def set_lt_char_text(char, value):
+    char._text = value
+
+
+XML_TEXT_ACCESSORS = (get_xml_text_font, get_xml_text_text, set_xml_text_text)
+LT_CHAR_ACCESSORS = (get_lt_char_font, get_lt_char_text, set_lt_char_text)
+
+# --- names a legacy indic font is known by in a pdf, when they are not the
+# --- name of its indic2unicode converter: Kruti Dev is written with a space
+# --- (and usually a face number after it, 'Kruti Dev 010'), so the converter
+# --- key 'krutidev' never matches the name the pdf carries
+INDIC_FONT_NAME_ALIASES = {
+    'krutidev': [r'kruti[\s_-]*dev'],
+}
+
+# --- how much of a space's own width has to sit inside the glyph next to it
+# --- before it counts as painted over rather than as a real word break, see
+# --- Main.drop_overlapping_spaces(). A space that is genuinely there does
+# --- overlap its neighbour a little - kerning pulls a letter back over the
+# --- space before it, most of a space's width for a '.' followed by a capital
+# --- - so nothing short of the whole of it being covered says anything. That
+# --- is what an overprinted space looks like anyway: it sits entirely within
+# --- the glyph drawn over it, having advanced the pen by nothing at all
+SPACE_OVERLAP_RATIO = 0.95
+
+# --- when the two glyphs on either side of a space overlap each other by this
+# --- much of their own width, the text itself is drawn overlapping - rotated
+# --- watermarks come out of pdfminer with every char's bbox covering the next
+# --- one's - and no conclusion can be drawn from a space overlapping too
+NEIGHBOUR_OVERLAP_RATIO = 0.1
+
+
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
                  table_extract, public_base_url=None, server_root=None,
-                 rights=None, provider_id=None, provider_name=None, attribution=None,
-                 figure_text=False, ocr_engine="tesseract"): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 rights=None, provider_id=None, provider_name=None, 
+                 attribution=None, figure_text=False, font_conv_map=None,  
+                 ocr_engine="tesseract"): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
             raise ValueError(
@@ -110,7 +192,535 @@ class Main:
         # bottom of one page can be picked up at the top of the next (set per page in the
         # processing loops, reset here so it never leaks across documents/runs).
         self.pending_continuation = None
+        # Legacy (non unicode) indic font handling, see convert_indic_fonts()
+        self.font_conv = self.get_font_conv()
+        # mappings given by the caller come first, so that a font can be pointed at
+        # a converter its name does not name, or at a different one than it does
+        self.font_conv_map_res = self.get_font_conv_map_res(font_conv_map)
+        self.indic_font_res = self.font_conv_map_res + self.get_indic_font_res()
+        # pdf font name -> font key in FontConv.converters (None if not a legacy font)
+        self.indic_font_keys = {}
+        # (font key, text drawn in that font) -> converted unicode text
+        self.indic_text_cache = {}
         # self.fontmapper.extract_fonts()
+
+    # --- func to get the indic2unicode font convertor, None if unavailable ---
+    def get_font_conv(self):
+        if not INDIC2UNICODE_AVAILABLE:
+            self.logger.info(
+                "indic2unicode is not installed, conversion of text in legacy "
+                "indic fonts is disabled"
+            )
+            return None
+
+        try:
+            return FontConv()
+        except Exception as e:
+            self.logger.warning(
+                "Could not initialize indic2unicode FontConv, conversion of "
+                "text in legacy indic fonts is disabled: %s", e
+            )
+            return None
+
+    # --- func to get the regexps for the font mappings the caller supplied ---
+    def get_font_conv_map_res(self, font_conv_map):
+        """Turn -fc/--font-conv 'FONT=CONVERTER' mappings into matching regexps.
+
+        Legacy indic fonts are usually recognisable by name, but a subsetted pdf
+        can name one anything at all (a gazette in the chanakya encoding whose
+        font is called 'TT572t00', with no ToUnicode map and latin glyph names,
+        is indistinguishable from a genuine latin font), so the caller gets to
+        say which converter such a font needs.
+        """
+        if not font_conv_map:
+            return []
+
+        if isinstance(font_conv_map, str):
+            font_conv_map = [font_conv_map]
+
+        if self.font_conv is None:
+            self.logger.warning(
+                "[!] indic2unicode is not installed, ignoring the font conversion "
+                "mapping(s): %s", ', '.join(font_conv_map)
+            )
+            return []
+
+        supported = sorted(self.font_conv.converters)
+        font_res = []
+
+        for mapping in font_conv_map:
+            # a single option can carry several comma separated mappings
+            for entry in mapping.split(','):
+                entry = entry.strip()
+
+                if not entry:
+                    continue
+
+                font_name, separator, font_key = entry.partition('=')
+                font_name = font_name.strip()
+                font_key = font_key.strip().lower()
+
+                if not separator or not font_name or not font_key:
+                    raise ValueError(
+                        f"font conversion mapping '{entry}' is not of the form "
+                        f"FONT=CONVERTER (e.g. TT572t00=chanakya)"
+                    )
+
+                if font_key not in self.font_conv.converters:
+                    raise ValueError(
+                        f"font conversion mapping '{entry}' asks for the converter "
+                        f"'{font_key}', which does not exist. The supported ones are: "
+                        f"{', '.join(supported)}"
+                    )
+
+                self.logger.info(
+                    "Text in font %s will be converted to unicode using %s, as asked for",
+                    font_name, font_key
+                )
+
+                font_res.append(
+                    (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
+                )
+
+        return font_res
+
+    # --- func to repair the broken ToUnicode maps a pdf's fonts may carry ---
+    def repair_tounicode(self):
+        """Rewrites the broken ToUnicode maps of the pdf into a repaired copy.
+
+        A gazette set in Arial Unicode MS or in Nirmala UI carries a ToUnicode
+        map that was built by pairing the glyphs of a run with the characters
+        of that run one by one, which devanagari shaping makes slip: निर्माण
+        is extracted as जिमावण. The glyphs are drawn correctly, so only the
+        extraction is wrong and the map can be built again from what the font
+        says about its own glyphs - the characters its cmap draws, the names
+        it keeps for them and the rules its GSUB shapes them with - see
+        indic2unicode/tools/fix_tounicode.py.
+
+        The repair is done before anything reads the pdf, and only for the
+        fonts that are known to carry a broken map, so pdfminer and camelot
+        both get the characters that are really there. What they get is still
+        in the order in which the glyphs are drawn, so the text of a repaired
+        font is pointed at the converter that only reorders it rather than at
+        the one named after the font, which is for an unrepaired pdf.
+        """
+        if not TOUNICODE_FIX_AVAILABLE:
+            self.logger.debug(
+                "indic2unicode's ToUnicodeFixer is not available, the ToUnicode "
+                "maps of %s are left as they are", self.pdf_path
+            )
+            return
+
+        if not os.path.exists(self.pdf_path) or not self.is_pdf_file(self.pdf_path):
+            return
+
+        try:
+            fixer = ToUnicodeFixer()
+            doc = pymupdf.open(self.pdf_path)
+            num = fixer.fix_document(doc)
+
+            if not num:
+                doc.close()
+                return
+
+            # the repaired copy keeps the name of the document, everything
+            # that is written out is named after it
+            fixed_dir = os.path.join(self.get_path_cache_pdf(), 'tounicode')
+            os.makedirs(fixed_dir, exist_ok = True)
+            fixed_path = os.path.join(fixed_dir, os.path.basename(self.pdf_path))
+            doc.save(fixed_path)
+            doc.close()
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not repair the ToUnicode maps of %s, its text is "
+                "extracted as it is: %s", self.pdf_path, e
+            )
+            return
+
+        self.logger.info(
+            "Repaired %d glyphs of the ToUnicode maps of the font(s) %s, "
+            "parsing %s instead", num, ', '.join(sorted(fixer.fixed_fonts)),
+            fixed_path
+        )
+
+        self.pdf_path = fixed_path
+        # the fonts of the repaired pdf are read from the repaired copy too
+        if self.fontmapper is not None:
+            self.fontmapper.pdf_path = fixed_path
+
+        self.indic_font_res = self.font_conv_map_res + \
+                              self.get_repaired_font_res(fixer.fixed_fonts) + \
+                              self.get_indic_font_res()
+        # a font may already have been looked up while the map was broken
+        self.indic_font_keys = {}
+        self.indic_text_cache = {}
+
+    # --- func to get the regexps for the fonts whose map was repaired ---
+    def get_repaired_font_res(self, fixed_fonts):
+        if self.font_conv is None:
+            return []
+
+        font_res = []
+
+        for font_name in sorted(fixed_fonts):
+            # the name is the one the pdf carries, which is not always the
+            # spelling the converter is listed under: Arial Unicode MS is
+            # embedded as ArialUnicodeMS too and Nirmala UI carries its bold
+            # as a font of its own named Nirmala UI,Bold, so the lookup is by
+            # a spelling that the separators, the style and the case do not
+            # change
+            font_key = get_font_converter(font_name)
+
+            if font_key is None or font_key not in self.font_conv.converters:
+                self.logger.warning(
+                    "[!] The ToUnicode map of %s was repaired but there is no "
+                    "converter to put its text in the order unicode wants, so "
+                    "it stays in the order the glyphs are drawn in", font_name
+                )
+                continue
+
+            self.logger.info(
+                "Text in the repaired font %s will be reordered using %s",
+                font_name, font_key
+            )
+            font_res.append(
+                (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
+            )
+
+        return font_res
+
+    # --- func to get the regexps that match a pdf font to a legacy indic font ---
+    def get_indic_font_res(self):
+        if self.font_conv is None:
+            return []
+
+        font_res = []
+
+        for font_key in self.font_conv.converters:
+            patterns = [re.escape(font_key)]
+            # a font whose pdf name is not its converter's name (Kruti Dev)
+            patterns.extend(INDIC_FONT_NAME_ALIASES.get(font_key, []))
+
+            font_res.extend(
+                (re.compile('.*%s.*' % pattern, re.IGNORECASE), font_key)
+                for pattern in patterns
+            )
+
+        return font_res
+
+    # --- func to get the legacy indic font a pdf font name corresponds to ---
+    def get_indic_font_key(self, font_name):
+        if font_name in self.indic_font_keys:
+            return self.indic_font_keys[font_name]
+
+        font_key = None
+
+        for font_re, key in self.indic_font_res:
+            if font_re.search(font_name):
+                font_key = key
+                break
+
+        self.indic_font_keys[font_name] = font_key
+
+        if font_key:
+            self.logger.info(
+                "Text in font %s will be converted to unicode using %s",
+                font_name, font_key
+            )
+
+        return font_key
+
+    # --- func to convert text drawn in a legacy indic font into unicode ---
+    def indic_to_unicode(self, font_key, text):
+        cache_key = (font_key, text)
+
+        if cache_key in self.indic_text_cache:
+            return self.indic_text_cache[cache_key]
+
+        try:
+            converted = self.font_conv.to_unicode(font_key, text)
+        except Exception as e:
+            self.logger.warning(
+                "Failed to convert text [%s] in font %s to unicode: %s",
+                text, font_key, e
+            )
+            converted = text
+
+        if not isinstance(converted, str):
+            converted = text
+
+        self.indic_text_cache[cache_key] = converted
+
+        return converted
+
+    def drop_overlapping_spaces(self, pages):
+        """Removes spaces that the glyph next to them is drawn on top of.
+
+        A pdf can paint a space that never advances the pen, the following
+        glyph then being drawn back over it. That happens on devanagari text
+        in particular, where a conjunct is two glyphs and the space lands
+        between them. pdfminer has no way of telling such a space from a real
+        one and reports it as an ordinary space, which splits one word into
+        two everywhere downstream ('िभन् न' for 'िभन्न'). They are recognised
+        here by their coordinates - the space sits inside its neighbour's
+        bbox instead of beside it - and dropped from the xml before the indic
+        font conversion (which would otherwise convert a broken up conjunct)
+        and before any layout analysis, so that all the downstream consumers
+        of the xml see the text without knowing about overprinted spaces.
+        """
+        if not pages:
+            return
+
+        for page in pages:
+            try:
+                self.drop_overlapping_spaces_in_page(page)
+            except Exception as e:
+                self.logger.error(
+                    "Failed removal of overprinted spaces on page %s: %s",
+                    page.get("id"), e
+                )
+
+    def drop_overlapping_spaces_in_page(self, page):
+        for element in page.iter():
+            # a <text> element never has children of its own, so every one of
+            # them is grouped under exactly one parent and looked at just once
+            chars = [child for child in element if child.tag == 'text']
+
+            for char in self.get_overprinted_spaces(chars):
+                element.remove(char)
+
+    # --- func to pick out the spaces drawn over by a neighbouring glyph ---
+    def get_overprinted_spaces(self, chars):
+        overprinted = []
+
+        for idx, char in enumerate(chars):
+            if not self.is_space_char(char):
+                continue
+
+            space = self.get_char_x_range(char)
+
+            # the newlines pdfminer inserts itself carry no bbox, and a space
+            # of no width cannot be overlapped by anything in the first place
+            if space is None:
+                continue
+
+            # the nearest real glyph on either side, not simply the adjacent
+            # elements: a combining matra is emitted with a zero width bbox
+            # sitting on its base consonant and says nothing about spacing
+            previous = self.get_neighbour_x_range(chars, range(idx - 1, -1, -1))
+            following = self.get_neighbour_x_range(chars, range(idx + 1, len(chars)))
+
+            if self.is_overprinted_space(space, previous, following):
+                overprinted.append(char)
+
+        return overprinted
+
+    # --- func to tell a space painted over by its neighbour from a real one ---
+    def is_overprinted_space(self, space, previous, following):
+        if previous and following:
+            drawn_over = self.get_x_overlap(previous, following)
+
+            narrowest = min(
+                previous[1] - previous[0],
+                following[1] - following[0]
+            )
+
+            if drawn_over > NEIGHBOUR_OVERLAP_RATIO * narrowest:
+                return False
+
+        overlap = max(
+            self.get_x_overlap(space, previous),
+            self.get_x_overlap(space, following)
+        )
+
+        return overlap > SPACE_OVERLAP_RATIO * (space[1] - space[0])
+
+    # --- func to walk to the nearest glyph a space can be compared against ---
+    def get_neighbour_x_range(self, chars, indices):
+        for idx in indices:
+            char = chars[idx]
+
+            if self.is_space_char(char):
+                continue
+
+            x_range = self.get_char_x_range(char)
+
+            if x_range is not None:
+                return x_range
+
+        return None
+
+    @staticmethod
+    def is_space_char(char):
+        return bool(char.text) and not char.text.strip()
+
+    @staticmethod
+    def get_char_x_range(char):
+        bbox = char.attrib.get("bbox")
+
+        if not bbox:
+            return None
+
+        try:
+            x0, _, x1, _ = map(float, bbox.split(","))
+        except (ValueError, TypeError):
+            return None
+
+        return (x0, x1) if x1 > x0 else None
+
+    @staticmethod
+    def get_x_overlap(x_range, other):
+        if x_range is None or other is None:
+            return 0.0
+
+        return max(0.0, min(x_range[1], other[1]) - max(x_range[0], other[0]))
+
+    def convert_indic_fonts(self, pages):
+        """Rewrites text drawn in legacy indic fonts into unicode, in place.
+
+        Legacy fonts like Chanakya/Kruti Dev (the Gazette of India) or
+        Aryan2/Divya/Surekh (LokSabha) overload ascii codepoints with
+        devanagari glyphs, so what pdfminer extracts for them is not readable
+        text at all. Every <text> element whose 'font' attribute matches one of
+        the fonts supported by indic2unicode is replaced with its unicode
+        equivalent here, i.e. before any layout analysis runs, so that all the
+        downstream consumers of the xml (Page, TextBox, HTMLBuilder,
+        TableExtraction, ...) see unicode without knowing about fonts.
+        """
+        if self.font_conv is None or not pages:
+            return
+
+        for page in pages:
+            try:
+                self.convert_indic_fonts_in_page(page)
+            except Exception as e:
+                self.logger.error(
+                    "Failed conversion of legacy indic fonts on page %s: %s",
+                    page.get("id"), e
+                )
+
+    def convert_indic_fonts_in_page(self, page):
+        for element in page.iter():
+            # a <text> element never has children of its own, so every one of
+            # them is grouped under exactly one parent and converted just once
+            texts = [child for child in element if child.tag == 'text']
+
+            if texts:
+                self.convert_indic_font_runs(texts, XML_TEXT_ACCESSORS)
+
+    # --- func to convert chars sitting side by side, one font run at a time ---
+    def convert_indic_font_runs(self, chars, accessors):
+        # conversion is contextual - matras get reordered and glyph pairs get
+        # composed - so it is applied to the longest run of consecutive chars
+        # sharing the same font instead of one char at a time
+        get_font = accessors[0]
+
+        run = []
+        run_font_key = None
+
+        for char in chars:
+            # chars without a font (the spaces and newlines pdfminer inserts
+            # itself) end the current run
+            font_name = get_font(char)
+
+            font_key = self.get_indic_font_key(font_name) if font_name else None
+
+            if font_key != run_font_key:
+                self.convert_indic_font_run(run, run_font_key, accessors)
+                run = []
+                run_font_key = font_key
+
+            if font_key:
+                run.append(char)
+
+        self.convert_indic_font_run(run, run_font_key, accessors)
+
+    # --- func to convert one run of chars sharing the same legacy indic font ---
+    def convert_indic_font_run(self, run, font_key, accessors):
+        _, get_text, set_text = accessors
+
+        if not run or not font_key:
+            return
+
+        original = ''.join(get_text(char) or '' for char in run)
+
+        if not original.strip():
+            return
+
+        converted = self.indic_to_unicode(font_key, original)
+
+        if converted == original:
+            return
+
+        # conversion is not one char in, one char out - a single legacy glyph
+        # can become a consonant + halant + matra sequence, and a pair of them
+        # can collapse into one char - so the converted text is spread
+        # proportionally over the chars it came from. That keeps it in reading
+        # order and keeps every char's own coordinates, which the layout code
+        # (first/last char coords, per char gaps within a textline) relies on.
+        no_of_chars = len(run)
+        length = len(converted)
+
+        for idx, char in enumerate(run):
+            start = (idx * length) // no_of_chars
+            end = ((idx + 1) * length) // no_of_chars
+
+            set_text(char, converted[start:end])
+
+    @contextmanager
+    def camelot_font_conversion(self):
+        """Make camelot's own text extraction see the same unicode the xml does.
+
+        camelot re-reads the pdf itself - it has to, the lattice flavour finds
+        cells by looking for lines in a rendered image of the page - so the
+        conversion done on the xml never reaches the text in a table's cells.
+        It does build the same kind of layout though, and its chars carry a
+        font name and a text that can be set, so the conversion is applied
+        there too, at the single function every one of its layouts comes from.
+        """
+        if self.font_conv is None or not self.indic_font_res:
+            yield
+            return
+
+        if not CAMELOT_LAYOUT_AVAILABLE:
+            self.logger.warning(
+                "[!] camelot has no get_page_layout() to convert legacy indic "
+                "fonts in, text extracted from bordered tables will stay in the "
+                "font's own encoding"
+            )
+            yield
+            return
+
+        original_get_page_layout = camelot_handlers.get_page_layout
+
+        def get_page_layout(page, **kwargs):
+            layout, dimensions = original_get_page_layout(page, **kwargs)
+
+            try:
+                self.convert_indic_fonts_in_layout(layout)
+            except Exception as e:
+                self.logger.error(
+                    "Failed conversion of legacy indic fonts in a camelot layout: %s", e
+                )
+
+            return layout, dimensions
+
+        camelot_handlers.get_page_layout = get_page_layout
+
+        try:
+            yield
+        finally:
+            camelot_handlers.get_page_layout = original_get_page_layout
+
+    def convert_indic_fonts_in_layout(self, layout):
+        images, chars, horizontal_text, vertical_text = \
+            get_image_char_and_text_objects(layout)
+
+        # one textline at a time and never across two of them: a run spanning
+        # two cells would move text from one into the other once its converted
+        # form is spread back over the chars it came from
+        for textline in list(horizontal_text) + list(vertical_text):
+            self.convert_indic_font_runs(list(textline), LT_CHAR_ACCESSORS)
 
     def get_all_footnote_text(self):
 
@@ -1285,6 +1895,18 @@ class Main:
     # --- parse pdf using pdfminer to convert to XML ---       
     def parsePDF(self, pdf_type, char_margin, word_margin, line_margin, \
                 start_page, end_page):
+        # a font whose ToUnicode map is broken is repaired in a copy of the pdf
+        # before anything reads it, so that the xml parsed here and camelot
+        # both get the characters that are really on the page
+        self.repair_tounicode()
+        # camelot reads the pdf itself rather than the xml parsed here, so the
+        # legacy indic font conversion is installed into it for the whole run
+        with self.camelot_font_conversion():
+            return self.parse_pdf_pages(pdf_type, char_margin, word_margin,
+                                        line_margin, start_page, end_page)
+
+    def parse_pdf_pages(self, pdf_type, char_margin, word_margin, line_margin, \
+                start_page, end_page):
         try:
             if not os.path.exists(self.pdf_path):
                 self.logger.error(f"[✖] Input file not found: {self.pdf_path}")
@@ -1326,6 +1948,10 @@ class Main:
             self.logger.debug("Parsing pages from XML: %s", self.xml_path)
             pages = self.parserTool.get_pages_from_xml(self.xml_path, start_page, end_page)
             if pages:
+                self.logger.debug("Removing spaces overprinted by the next glyph...")
+                self.drop_overlapping_spaces(pages)
+                self.logger.debug("Converting text in legacy indic fonts to unicode...")
+                self.convert_indic_fonts(pages)
                 self.set_htmlbuilder()
                 self.logger.debug("Extracting header and footer info...")
                 self.get_page_header_footer(pages, base_name_of_file, self.output_dir)
@@ -1672,6 +2298,15 @@ def get_arg_parser():
                         required = False, default = None,
                         help = 'Attribution text for the IIIF manifest\'s "requiredStatement" (egazette/sebi '
                                'types only). Omitted entirely if not supplied.')
+    parser.add_argument('-fc', '--font-conv', dest = 'font_conv_map', action = 'append',
+                        required = False, default = None, metavar = 'FONT=CONVERTER',
+                        help = 'Convert text in FONT to unicode using CONVERTER, for legacy indic '
+                               'fonts whose name does not say which one they are (e.g. '
+                               '-fc TT572t00=chanakya). FONT is matched against the pdf font name '
+                               'the same way the built-in ones are, i.e. anywhere in it and '
+                               'ignoring case, and takes precedence over them. Repeat the option '
+                               'or separate the mappings with commas. Fonts named after a '
+                               'supported converter are converted anyway and need no mapping.')
     return parser
 
 
@@ -1743,11 +2378,12 @@ if __name__ == "__main__":
     provider_id = args.provider_id
     provider_name = args.provider_name
     attribution = args.attribution
-    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, has_sidenotes, has_doc_end,
+    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, 
+                has_sidenotes, has_doc_end,
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
-                figure_text, ocr_engine)#start,end,is_amendment_pdf,output_dir, args.pdf_type)
+                figure_text, ocr_engine, args.font_conv_map)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])

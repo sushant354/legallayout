@@ -40,6 +40,7 @@ TESSERACT_TO_PADDLE_LANG = {
 
 _LANG_MODEL = None
 _PADDLE_OCR_ENGINES = {}
+LOGGER = logging.getLogger(__name__)
 
 def _get_lang_model():
     global _LANG_MODEL

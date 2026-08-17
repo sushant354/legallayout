@@ -150,8 +150,53 @@ paa_—> | venct [is |
 <p>We prepared the gold standard, (i.e., the actual informa- tion from the tables in the datasets). A program compared the gold standard against the cells extracted and organized by TAO, and assisted to calculate the recall and precision.</p>
 <p>Results and Discussion</p>
 <p>In the ﬁrst set of experiments, we compared TAO, Pdf-trex, and TableSeer using the TREX dataset. The TAO's output from this dataset yielded an F1-measure of 91.9% for ta- ble detection and 86.4% for recognition. Pdf-trex's results in (Oro and Ruffolo 2009) had an F1-measure of 91.7% for table detection and of 84.6% for recognition. For this dataset, we found 148 tables and Pdf-trex reports 164. We believe that this difference is because we did not account lists as tables. TAO's reliance on PDFMiner can be a limita- tion because this converter cannot extract information from a PDF ﬁle when the document is password protected or mal- formed. Still, PDFMiner converted 89 PDF documents out of 100. While TAO detected 137 tables out of the 148 and also identiﬁed 12, 504 correct table cells out of 14, 466, Ta- bleSeer performed badly for this set of experiments identi- fying only 18 tables, whose F1-measure was 21.6% for ta- ble detection and 5.0% for recognition. This poor perfor- mance is due to the fact that this dataset does not adhere to the common rigorous formatting standards for scientiﬁc publications. Therefore, TAO performed similarly to Pdf- trex, but better than TableSeer. From the ﬁrst experiment, we corroborated that TAO adapts the thresholds depending on the different PDF documents' font sizes. Because tables are composed of rows and columns in any language, TAO's structural approach was able to detect tables in Italian and Table 1: Experiments using COMBINED Table Detection</p>
-<p>Method Precision Recall F1 measure TAO 0.903 0.886 0.895 TableSeer 0.962 0.453 0.616 Table Recognition</p>
-<p>Method Precision Recall F1 measure TAO 0.884 0.894 0.889 TableSeer 0.436 0.465 0.450 English. The language poses a challenge for semantic anal- ysis on table's cells.</p>
+<table style='white-space: pre-wrap;' border="1" class="dataframe">
+  <tbody>
+    <tr>
+      <td>Table Detection</td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Method</td>
+      <td>Precision</td>
+      <td>Recall</td>
+      <td>F1 measure</td>
+    </tr>
+    <tr>
+      <td>TAO</td>
+      <td>0.903</td>
+      <td>0.886</td>
+      <td>0.895</td>
+    </tr>
+    <tr>
+      <td>TableSeer Table Recognition</td>
+      <td>0.962</td>
+      <td>0.453</td>
+      <td>0.616</td>
+    </tr>
+    <tr>
+      <td>Method</td>
+      <td>Precision</td>
+      <td>Recall</td>
+      <td>F1 measure</td>
+    </tr>
+    <tr>
+      <td>TAO</td>
+      <td>0.884</td>
+      <td>0.894</td>
+      <td>0.889</td>
+    </tr>
+    <tr>
+      <td>TableSeer</td>
+      <td>0.436</td>
+      <td>0.465</td>
+      <td>0.450</td>
+    </tr>
+  </tbody>
+</table>
+<p>English. The language poses a challenge for semantic anal- ysis on table's cells.</p>
 <p>Our second experiment used the CORNELL dataset. TAO's output yielded an F1-measure of 87.0% for Table de- tection and 91.1% for recognition. TableSeer yielded an F1- measure of 84.9% for detection and 89.5% for recognition. TAO detected 67 tables, and TableSeer 62. Also, TAO de- tected 4, 738 out of 6, 003 text cells. For this and the next experiments, Pdf-trex was not evaluated because it was un- available. One limitation of TAO using this dataset is that it produced more false positives (i.e., ﬁgures and equations) than TableSeer. To solve this problem, we need to detect the rows that do not contain table cells, but other elements, such as graphs. TAO may extract the information of two different cells into a unique cell. Even though this issue is related to PDFMiner's output, we need to analyze cells further to pro- duce more accurate information. Although it is uncommon to ﬁnd two consecutive horizontal tables, TAO needs to learn how to separate them. The distance between table rows and two consecutive tables may vary in a single document, mak- ing it more difﬁcult for TAO to separate tables consistenly. However, TAO still performs satisfactorily.</p>
 <p>Finally, for completeness and to quantitatively assess the generality of our method, we report aggregated experiments using the COMBINED dataset. Table 1 reports a summary for table detection and recognition for TAO and TableSeer. TAO is more robust and general because TableSeer depends on particular keywords to perform accurate Table Detection. TAO recognized and extracted 17, 242 correct table cells, while TableSeer recognized only 6, 389. Similarly, TAO is more general and robust than Pdf-trex because it can han- dle double-column documents and Pdf-trex cannot, as doc- umented in (Oro and Ruffolo 2009).</p>
 <p>The K-NN method produced rapid and accurate results using training data with characteristics of different table for- mats. The training sets can increment data from more table formats. TAO's prototype enables to submit a PDF docu- ment online, and receive the output by email with the orga- nized table's information in JSON.</p>

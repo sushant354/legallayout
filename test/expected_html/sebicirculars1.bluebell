@@ -4796,13 +4796,20 @@ SCHEDULE SCHEDULE III - FEES TO BE PAID ALONG WITH DRAFT OFFER DOCUMENT/ {{^{{FO
 							0.025 per cent. of the issue
 						TC
 							0.0125 per cent of the issue size.]
-				TABLE
 					TR
-						TH
-							rupees# size.
+						TC
+							rupees#
+						TC
+							size.
+						TC
+
 					TR
 						TC
 							# to be read as twenty-five crores with effect from April 21, 2020
+						TC
+
+						TC
+
 				FOOTNOTE 571
 					Omitted by the the SEBI (Issue of Capital and Disclosure Requirements) (Amendment) Regulations, 2025, w.e.f 08.04.2025. Prior to the omission, the column read as under:
 					“ Amount / Rate of fees for filing within one year after expiry of SEBI Observation letter A flat charge of twenty five thousand rupees (₹25,000/-).
@@ -5579,57 +5586,54 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 				TR
 					TC
 						9.
-						[•] [•] [•]% [•] [•]% [•] [•]%
 					TC
-
+						[•]
 					TC
-
+						[•]
 					TC
-
+						[•]%
 					TC
-
+						[•]
 					TC
-
+						[•]%
 					TC
-
+						[•]
 					TC
-
+						[•]%
 				TR
 					TC
 						10.
-						[•] [•] [•]% [•] [•]% [•] [•]%
 					TC
-
+						[•]
 					TC
-
+						[•]
 					TC
-
+						[•]%
 					TC
-
+						[•]
 					TC
-
+						[•]%
 					TC
-
+						[•]
 					TC
-
+						[•]%
 				TR
 					TC
 						11.
-						[•] [•] [•]% [•] [•]% [•] [•]%
 					TC
-
+						[•]
 					TC
-
+						[•]
 					TC
-
+						[•]%
 					TC
-
+						[•]
 					TC
-
+						[•]%
 					TC
-
+						[•]
 					TC
-
+						[•]%
 			Notes: 1) The Promoter Group shareholders are [•], [•] and [•]. 2) Includes  all  options  that  have  been  exercised  until  date  of prospectus  and  any  transfers  of  equity  shares  by  existing shareholders  after  the  date  of  the  pre-issue  and  price  band advertisement until date of prospectus.
 			SUBSEC 3)
 				Based on the Issue price of ₹[•] and subject to finalization of the basis of allotment.]
@@ -6397,7 +6401,7 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 					TC
 
 					TC
-						( Based on Financial Year 3 EPS
+						Based on Financial Year 3 EPS (
 						a)
 					TC
 						3
@@ -6406,7 +6410,7 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 					TC
 
 					TC
-						( Industry P/E
+						Industry P/E (
 						b)
 					TC
 
@@ -7022,80 +7026,78 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 			In  case  of  any  change  in  the  share  capital  since  the  date  as  of  which  the  financial information has been disclosed in the offer document, a note explaining the nature of the change shall be given.
 		SEC (iii)
 			An illustrative format of the Capitalisation Statement is specified hereunder
-	SUBPART - Particulars  Pre-issue at  As adjusted for the
-	SUBPART - proposed issue
-		TABLE
-			TR
-				TH
-					(` in crores)
-				TH
+			TABLE
+				TR
+					TH
+						Particulars (` in crores)
+					TH
+						Pre-issue at
+					TH
+						As adjusted for the proposed issue
+				TR
+					TC
+						Total borrowings
+					TC
 
-				TH
+					TC
 
-			TR
-				TC
-					Total borrowings
-				TC
+				TR
+					TC
+						Current borrowings\*
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Current borrowings\*
-				TC
+				TR
+					TC
+						Non-current borrowings (including current maturity)\*
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Non-current borrowings (including current maturity)\*
-				TC
+				TR
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
+					TC
 
-				TC
+				TR
+					TC
+						Total equity
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Total equity
-				TC
+				TR
+					TC
+						Equity share capital\*
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Equity share capital\*
-				TC
+				TR
+					TC
+						Other equity\*
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Other equity\*
-				TC
+				TR
+					TC
+						Total Capital
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Total Capital
-				TC
+				TR
+					TC
+						Ratio: Non-current borrowings/ Total equity
+					TC
 
-				TC
+					TC
 
-			TR
-				TC
-					Ratio: Non-current borrowings/ Total equity
-				TC
-
-				TC
-
-		(as amended).
+			(as amended).
 				PARA (II)
 					Requirements  in  case  Indian  GAAP  is  applicable  in  the  latest  period  presented  in
 	SUBPART - Restated Financial Information
@@ -7222,11 +7224,11 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 			TABLE
 				TR
 					TH
-						Particulars Pre-issue at As adjusted for the proposed issue
+						Particulars
 					TH
-
+						Pre-issue at
 					TH
-
+						As adjusted for the proposed issue
 				TR
 					TC
 						(` in Crores)
@@ -7349,11 +7351,11 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 					TABLE
 						TR
 							TH
-								Particulars Pre-issue at As adjusted for the proposed issue
+								Particulars
 							TH
-
+								Pre-issue at
 							TH
-
+								As adjusted for the proposed issue
 						TR
 							TC
 								(` in Crores)
@@ -7709,8 +7711,6 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 			If  not,  details  of  non-achievement  of  objects,  with  quantification  of shortfall and delays.
 				PARA (R)
 					Price  information  of  past  issues  handled  by  the  lead  manager(s)  in  the  format  given below:
-				{{IMG media/Image707.png}}
-				{{IMG media/Image708.png}}
 			SUBSEC 5.
 				In  case  the  30th/60th/90th  calendar  day  is  a  holiday,  data  from  previous  trading  day  to  be considered.
 				{{^{{FOOTNOTE 701}}}}[6. Designated Stock Exchange  as disclosed by the respective  Issuer  at  the time of the issue shall be considered for disclosing the price information.]
@@ -8598,9 +8598,6 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 			The abridged prospectus shall be printed in a font size which shall not be visually smaller than Times New Roman size 11 (or equivalent) with 1.0 line spacing.
 		SEC (V)
 			The application form shall be so positioned that on the tearing-off of the application form, no part of the abridged prospectus is mutilated.
-		{{IMG media/Image783.png}}
-		{{IMG media/Image784.png}}
-		{{IMG media/Image788.png}}
 			In case of issues by Small and Medium Enterprises under Chapter IX, details of the market maker to be included
 		{{IMG media/Image789.png}}
 		{{IMG media/Image792.png}}
@@ -8802,9 +8799,6 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 			FOOTNOTE 716
 				The columns for “FY4” and “FY5 (Last audited financial year prior to issue opening)” omitted and column for “FY3” substituted for “FY3 (Last audited financial year prior to issue opening)” by the Securities and Exchange Board of India (Issue of Capital and Disclosure Requirements) (Amendment) Regulations, 2022 w.e.f. 14.1.2022.
 				Return on net worth (%) Net asset value per share (Rs.)
-		{{IMG media/Image806.png}}
-		{{IMG media/Image809.png}}
-		{{IMG media/Image810.png}}
 	SUBPART - {{^{{FOOTNOTE 717}}}}[\*\*\*\*]
 		FOOTNOTE 717
 			Part-F omitted by the Securities and Exchange Board of India (Issue of Capital and Disclosure Requirements) (Amendment) Regulations, 2025, w.e.f. 08.03.2025.
@@ -12141,8 +12135,32 @@ SCHEDULE SCHEDULE XIV - ILLUSTRATION EXPLAINING THE PROCEDURE OF
 					108000
 				TC
 					115200
-		Application / Bid amount for 16 lots  172800  187200  --  --  --
-		Application / Bid amount for 18 lots   194400  --  --  --  --
+			TR
+				TC
+					Application / Bid amount for 16 lots
+				TC
+					172800
+				TC
+					187200
+				TC
+					--
+				TC
+					--
+				TC
+					--
+			TR
+				TC
+					Application / Bid amount for 18 lots
+				TC
+					194400
+				TC
+					--
+				TC
+					--
+				TC
+					--
+				TC
+					--
 		The options given above are only illustrative and not exhaustive.
 		Where the issuer in consultation with the lead merchant banker decides to fix the minimum application / bid size as 14 (Option III), necessary disclosures to the effect that the applicant can make an application for 14 shares and in multiples thereof shall be made in the offer document.]
 	SUBPART - {{^{{FOOTNOTE 773}}}}[Part A1 - Illustration explaining the procedure of allotment for non-institutional
@@ -13061,83 +13079,83 @@ SCHEDULE SCHEDULE XIV - ILLUSTRATION EXPLAINING THE PROCEDURE OF
 		SEC (9)
 			As  the  allotment  to  a  non-institutional  investor  cannot  be  less  than  the minimum  application  size  in  NII  category,  subject  to  availability  of  shares,  the remaining available shares, if any, shall be allotted on a proportionate basis.
 			The actual entitlement shall be as follows:
-			SUBSEC Sr.
-				PARA No.
-					
-	SUBPART - Name of
-	SUBPART - Investor
-	SUBPART - Total  number  of  specified  securities
-	SUBPART - eligible to be allotted
-	SUBPART - Total
-	SUBPART - Number  of
-	SUBPART - specified
-		TABLE
-			TR
-				TH
+			TABLE
+				TR
+					TH
+						Sr.
+						No.
+					TH
+						Name of Investor
+					TH
+						Total Number of specified
+					TH
+						Total number of specified securities eligible to be allotted
+				TR
+					TC
 
-				TH
+					TC
 
-				TH
-					securities applied for
-				TH
+					TC
+						securities applied for
+					TC
 
-			TR
-				TC
-					1
-				TC
-					A
-				TC
-					18, 000
-				TC
-					18, 000 specified securities (i.e.
-					the minimum applications size)
-			TR
-				TC
-					2
-				TC
-					B
-				TC
-					24, 000
-				TC
-					18, 000 specified securities (i.e.
-					the minimum applications size) + 0 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \*
-					6000 (i.e.
-					24, 000-18, 000) =
-					3000 securities; which is less than 1 lot, so no additional lot shall be allotted}
-			TR
-				TC
-					3
-				TC
-					C
-				TC
-					30, 000
-				TC
-					18, 000 specified securities (i.e.
-					the minimum applications size) +
-					6000 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \* 12000 (i.e. 30, 000-18, 000) = 6000 securities}
-			TR
-				TC
-					4
-				TC
-					D
-				TC
-					42, 000
-				TC
-					18, 000 specified securities (i.e.
-					the minimum applications size) +
-					12000 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \* 24000 (i.e. 42, 000-18, 000) = 12000 securities}
-			TR
-				TC
-					5
-				TC
-					E
-				TC
-					48, 000
-				TC
-					18, 000 specified securities (i.e.
-					the minimum applications size) +
-					12000 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \* 30000 (i.e. 48, 000-18, 000) = 15000 securities; which is more than 2 lots but less than 3 lots, therefore only 2 lots shall be allotted}
-		NOTE: For category 3(b), calculation methodology shall be similar to above.
+				TR
+					TC
+						1
+					TC
+						A
+					TC
+						18, 000
+					TC
+						18, 000 specified securities (i.e.
+						the minimum applications size)
+				TR
+					TC
+						2
+					TC
+						B
+					TC
+						24, 000
+					TC
+						18, 000 specified securities (i.e.
+						the minimum applications size) + 0 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \*
+						6000 (i.e.
+						24, 000-18, 000) =
+						3000 securities; which is less than 1 lot, so no additional lot shall be allotted}
+				TR
+					TC
+						3
+					TC
+						C
+					TC
+						30, 000
+					TC
+						18, 000 specified securities (i.e.
+						the minimum applications size) +
+						6000 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \* 12000 (i.e. 30, 000-18, 000) = 6000 securities}
+				TR
+					TC
+						4
+					TC
+						D
+					TC
+						42, 000
+					TC
+						18, 000 specified securities (i.e.
+						the minimum applications size) +
+						12000 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \* 24000 (i.e. 42, 000-18, 000) = 12000 securities}
+				TR
+					TC
+						5
+					TC
+						E
+					TC
+						48, 000
+					TC
+						18, 000 specified securities (i.e.
+						the minimum applications size) +
+						12000 specified securities {Since, [{36, 00, 000 - (100 \* 18000)} / {54, 00, 000 - (100 \* 18000)}] \* 30000 (i.e. 48, 000-18, 000) = 15000 securities; which is more than 2 lots but less than 3 lots, therefore only 2 lots shall be allotted}
+			NOTE: For category 3(b), calculation methodology shall be similar to above.
 	SUBPART - Example B.
 		SEC (1)
 			Total  number  of  specified  securities  on  offer  @₹  20  per  share:  7.2  crore specified securities.
