@@ -90,7 +90,7 @@ INDIC_FONT_NAME_ALIASES = {
 
 # --- the model machinelearning/training.py writes, which says what a font is
 # --- drawing from the text extracted from it, see detect_unknown_fonts()
-FONT_MODEL_PATH = PROJECT_ROOT / 'fontmodel.pkl'
+FONT_MODEL_PATH = PROJECT_ROOT / 'model' / 'eng_hin_fonts.pkl'
 
 # --- the classes that model is trained on, mapped to the converter the text of
 # --- such a font needs. A class already named after its converter needs no

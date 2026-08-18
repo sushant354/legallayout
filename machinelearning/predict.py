@@ -1,11 +1,11 @@
 """Classify the text drawn in a font with the model training.py saved.
 
-    python -m machinelearning.predict -m fontmodel.pkl -t "fnYyh fodkl"
-    python -m machinelearning.predict -m fontmodel.pkl -f page_text.txt
+    python -m machinelearning.predict -m model/eng_hin_fonts.pkl -t "fnYyh fodkl"
+    python -m machinelearning.predict -m model/eng_hin_fonts.pkl -f page_text.txt
 
 As a library:
 
-    classifier = FontClassifier('fontmodel.pkl')
+    classifier = FontClassifier('model/eng_hin_fonts.pkl')
     label, prob = classifier.classify(text)
 """
 

@@ -92,7 +92,7 @@ could not have labelled either, and why it was dropped rather than guessed at.
 ## 2. Cross validate and train
 
 ```bash
-python -m machinelearning.training -d training_data -m fontmodel.pkl \
+python -m machinelearning.training -d training_data -m model/eng_hin_fonts.pkl \
     -k 10 -mc 20000 -vf vocab.json
 ```
 
@@ -103,6 +103,11 @@ name as the target. `training.py` then runs a stratified `-k` fold
 `CrossValidation` over the requested learners, prints accuracy, macro
 F1/precision/recall and a confusion matrix per learner, trains the final
 model on the whole corpus and pickles it with its vocabulary.
+
+`model/eng_hin_fonts.pkl` is where `source/Main.py` looks for the model by
+default (`Main.FONT_MODEL_PATH`); write it anywhere else and the parser needs
+`-fm/--font-model` pointed at it. `*.pkl` is tracked with Git LFS, so a clone
+needs `git lfs pull` before the checked-in model is anything but a pointer.
 
 Options worth knowing:
 
@@ -123,8 +128,8 @@ Options worth knowing:
 ## 3. Classify
 
 ```bash
-python -m machinelearning.predict -m fontmodel.pkl -t "fnYyh fodkl izkf/kdj.k"
-python -m machinelearning.predict -m fontmodel.pkl -f page_text.txt -w
+python -m machinelearning.predict -m model/eng_hin_fonts.pkl -t "fnYyh fodkl izkf/kdj.k"
+python -m machinelearning.predict -m model/eng_hin_fonts.pkl -f page_text.txt -w
 ```
 
 or from python:
@@ -132,7 +137,7 @@ or from python:
 ```python
 from machinelearning.predict import FontClassifier
 
-classifier   = FontClassifier('fontmodel.pkl')
+classifier   = FontClassifier('model/eng_hin_fonts.pkl')
 label, prob  = classifier.classify(text_drawn_in_one_font)
 ```
 

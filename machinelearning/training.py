@@ -1,6 +1,6 @@
 """Cross validate and train the font classifier with Orange3.
 
-    python -m machinelearning.training -d training_data -m fontmodel.pkl
+    python -m machinelearning.training -d training_data -m model/eng_hin_fonts.pkl
 
 Reads the per-class corpus FontSurvey's -td/--training-dir wrote, builds the
 top 10,000 phrase features (see features.py), runs a stratified k fold cross

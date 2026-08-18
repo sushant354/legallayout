@@ -19,7 +19,7 @@ It extracts text and layout information from PDFs, classifies content into heade
 ## Requirements
 
 - Python 3
-- [Git LFS](https://git-lfs.com/) (the fastText language model `model/lid.176.bin` is tracked via LFS)
+- [Git LFS](https://git-lfs.com/) (the fastText language model `model/lid.176.bin` and the font classifier `model/eng_hin_fonts.pkl` are tracked via LFS)
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) system binary, with language data for whichever `-ol/--ocr-language` codes you plan to use (e.g. on Debian/Ubuntu: `apt install tesseract-ocr tesseract-ocr-all`). Without it, `-ftx/--figure-text` OCR silently produces no text rather than failing loudly. Only needed for the default `-oe tesseract` engine.
 - `paddlepaddle`/`paddleocr` Python packages (in `requirements.txt`) if you plan to use `-oe/--ocr-engine paddleocr` instead of the default Tesseract engine. Not installed automatically at import time — lazily imported only when `-oe paddleocr` is actually used.
 
@@ -130,7 +130,8 @@ source/
 └── Utils.py                 # Shared helpers
 
 model/
-└── lid.176.bin             # fastText language ID model (Git LFS)
+├── lid.176.bin             # fastText language ID model (Git LFS)
+└── eng_hin_fonts.pkl       # font classifier used by -fm/--font-model (Git LFS)
 
 test/
 ├── TestPageLayout.py        # Layout unit tests
