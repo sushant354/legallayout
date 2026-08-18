@@ -301,6 +301,7 @@ ANNEXURE How to lodge a complaint on SCORES with effect from August 01, 2018.   
 
 			TC
 				Complaint details in brief (1000 characters )
+{{IMG media/Image218.png}}
 	Upload supporting documents ( upto 2 MB in PDF format )
 	TABLE
 		TR
@@ -315,7 +316,23 @@ ANNEXURE How to lodge a complaint on SCORES with effect from August 01, 2018.   
 				Add
 		TR
 			TC
+
+			TC
+
+{{IMG media/Image168.png}}
+	TABLE
+		TR
+			TH
 				Enter
+			TH
+
+			TH
+				Character shown in image
+		TR
+			TC
+				CLICK
+			TC
+
 			TC
 
 		TR
@@ -323,6 +340,8 @@ ANNEXURE How to lodge a complaint on SCORES with effect from August 01, 2018.   
 
 			TC
 
+			TC
+				Submit
 	Complaint Registration Number is generated and sent to
 	email id and to mobile number of the complainant.
 	SEC 6.18.3.

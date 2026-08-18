@@ -1,7 +1,7 @@
 # Font classification from extracted text
 
 Many pdfs embed a legacy indic font under a name that says nothing about its
-encoding (`TT572t00`, `Vivek-NormalA`), so there is no way to pick the right
+encoding (`TT572t00`), so there is no way to pick the right
 `-fc/--font-conv` converter from the font name alone. The text extracted from
 such a font is, however, unmistakable: chanakya comes out as `fnYyh fodkl`,
 kruti-dev as `jk"Vªh; jkt/kkuh`, a real unicode font as actual words. That is

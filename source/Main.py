@@ -77,10 +77,81 @@ LT_CHAR_ACCESSORS = (get_lt_char_font, get_lt_char_text, set_lt_char_text)
 # --- names a legacy indic font is known by in a pdf, when they are not the
 # --- name of its indic2unicode converter: Kruti Dev is written with a space
 # --- (and usually a face number after it, 'Kruti Dev 010'), so the converter
-# --- key 'krutidev' never matches the name the pdf carries
+# --- key 'krutidev' never matches the name the pdf carries. Vivek and DevLys
+# --- are the same encoding under other names, and the pdf font is named for
+# --- its face rather than its encoding ('Vivek-BoldA', 'DevLys 010'), which a
+# --- face number ('DevLys 020') or a style word can follow. indic2unicode
+# --- points its own 'vivek'/'devlys' keys at the very same converter object,
+# --- so naming them here only makes the equivalence hold on a build that
+# --- predates those keys
 INDIC_FONT_NAME_ALIASES = {
-    'krutidev': [r'kruti[\s_-]*dev'],
+    'krutidev': [r'kruti[\s_-]*dev', r'vivek', r'dev[\s_-]*lys'],
 }
+
+# --- the model machinelearning/training.py writes, which says what a font is
+# --- drawing from the text extracted from it, see detect_unknown_fonts()
+FONT_MODEL_PATH = PROJECT_ROOT / 'fontmodel.pkl'
+
+# --- the classes that model is trained on, mapped to the converter the text of
+# --- such a font needs. A class already named after its converter needs no
+# --- entry here, these are only the ones the two spell differently
+FONT_CLASS_CONVERTERS = {
+    'nirmala': 'nirmalaui',
+}
+
+# --- the class of the fonts that need no decoder at all: their text is already
+# --- unicode and is taken as it is
+FONT_CLASS_NOT_REQUIRED = 'not_required'
+
+# --- classes that do identify the font but have no converter to point it at. A
+# --- Type3 font's text is put right by repair_tounicode() before anything is
+# --- extracted from the pdf, so by the time it can be classified at all there
+# --- is nothing left to do to it
+FONT_CLASSES_WITHOUT_CONVERTER = {'type3'}
+
+# --- how much text drawn in one font is enough to say what it is. The model is
+# --- trained on samples of 50 words and its confidence falls apart well below
+# --- that: the chanakya of union_hindi.pdf scores 1.00 on the 1000 words it
+# --- draws, 0.6 to 0.8 on the first 20 of them, 0.3 on the first 5, and a font
+# --- that draws two words gets nothing but the model's prior. A font drawing
+# --- less than this is left alone rather than decoded on a coin toss
+FONT_DETECT_MIN_WORDS = 20
+
+# --- and how sure the model has to be before its answer is acted on
+FONT_DETECT_MIN_PROB = 0.5
+
+# --- evidence saturates long before a whole document is read (100 words of the
+# --- gazette's chanakya already score 1.00), while the features are every 1 to
+# --- 5 word phrase of the text, so there is nothing to gain from featurizing
+# --- the 300,000 words a long gazette draws in one font
+FONT_DETECT_MAX_WORDS = 20000
+
+# --- the classes whose text is already drawn in an indic script by the time it
+# --- is extracted: a font whose ToUnicode map is broken draws real devanagari,
+# --- it is just the wrong devanagari ('निर्माण' as 'जिमावण'), and type3 text was
+# --- put right by repair_tounicode() before anything read the pdf. Every other
+# --- class is a legacy 8-bit encoding that overloads the latin codepoints, so
+# --- its text extracts as latin and cannot contain an indic character at all -
+# --- which is what makes the check in get_detected_font_key() possible, and
+# --- what makes assuming it of a class not named here the safe default
+FONT_CLASSES_INDIC_TEXT = {
+    'arialuni', 'nirmala', 'nirmalaui', 'type3', FONT_CLASS_NOT_REQUIRED,
+}
+
+# --- the indic scripts, from devanagari through sinhala plus the devanagari
+# --- extended block, used to tell text that is already decoded from the latin
+# --- a legacy encoding draws
+INDIC_SCRIPT_RE = re.compile(r'[\u0900-\u0DFF\uA8E0-\uA8FF]')
+
+# --- and the share of a font's sampled characters that has to be in one of
+# --- those scripts before the model saying it is a legacy latin encoding is
+# --- read as the impossibility it is, see get_detected_font_key(). A little
+# --- indic text does turn up inside an otherwise latin font (a stray glyph, a
+# --- symbol picked out of another block), so this is not zero; it is nowhere
+# --- near 0.05 either way in practice - the mixed hindi/english CIDFont+F1 of
+# --- test/test_pdfs/lsdebate.pdf sits at 0.32, and the chanakya of
+# --- union_hindi.pdf and the vivek of act1.pdf at 0.00
+FONT_DETECT_MAX_INDIC_RATIO = 0.05
 
 # --- how much of a space's own width has to sit inside the glyph next to it
 # --- before it counts as painted over rather than as a real word break, see
@@ -104,8 +175,9 @@ class Main:
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
                  table_extract, public_base_url=None, server_root=None,
                  rights=None, provider_id=None, provider_name=None, 
-                 attribution=None, figure_text=False, font_conv_map=None,  
-                 ocr_engine="tesseract"): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 attribution=None, figure_text=False, font_conv_map=None,
+                 ocr_engine="tesseract", font_model=None,
+                 font_detect=True): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
             raise ValueError(
@@ -202,6 +274,13 @@ class Main:
         self.indic_font_keys = {}
         # (font key, text drawn in that font) -> converted unicode text
         self.indic_text_cache = {}
+        # The fonts none of the above can place are identified from the text they
+        # draw instead, with the model of machinelearning/, see detect_unknown_fonts()
+        self.font_detect = font_detect
+        self.font_model = font_model or FONT_MODEL_PATH
+        # loaded when a document first has a font that needs it: None means not
+        # tried yet, False means tried and failed (so it is reported just once)
+        self.font_classifier = None
         # self.fontmapper.extract_fonts()
 
     # --- func to get the indic2unicode font convertor, None if unavailable ---
@@ -429,6 +508,266 @@ class Main:
             )
 
         return font_key
+
+    # --- func to load the classifier that says what a font is drawing ---
+    def get_font_classifier(self):
+        """The trained model, loaded the first time a document needs it.
+
+        Orange takes a second to import and the model only matters for a pdf
+        that has a font nothing else can place, so neither is paid for until
+        one turns up.
+        """
+        if self.font_classifier is not None:
+            # False is a load that has already failed and been reported, which
+            # is not worth trying again
+            return self.font_classifier or None
+
+        try:
+            from machinelearning.predict import FontClassifier
+
+            self.font_classifier = FontClassifier(str(self.font_model))
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not load the font detection model %s, the fonts whose "
+                "name does not say what they are drawing are left as they are: %s",
+                self.font_model, e
+            )
+            self.font_classifier = False
+            return None
+
+        self.logger.info("Loaded the font detection model %s", self.font_model)
+
+        return self.font_classifier
+
+    # --- func to point the fonts that name no encoding at the right decoder ---
+    def detect_unknown_fonts(self, pages):
+        """Identifies the legacy indic fonts that nothing else can identify.
+
+        A font's name usually says which encoding its text is in, and when it
+        does not the caller can say so with -fc/--font-conv. Neither is any
+        help for a subsetted gazette that names its fonts TT572t00 and TT447t00
+        and carries no ToUnicode map: nothing about such a font says whether it
+        draws latin or devanagari, which is the very thing that has to be known
+        before its text can be read.
+
+        What does say it is the text itself - chanakya extracts as latin
+        gibberish with a vocabulary of its own ('fnYyh', 'ds', 'ls') - so every
+        font left unplaced is classified by the model machinelearning/ trains
+        on that text (see machinelearning/README.md). A font the model calls
+        not_required is drawing unicode already and is taken as it is; any
+        other class is registered like a -fc mapping would be, so that the
+        conversion which follows picks it up without knowing where the answer
+        came from.
+
+        This runs on the parsed xml before convert_indic_fonts(), i.e. on the
+        text as the pdf drew it, since converted text is exactly what the model
+        is not trained on.
+        """
+        if not self.font_detect or self.font_conv is None or not pages:
+            return
+
+        if not os.path.exists(self.font_model):
+            self.logger.debug(
+                "There is no font detection model at %s, the fonts whose name "
+                "does not say what they are drawing are left as they are",
+                self.font_model
+            )
+            return
+
+        try:
+            font_texts = self.get_unknown_font_texts(pages)
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not collect the text of the unidentified fonts of %s, "
+                "they are left as they are: %s", self.pdf_path, e
+            )
+            return
+
+        if not font_texts:
+            return
+
+        classifier = self.get_font_classifier()
+
+        if classifier is None:
+            return
+
+        font_names = sorted(font_texts)
+
+        try:
+            # every font of the document in one go, the model featurizes a
+            # batch as cheaply as it does a single text
+            results = classifier.classify_all([font_texts[n] for n in font_names])
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not detect what the unidentified fonts of %s are "
+                "drawing, they are left as they are: %s", self.pdf_path, e
+            )
+            return
+
+        font_res = []
+
+        for font_name, (label, probability) in zip(font_names, results):
+            font_key = self.get_detected_font_key(
+                font_name, label, probability, font_texts[font_name]
+            )
+
+            if font_key:
+                font_res.append(
+                    (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
+                )
+
+        if not font_res:
+            return
+
+        # a detected font is one that matches nothing else, so where these go
+        # decides nothing; they go first for the same reason -fc's do, that an
+        # answer about this document beats a general rule about names
+        self.indic_font_res = font_res + self.indic_font_res
+        # collecting the text looked every font of the document up, so the ones
+        # that are placed now were cached as unplaced then; the ones that were
+        # already placed keep their answer, which has not changed
+        self.indic_font_keys = {
+            font_name: font_key
+            for font_name, font_key in self.indic_font_keys.items() if font_key
+        }
+
+    # --- func to get the text drawn in each font that nothing else identifies ---
+    def get_unknown_font_texts(self, pages):
+        """{font name: the text the pdf draws in it}, for the unplaced fonts.
+
+        A font is unplaced here when neither its name, nor a -fc mapping, nor a
+        ToUnicode repair has said what its text is - which is exactly the case
+        the classifier is for. The fonts that are already placed are left out:
+        their answer is known and a worse one must not overrule it.
+
+        The text of a font is collected as the runs of consecutive chars drawn
+        in it joined with a space, and not as one string of every char it draws:
+        the spaces between words are <text> elements of their own carrying no
+        font at all, so concatenating a font's own chars would run its words
+        into each other and hand the model text split into words quite
+        differently from the corpus it was trained on.
+        """
+        font_runs = defaultdict(list)
+
+        for page in pages:
+            for element in page.iter():
+                # a <text> element has no children, so every one of them sits
+                # under exactly one parent and is read exactly once
+                run = []
+                run_font = None
+
+                for child in element:
+                    if child.tag != 'text':
+                        continue
+
+                    font_name = child.attrib.get('font')
+
+                    if font_name != run_font:
+                        if run:
+                            font_runs[run_font].append(''.join(run))
+                        run = []
+                        run_font = font_name
+
+                    if font_name:
+                        run.append(child.text or '')
+
+                if run:
+                    font_runs[run_font].append(''.join(run))
+
+        font_texts = {}
+
+        for font_name, runs in font_runs.items():
+            if self.get_indic_font_key(font_name):
+                continue
+
+            words = ' '.join(runs).split()
+
+            if len(words) < FONT_DETECT_MIN_WORDS:
+                self.logger.debug(
+                    "Font %s draws %d word(s), too few to tell what it is, so its "
+                    "text is left as it is", font_name, len(words)
+                )
+                continue
+
+            font_texts[font_name] = ' '.join(words[:FONT_DETECT_MAX_WORDS])
+
+        return font_texts
+
+    # --- func to get the converter the model's answer about a font means ---
+    def get_detected_font_key(self, font_name, label, probability, text):
+        if probability < FONT_DETECT_MIN_PROB:
+            self.logger.info(
+                "The text in font %s looks like %s but only with a probability of "
+                "%.2f, which is too little to act on, so it is left as it is",
+                font_name, label, probability
+            )
+            return None
+
+        if label == FONT_CLASS_NOT_REQUIRED:
+            self.logger.info(
+                "Text in font %s needs no decoder (%.2f), it is taken as it is",
+                font_name, probability
+            )
+            return None
+
+        if label in FONT_CLASSES_WITHOUT_CONVERTER:
+            self.logger.info(
+                "Text in font %s was detected as %s (%.2f), which has no converter "
+                "of its own, so it is taken as it is", font_name, label, probability
+            )
+            return None
+
+        # a class not named as drawing indic text is a legacy 8-bit encoding,
+        # whose text extracts as latin. Text that is already in an indic script
+        # cannot have come out of one, whatever the model says, and running it
+        # through that decoder would turn readable text into rubbish - which is
+        # the one outcome worth guarding against, since leaving a font alone
+        # only costs the improvement detection was there to make
+        if label not in FONT_CLASSES_INDIC_TEXT:
+            indic_ratio = self.get_indic_char_ratio(text)
+
+            if indic_ratio > FONT_DETECT_MAX_INDIC_RATIO:
+                self.logger.warning(
+                    "[!] Text in font %s was detected as %s (%.2f), but %.0f%% of it "
+                    "is already in an indic script and %s decodes latin, so the "
+                    "detection is wrong and the text is left as it is",
+                    font_name, label, probability, indic_ratio * 100, label
+                )
+                return None
+
+        font_key = FONT_CLASS_CONVERTERS.get(label, label)
+
+        if font_key not in self.font_conv.converters:
+            self.logger.warning(
+                "[!] Text in font %s was detected as %s, which no indic2unicode "
+                "converter goes by, so it is left as it is. The model was trained "
+                "on a class this build of indic2unicode does not have a decoder for",
+                font_name, label
+            )
+            return None
+
+        self.logger.info(
+            "Text in font %s will be converted to unicode using %s, detected from "
+            "the text it draws with a probability of %.2f",
+            font_name, font_key, probability
+        )
+
+        return font_key
+
+    # --- func to get the share of a text already drawn in an indic script ---
+    def get_indic_char_ratio(self, text):
+        """How much of text is in an indic script, ignoring whitespace.
+
+        Whitespace is left out because it belongs to no script and a text's
+        share of it says nothing about what drew it: the same words with the
+        runs joined differently would otherwise score differently.
+        """
+        chars = ''.join(text.split())
+
+        if not chars:
+            return 0.0
+
+        return len(INDIC_SCRIPT_RE.findall(chars)) / len(chars)
 
     # --- func to convert text drawn in a legacy indic font into unicode ---
     def indic_to_unicode(self, font_key, text):
@@ -1950,6 +2289,8 @@ class Main:
             if pages:
                 self.logger.debug("Removing spaces overprinted by the next glyph...")
                 self.drop_overlapping_spaces(pages)
+                self.logger.debug("Detecting what the fonts that name no encoding draw...")
+                self.detect_unknown_fonts(pages)
                 self.logger.debug("Converting text in legacy indic fonts to unicode...")
                 self.convert_indic_fonts(pages)
                 self.set_htmlbuilder()
@@ -2307,6 +2648,19 @@ def get_arg_parser():
                                'ignoring case, and takes precedence over them. Repeat the option '
                                'or separate the mappings with commas. Fonts named after a '
                                'supported converter are converted anyway and need no mapping.')
+    parser.add_argument('-fm', '--font-model', dest = 'font_model', action = 'store',
+                        required = False, default = None, metavar = 'MODEL',
+                        help = 'Model that says what a font whose name identifies no '
+                               f'encoding is drawing, as written by machinelearning/'
+                               f'training.py (default {FONT_MODEL_PATH}, and detection '
+                               'is simply skipped when there is no model there). A font '
+                               'the model places needs no -fc mapping; a -fc mapping '
+                               'wins over the model for the font it names.')
+    parser.add_argument('-nfd', '--no-font-detect', dest = 'font_detect',
+                        action = 'store_false',
+                        help = 'Do not detect the encoding of the fonts whose name does '
+                               'not give it away, i.e. use nothing but the font names '
+                               'and the -fc mappings, as before the model existed.')
     return parser
 
 
@@ -2383,7 +2737,8 @@ if __name__ == "__main__":
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
-                figure_text, args.font_conv_map, ocr_engine)
+                figure_text, args.font_conv_map, ocr_engine,
+                args.font_model, args.font_detect)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])

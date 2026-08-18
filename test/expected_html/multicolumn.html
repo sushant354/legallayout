@@ -92,21 +92,6 @@
 <p>2 Table Detection and Extraction The TAble Organization (TAO) system is capable of detect- ing and recognizing tables within PDF documents. Table detection is the process of identifying tables from a docu- ment, and table recognition of identifying and extracting the cells contained in a table (Hu et al. 1999). To acomplish this processing, TAO combines a supervised machine learning method with layout heuristics, and consists of three main modules: 1) document conversion, 2) table detection, and 3) table extraction, (see Figure 1).</p>
 <p>TAO's input is a PDF document. Using PDFMiner, the PDF document is converted to an XML format contain- ing all elements in the document (e.g., characters, ﬁgure's placeholders, layouts). PDFMiner's output includes separate XML tags for every character and every space. The second module, table detection, parses this large XML ﬁle and iden- tiﬁes table candidates, storing them in a per-page fashion. The third module, table extraction, uses the table candidates to ﬁnd particular cells and their content. Once the tables are identiﬁed, this module augments tables with informa- tion regarding their metadata and position within the doc- ument. TAO's output is a JSON document with the table's information and augmented information extracted from the PDF. Optionally, this information can be stored in a NOSQL database for easy access and search. In the following sec- tions, we describe the methods built into the system to per- form automatic table detection and extraction.</p>
 <img src="manifest/multicolumn/images/Im1.png" width="754" height="542" loading="lazy">
-<p class="figure-text">TAO’s input
-Documents oa" Bacument
-a= aA Converted
-7 into XML
-Conversion ea
-att!) | f]e2
-Detection candidates =} Jcandidates
-merersea| |
-tables and extract! eS,
-gawenee Extracted
-a) Detect data and {| and
-| json Tables metadata E Organized
-Organization b) Separate tables Fe per page
-” od ‘on each page sil
-TAO’s output</p>
 <p>Figure 1: The TAble Organization (TAO) system Document Conversion</p>
 <p>Document conversion uses the PDFMiner (Shinyama 2010) extraction tool, which allows converting PDF documents to text, HTML, XML, and tagged PDF formats. PDFMiner outputs the coordinates of the text, font style and size for each character into an XML ﬁle. We evaluated other con- verters (Noonburg 2009; Litchﬁeld 2004), but we selected PDFMiner because it analyzes the structure of the informa- tion on each page, providing a detailed hierarchy of grouped elements based on their spatial relationships in the doc- ument. In addition, PDFMiner has been maintained and widely adopted.</p>
 <p>PDFMiner converts a PDF ﬁle into an XML representa- tion, and generates a body and a layout for each page of the document. The body is formed by text boxes, text lines and text (see Figure 3 for an example). Text boxes include an identiﬁer (id), and the coordinates (x1, y1) represent top- left and (x2, y2) bottom-right corners of the bounding box (bbox). Text boxes are composed of text lines. Text lines<span class="footer-text">592</span>
@@ -130,18 +115,6 @@ TAO’s output</p>
 <p>Once each table is separated as an entity, cells are classi- ﬁed into data or header. The bold font style of the text in the cell classiﬁes text as a header, even though it is not at the top row. This heuristic may fail for customized documents, but is general enough to capture relevant cell differences in documents. A cell is classiﬁed as a header when it it is in a top position that groups some cells under it. Using pattern matching, we also classify the cell content by data type (i.e., numeric or string of characters).</p>
 <p>The output of this component is an explicit table repre- sentation that can be easily ported to a database for efﬁ- cient search. The ﬁle contains a) extracted text of table cells grouped by row, indicating header (i.e., metadata) or data; b) provenance information associated with the cells consist- ing of identiﬁers of text boxes and text lines from where the text was identiﬁed; c) position of tables on each page; and d) metadata attributes including coordinates of the text, text size, text font, and data type. Figure 4 shows the extracted information from four table cells.</p>
 <img src="manifest/multicolumn/images/Im4.png" width="604" height="264" loading="lazy">
-<p class="figure-text">vase —> [are [1990]
-paa_—> | venct [is |
-{t: 7 page number
-{(1:// table number
-{{[6, 6, TTEM \n’, '59.600’, '692.608', 88.892’, ‘708.5921, ‘TimesNewRoman-Bold’, "15.984,
-‘header’, ‘string’,
-[4, 4, 1990 \n,, ['184.200;, '692.608", ‘190.200’, '708.592'), ‘TimesNewRoman-Bold',
-15.984’, header’, ‘numeric']},
-{{5, 6, ‘PENCIL Wn’, ['59.600', '692.608', ‘88.892’, '708.592', ‘TimesNewRoman’, 115.756",
-‘datai, ‘string’,
-{7, 10, 15 \n', [184.200 636.008', 196.200’, ‘651.7641, ‘TimesNewRoman’, "15.756,
-‘data’, ‘numeric’</p>
 <p>Figure 4: Sample of table cells represented by TAO 3 Evaluation To evaluate the usefulness and generality of TAO compared to other PDF table extractors, a systematic assessment of its capability to detect tables and content was performed. De- tecting tables means identifying all the tabular elements in the PDF documents, whether or not their content was recog- nized accurately. Thus, we computed precision and recall. Precision is the fraction of the correct number of tables iden- tiﬁed divided by the total number of tables found. Recall is the fraction of correct tables found, divided by the total number of tables in the documents. The F1-measure com- bines precision and recall. Recognizing tables means cor- rectly identifying and associating cell's content with a par-<span class="footer-text">594</span>
  ticular table. For the recognition task, table cells recognized were used to measure precision and recall.</p>
 <p>We compared and contrasted the performance of TAO with respect to two other table extractors: Pdf-trex and Ta- bleSeer (see Section 4). Pdf-trex code was unavailable, thus we report the precision and recall published in (Oro and Ruf- folo 2009). Because TableSeer's code was publicly available at http://tableseer.soft112.com/, we produced its outputs for all experiments.</p>
