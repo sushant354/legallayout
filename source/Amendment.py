@@ -22,7 +22,7 @@ class ClauseTracker:
 
     _PATTERNS = (
         ("roman", re.compile(r'^\(([ivxlcdmIVXLCDM]{2,6})\)(?=[\s.:;]|$)')),
-        ("arabic_dot", re.compile(r'^(\d{1,3})[.\)](?=[\s]|$)')),
+        ("arabic_dot", re.compile(r'^(\d{1,3})[.\)]?(?=[\s]|$|[A-Z])')),
         ("paren_num", re.compile(r'^\((\d{1,3})\)(?=[\s.:;]|$)')),
         ("alpha", re.compile(r'^\(([A-Za-z])\)(?=[\s.:;]|$)')),
     )
@@ -107,7 +107,9 @@ class Amendment:
         self.bq_pending_trigger = False
         self.bq_return_marker = None
         self.bq_indent_x0 = None
+        self.bq_outer_x0 = None
         self.bq_active_run_length = 0
+        self.bq_has_evidence = False
         self.bq_seen_row = False
         self.clause_tracker = ClauseTracker()
 
@@ -425,9 +427,8 @@ class Amendment:
     # excerpts routinely run past one.
     def check_for_blockquotes_judgments(self, page):
         trigger_re = re.compile(r'[:：][-‐‑‒–—―−]?\s*$')
-        min_trigger_words = 3
+        heading_max_words = 8
         row_y_tolerance = 3.0
-        BQ_MAX_RUN_LENGTH = 80
         annotation_re = re.compile(
             r'\s*[\(\[](emphasis (supplied|added|mine)|underlined?|sic)[\)\]]\.?\s*$',
             re.IGNORECASE,
@@ -499,7 +500,7 @@ class Amendment:
 
         rows.sort(key=lambda r: -max(b["y_top"] for b in r["boxes"]))
 
-        for row in rows:
+        for row_idx, row in enumerate(rows):
             text = row["text"]
             if not text:
                 continue
@@ -515,24 +516,48 @@ class Amendment:
 
                 if self.bq_active:
                     self.bq_active_run_length += 1
-                    if self.bq_active_run_length > BQ_MAX_RUN_LENGTH:
-                        self.bq_active = False
-                        self.bq_quote_stack = []
-                        self.bq_return_marker = None
-                        self.bq_indent_x0 = None
-                        self.bq_active_run_length = 0
-                        self.logger.debug(f"Page {page.pg_num}: blockquote force-closed after {BQ_MAX_RUN_LENGTH} rows before row '{text}'")
 
-                if self.bq_active:
-                    # Quote-character balance and clause-marker matching are two
-                    # independent ways to notice the excerpt has ended - whichever
-                    # fires first wins. The marker check matters precisely because not
-                    # every PDF balances its quotation marks (OCR routinely drops one
-                    # side of a curly quote, and non-English/script-mixed documents
-                    # may not use a Western quote convention at all): the reappearance
-                    # of the outer document's next clause is a language-agnostic
-                    # signal that doesn't depend on quote punctuation being present or
-                    # well-formed.
+                    # A trigger line's opening can still be wrong - a case-heading or
+                    # bench-composition line ending in ':' with no font signal
+                    # distinguishing it (font *names* vary too much across the many
+                    # court/tribunal PDF generators this runs on to be a reliable
+                    # heading test on their own). Rather than guess harder up front,
+                    # track whether the excerpt has produced any actual evidence of
+                    # being a real quote - a quote character, a parseable internal
+                    # marker (even one that doesn't match the outer document's own
+                    # numbering, since a reproduced schedule's "1./2./3." still counts
+                    # as structure), or a left margin clearly offset from the outer
+                    # narrative. A run this long with *zero* such evidence is far more
+                    # likely an unrecognized false trigger silently consuming ordinary
+                    # narrative than a genuine, deliberately unmarked, unindented,
+                    # quote-mark-free excerpt - so it gets rolled back. The much larger
+                    # absolute ceiling is a last-resort backstop only: nothing here is
+                    # a substitute for real close-detection, it just guarantees a
+                    # mistaken open can never consume the rest of the document.
+                    if self.bq_quote_stack or marker is not None:
+                        self.bq_has_evidence = True
+                    elif not self.bq_has_evidence and self.bq_indent_x0 is not None \
+                            and self.bq_outer_x0 is not None:
+                        unit = row_height or 8.0
+                        if abs(self.bq_indent_x0 - self.bq_outer_x0) > max(10.0, 1.2 * unit):
+                            self.bq_has_evidence = True
+
+                    # Three independent ways to notice the excerpt has ended - whichever
+                    # fires first wins. Quote-character balance and clause-marker
+                    # matching aren't enough on their own: not every PDF balances its
+                    # quotation marks (OCR routinely drops one side of a curly quote,
+                    # and non-English/script-mixed documents may not use a Western
+                    # quote convention at all), and a reproduced excerpt that restarts
+                    # its own numbering (e.g. a schedule's internal "1./2./3.") never
+                    # matches the outer document's expected next clause, so marker
+                    # matching alone can leave a genuinely-ended excerpt open
+                    # indefinitely. Indentation return is the structural fallback for
+                    # exactly that case: quoted material is conventionally set off by a
+                    # left-margin indent in the source PDF regardless of language, so a
+                    # row whose margin matches where the outer narrative sat right
+                    # before the excerpt opened - and clearly not the excerpt's own
+                    # indent - is on its own good evidence of having returned to normal
+                    # flow, with no reliance on recognizing its marker/punctuation at all.
                     quote_closed = False
                     if self.bq_quote_stack:
                         quote_char = self.bq_quote_stack[-1]
@@ -554,22 +579,62 @@ class Amendment:
 
                     # A quote-close is trusted as-is - the row carrying the closing
                     # mark is still the excerpt's own last line, so it gets marked
-                    # before deactivating. A marker-close is different in kind: it
-                    # fires on the row *after* the excerpt, the outer document's own
-                    # next clause, which was never part of the quote - so it must
-                    # NOT be marked, and processing falls through to treat it as
-                    # ordinary content (including re-checking it as a fresh trigger).
+                    # before deactivating. A marker-close or indent-return is
+                    # different in kind: it fires on the row *after* the excerpt, the
+                    # outer document's own next clause, which was never part of the
+                    # quote - so it must NOT be marked, and processing falls through
+                    # to treat it as ordinary content (including re-checking it as a
+                    # fresh trigger).
                     marker_closed = (not quote_closed) and ClauseTracker.matches_with_indent(
                         marker, self.bq_return_marker, row_x0, self.bq_indent_x0, row_height
                     )
+                    indent_returned = False
+                    if not quote_closed and not marker_closed and \
+                            self.bq_outer_x0 is not None and row_x0 is not None:
+                        unit = row_height or 8.0
+                        tight = max(4.0, 0.4 * unit)
+                        delta_outer = abs(row_x0 - self.bq_outer_x0)
+                        delta_indent = abs(row_x0 - self.bq_indent_x0) if self.bq_indent_x0 is not None else None
+                        indent_returned = delta_outer <= tight and (
+                            delta_indent is None or delta_outer < delta_indent
+                        )
+                        # A margin match can be a false alarm rather than a genuine
+                        # return to outer flow: a hanging-indent wrapped continuation
+                        # line (a citation's overflow text, a list item's second line)
+                        # can transiently sit close to the outer margin too. Peeking at
+                        # the next row disambiguates - if it snaps straight back to the
+                        # excerpt's own indent (e.g. the list's next lettered item),
+                        # this row was the anomaly, not a real close.
+                        if indent_returned and self.bq_indent_x0 is not None and row_idx + 1 < len(rows):
+                            next_boxes = rows[row_idx + 1]["boxes"]
+                            if next_boxes:
+                                next_x0 = next_boxes[0]["x0"]
+                                next_delta_indent = abs(next_x0 - self.bq_indent_x0)
+                                next_delta_outer = abs(next_x0 - self.bq_outer_x0)
+                                if next_delta_indent <= tight and next_delta_indent < next_delta_outer:
+                                    indent_returned = False
 
-                    if marker_closed:
+                    safety_closed = False
+                    if not quote_closed and not marker_closed and not indent_returned:
+                        if not self.bq_has_evidence and self.bq_active_run_length > 15:
+                            safety_closed = True
+                        elif self.bq_active_run_length > 300:
+                            safety_closed = True
+
+                    if marker_closed or indent_returned or safety_closed:
                         self.bq_active = False
                         self.bq_quote_stack = []
                         self.bq_return_marker = None
                         self.bq_indent_x0 = None
                         self.bq_active_run_length = 0
-                        self.logger.debug(f"Page {page.pg_num}: blockquote closed by clause marker before row '{text}'")
+                        self.bq_has_evidence = False
+                        if marker_closed:
+                            reason = "clause marker"
+                        elif indent_returned:
+                            reason = "indentation return to outer margin"
+                        else:
+                            reason = "no supporting evidence this was ever a real quote"
+                        self.logger.debug(f"Page {page.pg_num}: blockquote closed by {reason} before row '{text}'")
                         # falls through: this row is ordinary outer-flow content
                     else:
                         for b in row["boxes"]:
@@ -580,6 +645,7 @@ class Amendment:
                             self.bq_return_marker = None
                             self.bq_indent_x0 = None
                             self.bq_active_run_length = 0
+                            self.bq_has_evidence = False
                         continue
 
                 pending_trigger = self.bq_pending_trigger
@@ -609,6 +675,7 @@ class Amendment:
                         self.bq_return_marker = return_marker
                         self.bq_indent_x0 = row_x0
                         self.bq_active_run_length = 0
+                        self.bq_has_evidence = bool(self.bq_quote_stack)
                         for b in row["boxes"]:
                             page.all_tbs[b["tb"]] = "blockquote"
                         self.logger.debug(f"Page {page.pg_num}: blockquote opened on row '{text}'")
@@ -620,14 +687,29 @@ class Amendment:
                     continue
 
                 self.clause_tracker.observe(marker, row_x0)
+                # Remembers the outer document's own left margin as of the most
+                # recent ordinary-flow row, frozen while a quote is active - the
+                # baseline the indentation-return closing check above compares
+                # against once we're back out of the quote.
+                self.bq_outer_x0 = row_x0
 
-                # A short line ending in ':' is only rejected as a standalone label
-                # (e.g. "CORAM:", "Present:") when it also *looks* like one - starting
-                # with a capital, as institutional headers do. A short fragment like
-                # "follows:-" that line-wrapped off the end of a longer lead-in sentence
-                # starts lowercase and must still be allowed to open a quote.
+                # A line ending in ':' is only rejected as a standalone label/heading
+                # (e.g. "CORAM:", "Present:", "Scope of review and analysis:") when it
+                # also *looks* like one - starting with a capital, as institutional
+                # headers and section titles do - and it isn't long enough or doesn't
+                # carry the row's own font style (bold), rather than English wording, to
+                # tell a heading apart from a genuine lead-in - a section heading is set
+                # in a visually distinct (bold) font in the PDF regardless of the
+                # document's language/script, while a lead-in sentence is just the tail
+                # of an ordinary body-text paragraph in the regular font. A short
+                # fragment like "follows:-" that line-wrapped off the end of a longer
+                # lead-in sentence is regular-weight body text and must still be allowed
+                # to open a quote.
                 words = text.split()
-                looks_like_standalone_label = len(words) < min_trigger_words and text[0].isupper()
+                row_is_bold = bool(row["boxes"]) and all(
+                    b["tb"].textFont_is_bold() for b in row["boxes"]
+                )
+                looks_like_standalone_label = row_is_bold and len(words) < heading_max_words
                 if trigger_re.search(text) and not looks_like_standalone_label:
                     self.bq_pending_trigger = True
                     self.logger.debug(f"Page {page.pg_num}: blockquote trigger detected in row '{text}'")
