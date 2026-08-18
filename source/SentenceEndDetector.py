@@ -41,7 +41,7 @@ EXTENDED_LEGAL_ABBREVIATIONS = {
     'govt.', 'government', 'dept.', 'department', 'min.', 'ministry',
     'commr.', 'commissioner', 'collr.', 'collector', 'dist.', 'district',
     'tehsildar', 'sdo', 'bdo', 'ceo', 'cfo', 'cmd', 'md', 'gm', 'dgm',
-    'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'ors', 'ors.'
+    'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'vs', 'versus', 'versus.', 'ors', 'ors.'
 }
 
 SECTION_REFERENCE_PATTERNS = [
@@ -216,6 +216,17 @@ class LegalSentenceDetector:
       # 4-6. DECIMALS, ACRONYMS, INITIALS, SECTION/EXHIBIT REFERENCES, LEGAL ABBREVIATIONS
       if is_abbreviation_like_token(last_token):
           return False
+
+      last_token_dot_count = last_token.count('.')
+      if last_token_dot_count > 2:
+          return False
+
+      if last_token_dot_count == 1 and next_text is not None:
+          nxt_stripped = next_text.strip()
+          if nxt_stripped:
+              first_word = nxt_stripped.split()[0]
+              if re.search(r'\.\S', first_word):
+                  return False
 
       # 7. LOOKAHEAD CHECK
       if next_text is not None:

@@ -1529,10 +1529,35 @@ class Main:
             page.label_table_tbs()
 
             # page.line_based_header_footer_detection()
-        # Run adaptive header/footer detection
+
         self.logger.info("Starting adaptive header/footer detection...")
         if not self.is_scanned_copy:
             self.adaptive_header_footer_detection(pages, self.pdf_type)
+
+        protected_tbs_by_page = defaultdict(set)
+        for group in self.adaptive_headers + self.adaptive_footers:
+            for elem in group['elements']:
+                protected_tbs_by_page[elem['page_num']].add(elem['textbox'])
+
+        previous_page_footnote_font_size  = None
+        seen_footnote = set()
+        for page_num, page in self.all_pgs.items():
+            protected_tbs = protected_tbs_by_page.get(page_num, set())
+            page.mark_standalone_footnote_markers(protected_tbs)
+            if self.is_footnote_continuation:
+                previous_page_footnote_font_size, seen_footnote = (
+                    page.get_footnotes(
+                        seen_footnote,
+                        previous_page_footnote_font_size,
+                        protected_tbs
+                    )
+                )
+            else:
+                page.get_footnotes(protected_tbs=protected_tbs)
+            page.detect_footnote_blocks_by_style(protected_tbs)
+
+        if not self.is_scanned_copy:
+            self.finalize_adaptive_header_footer_detection()
 
         if self.table_extract and self.pdf_type != 'judgments':
             self.logger.info("Detecting borderless tables...")
@@ -1557,21 +1582,6 @@ class Main:
         #     self.detect_sebi_header_pre(pages)
 
         self.detect_toc(pages)
-
-        previous_page_footnote_font_size  = None
-        seen_footnote = set()
-        for page in self.all_pgs.values():
-            page.mark_standalone_footnote_markers()
-            if self.is_footnote_continuation:
-                previous_page_footnote_font_size, seen_footnote = (
-                    page.get_footnotes(
-                        seen_footnote,
-                        previous_page_footnote_font_size
-                    )
-                )
-            else:
-                page.get_footnotes()
-            page.detect_footnote_blocks_by_style()
 
         self.finalize_unique_images()
         if not self.unique_images:
@@ -1811,24 +1821,45 @@ class Main:
             uploaded_by_groups = self._group_uploaded_by_patterns(uploaded_by_candidates, total_pages)
             footer_groups.extend(uploaded_by_groups)
             
-            self.logger.info("Grouped into %d header groups and %d footer groups", 
+            self.logger.info("Grouped into %d header groups and %d footer groups",
                            len(header_groups), len(footer_groups))
-            
+
             # Step 5: Simple validation - just use the groups as they are
             self.adaptive_headers = header_groups
             self.adaptive_footers = footer_groups
-            
-            self.logger.info("Adaptive detection complete: %d header groups, %d footer groups", 
+
+            self.logger.info("Adaptive detection complete: %d header groups, %d footer groups",
                            len(self.adaptive_headers), len(self.adaptive_footers))
-            
-            # Step 6: Extend headers/footers to include textboxes on same lines
-            self._extend_headers_footers_by_line(page_elements, LINE_TOLERANCE)
-            
-            # Step 7: Apply the detected headers and footers to pages
-            self._apply_adaptive_headers_footers()
-            
+
+            self._pending_page_elements = page_elements
+            self._pending_line_tolerance = LINE_TOLERANCE
+
         except Exception as e:
             self.logger.exception("Error during adaptive header/footer detection: %s", e)
+
+    def finalize_adaptive_header_footer_detection(self):
+        page_elements = getattr(self, '_pending_page_elements', None)
+        line_tolerance = getattr(self, '_pending_line_tolerance', 0.02)
+        if page_elements is None:
+            return
+
+        try:
+            page_elements = [
+                elem for elem in page_elements
+                if self.all_pgs[elem['page_num']].all_tbs.get(elem['textbox']) is None
+            ]
+            for group in self.adaptive_headers + self.adaptive_footers:
+                group['elements'] = [
+                    elem for elem in group['elements']
+                    if self.all_pgs[elem['page_num']].all_tbs.get(elem['textbox']) is None
+                ]
+
+            self._extend_headers_footers_by_line(page_elements, line_tolerance)
+            self._apply_adaptive_headers_footers()
+        except Exception as e:
+            self.logger.exception("Error finalizing adaptive header/footer detection: %s", e)
+        finally:
+            self._pending_page_elements = None
     
     
     def _analyze_header_footer_content(self, text):
@@ -2645,7 +2676,7 @@ class Main:
                 return None
 
         def norm(txt):
-            return re.sub(r"\s+", " ", txt or "").strip()
+            return re.sub(r"[\s_]+", " ", txt or "").strip()
 
         def tl_text(tl):
             vals = []
@@ -2658,14 +2689,14 @@ class Main:
             chars = []
             for ch in word:
                 if ch.isspace():
-                    chars.append(r'\s+')
+                    chars.append(r'[\s_]+')
                 else:
                     chars.append(re.escape(ch))
-            return r'\s*'.join(chars)
+            return r'[\s_]*'.join(chars)
 
 
         def phrase(txt):
-            return r'\s+'.join(spaced(x) for x in txt.split())
+            return r'[\s_]+'.join(spaced(x) for x in txt.split())
 
 
         months = (
@@ -2680,119 +2711,119 @@ class Main:
         tier1 = [
 
             re.compile(
-                rf'\n\s*({phrase("THE")}\s+)?'
-                rf'({phrase("BRIEF")}\s+)?'
-                rf'({phrase("REASONS FOR THE")}\s+)?'
-                rf'{spaced("JUDGMENT")}\s*:?\s*\n?',
+                rf'\n[\s_]*({phrase("THE")}[\s_]+)?'
+                rf'({phrase("BRIEF")}[\s_]+)?'
+                rf'({phrase("REASONS FOR THE")}[\s_]+)?'
+                rf'{spaced("JUDGMENT")}[\s_]*:?[\s_]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*({spaced("JUDGMENT")}|{spaced("JUDGEMENT")})'
-                rf'\s*(\(.+\))?\s*(:|\n)?',
+                rf'\n[\s_]*({spaced("JUDGMENT")}|{spaced("JUDGEMENT")})'
+                rf'[\s_]*(\(.+\))?[\s_]*(:|\n)?',
                 re.I
             ),
 
             re.compile(
-                rf'^\s*({spaced("JUDGMENT")}|{spaced("JUDGEMENT")})',
+                rf'^[\s_]*({spaced("JUDGMENT")}|{spaced("JUDGEMENT")})',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*[-:]*\s*{spaced("JUDGMENT")}\s*[-:]*\s*\n?',
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("JUDGMENT")}[\s_]*[-:]*[\s_]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*[-:]*\s*{spaced("JUDGEMENT")}\s*[-:]*\s*\n?',
-                re.I
-            ),
-
-
-            re.compile(
-                rf'\n\s*{phrase("EX PARTE JUDGMENT")}\s*\n?',
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("JUDGEMENT")}[\s_]*[-:]*[\s_]*\n?',
                 re.I
             ),
 
 
             re.compile(
-                rf'\n\s*[-:]*\s*{spaced("\u0ca4\u0cc0\u0cb0\u0ccd\u0caa\u0cc1")}\s*[-:]*\s*\n?',   # ತೀರ್ಪು
+                rf'\n[\s_]*{phrase("EX PARTE JUDGMENT")}[\s_]*\n?',
+                re.I
+            ),
+
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0ca4\u0cc0\u0cb0\u0ccd\u0caa\u0cc1")}[\s_]*[-:]*[\s_]*\n?',   # ತೀರ್ಪು
                 re.I
             ),
 
             re.compile(
-                rf'^\s*{spaced("\u0ca4\u0cc0\u0cb0\u0ccd\u0caa\u0cc1")}\s*$',   # ತೀರ್ಪು
+                rf'^[\s_]*{spaced("\u0ca4\u0cc0\u0cb0\u0ccd\u0caa\u0cc1")}[\s_]*$',   # ತೀರ್ಪು
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*[-:]*\s*{spaced("\u0906\u0926\u0947\u0936")}\s*[-:]*\s*\n?',   # आदेश
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0906\u0926\u0947\u0936")}[\s_]*[-:]*[\s_]*\n?',   # आदेश
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0928\u094d\u092f\u093e\u092f\u0928\u093f\u0930\u094d\u0923\u092f")}\s*\n?',   # न्यायनिर्णय
+                rf'\n[\s_]*{spaced("\u0928\u094d\u092f\u093e\u092f\u0928\u093f\u0930\u094d\u0923\u092f")}[\s_]*\n?',   # न्यायनिर्णय
                 re.I
             ),
 
             
             re.compile(
-                rf'\n\s*[-:]*\s*{spaced("\u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}\s*[-:]*\s*\n?',   # निकालपत्र
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}[\s_]*[-:]*[\s_]*\n?',   # निकालपत्र
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u0940 \u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}\s*\n?',   # एकतर्फी निकालपत्र
+                rf'\n[\s_]*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u0940 \u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}[\s_]*\n?',   # एकतर्फी निकालपत्र
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u093e \u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}\s*\n?',   # एकतर्फा निकालपत्र
+                rf'\n[\s_]*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u093e \u0928\u093f\u0915\u093e\u0932\u092a\u0924\u094d\u0930")}[\s_]*\n?',   # एकतर्फा निकालपत्र
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("\u0935\u093e\u091f\u092a \u0906\u0926\u0947\u0936")}\s*\n?',   # वाटप आदेश
+                rf'\n[\s_]*{phrase("\u0935\u093e\u091f\u092a \u0906\u0926\u0947\u0936")}[\s_]*\n?',   # वाटप आदेश
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u093e \u0906\u0926\u0947\u0936")}\s*\n?',   # एकतर्फा आदेश
+                rf'\n[\s_]*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u093e \u0906\u0926\u0947\u0936")}[\s_]*\n?',   # एकतर्फा आदेश
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u0940 \u0906\u0926\u0947\u0936")}\s*\n?',   # एकतर्फी आदेश
+                rf'\n[\s_]*{phrase("\u090f\u0915\u0924\u0930\u094d\u092b\u0940 \u0906\u0926\u0947\u0936")}[\s_]*\n?',   # एकतर्फी आदेश
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0ba4\u0bc0\u0bb0\u0bcd\u0baa\u0bc1\u0bb0\u0bc8")}\s*\n?',   # தீர்ப்புரை
+                rf'\n[\s_]*{spaced("\u0ba4\u0bc0\u0bb0\u0bcd\u0baa\u0bc1\u0bb0\u0bc8")}[\s_]*\n?',   # தீர்ப்புரை
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0ba4\u0bc0\u0bb0\u0bcd\u0baa\u0bcd\u0baa\u0bc1")}\s*\n?',   # தீர்ப்பு
+                rf'\n[\s_]*{spaced("\u0ba4\u0bc0\u0bb0\u0bcd\u0baa\u0bcd\u0baa\u0bc1")}[\s_]*\n?',   # தீர்ப்பு
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0b89\u0ba4\u0bcd\u0ba4\u0bbf\u0bb0\u0bb5\u0bc1")}\s*\n?',   # உத்திரவு
+                rf'\n[\s_]*{spaced("\u0b89\u0ba4\u0bcd\u0ba4\u0bbf\u0bb0\u0bb5\u0bc1")}[\s_]*\n?',   # உத்திரவு
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0b89\u0ba4\u0bcd\u0ba4\u0bb0\u0bb5\u0bc1")}\s*\n?',   # உத்தரவு
+                rf'\n[\s_]*{spaced("\u0b89\u0ba4\u0bcd\u0ba4\u0bb0\u0bb5\u0bc1")}[\s_]*\n?',   # உத்தரவு
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0d35\u0d3f\u0d27\u0d3f\u0d28\u0d4d\u0d2f\u0d3e\u0d2f\u0d02")}\s*\n?',   # വിധിന്യായം
+                rf'\n[\s_]*{spaced("\u0d35\u0d3f\u0d27\u0d3f\u0d28\u0d4d\u0d2f\u0d3e\u0d2f\u0d02")}[\s_]*\n?',   # വിധിന്യായം
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("\u0d09\u0d24\u0d4d\u0d24\u0d30\u0d35\u0d4d")}\s*\n?',   # ഉത്തരവ്
+                rf'\n[\s_]*{spaced("\u0d09\u0d24\u0d4d\u0d24\u0d30\u0d35\u0d4d")}[\s_]*\n?',   # ഉത്തരവ്
                 re.I
             ),
 
@@ -2800,61 +2831,62 @@ class Main:
 
             # AWARD
             re.compile(
-                rf'\n\s*({phrase("FINAL AWARD")}|{phrase("INTERIM AWARD")}|{spaced("AWARD")})\s*(:|\n)?',
+                rf'\n[\s_]*({phrase("FINAL AWARD")}|{phrase("INTERIM AWARD")}|{spaced("AWARD")})[\s_]*(:|\n)?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*({phrase("ORAL AWARD")}|{spaced("AWARD")}\s*\(\s*{spaced("ORAL")}\s*\))',
+                rf'\n[\s_]*({phrase("ORAL AWARD")}|{spaced("AWARD")}[\s_]*\([\s_]*{spaced("ORAL")}[\s_]*\))',
                 re.I
             ),
 
             # P.C.
             re.compile(
-                r'\n\s*((P\s*\.?\s*C\s*\.?)|(P\s*E\s*R\s*C\s*O\s*U\s*R\s*T))\s*(:|-)?\s*\n?',
+                r'\n[\s_]*((P[\s_]*\.?[\s_]*C[\s_]*\.?)|(P[\s_]*E[\s_]*R[\s_]*C[\s_]*O[\s_]*U[\s_]*R[\s_]*T))[\s_]*(:|-)?[\s_]*\n?',
                 re.I
             ),
 
             # ORDER
             re.compile(
-                rf'\n\s*({spaced("ORDER")}|{phrase("COMMON ORDER")})'
-                rf'\s*(\(.+\))?\s*(:|\n)?',
+                rf'\n[\s_]*({spaced("ORDER")}|{phrase("COMMON ORDER")}|'
+                rf'{phrase("FINAL ORDER")}|{phrase("INTERIM ORDER")})'
+                rf'[\s_]*(\(.+\))?[\s_]*(:|\n)?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("DISTRIBUTION ORDER")}\s*\n?',
+                rf'\n[\s_]*{phrase("DISTRIBUTION ORDER")}[\s_]*\n?',
                 re.I
             ),
 
 
             re.compile(
-                rf'^\s*{spaced("ORDER")}',
+                rf'^[\s_]*{spaced("ORDER")}',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("ORDER UNDER")}.*',
+                rf'\n[\s_]*{phrase("ORDER UNDER")}.*',
                 re.I
             ),
 
             # ORAL ORDER / ORAL JUDGMENT
             re.compile(
-                rf'\n\s*(({spaced("ORAL")}\s+({spaced("ORDER")}|{spaced("JUDGMENT")}))|'
-                rf'(({spaced("ORDER")}|{spaced("JUDGMENT")})\s*\(\s*{spaced("ORAL")}\s*\)))',
+                rf'\n[\s_]*(({spaced("ORAL")}[\s_]+({spaced("ORDER")}|{spaced("JUDGMENT")}))|'
+                rf'(({spaced("ORDER")}|{spaced("JUDGMENT")})[\s_]*\([\s_]*{spaced("ORAL")}[\s_]*\)))',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("ORDER BELOW EXH")}\s*\n?',
+                rf'\n[\s_]*{phrase("ORDER BELOW EXH")}[\s_]*\n?',
                 re.I
             ),
 
 
             # COMMON
             re.compile(
-                rf'\n\s*{phrase("COMMON")}\s+'
-                rf'({spaced("JUDGMENT")}|{spaced("ORDER")})\s*(\n|:)?',
+                rf'\n[\s_]*{phrase("COMMON")}[\s_]+'
+                rf'({spaced("JUDGMENT")}|{spaced("ORDER")})[\s_]*(\n|:)?',
                 re.I
             ),
         ]
@@ -2866,7 +2898,7 @@ class Main:
 
             # MANDEEP PANNU, J. (ORAL)
             re.compile(
-                rf'\n?[A-Z .]{{3,120}},\s*J\.?\s*\(?{spaced("ORAL")}\)?\s*\n?',
+                rf'\n?[A-Z .]{{3,120}},[\s_]*J\.?[\s_]*\(?{spaced("ORAL")}\)?[\s_]*\n?',
                 re.I
             ),
 
@@ -2879,19 +2911,19 @@ class Main:
 
             re.compile(
                 r',[ \xa0]*(((C\.|J)?(J[. \r\t]+:?|Judge:)'
-                r'([ ]*\(?(Oral|ORAL)\)?)?)|(J\s*\(Oral\)))'
+                r'([ ]*\(?(Oral|ORAL)\)?)?)|(J[\s_]*\(Oral\)))'
                 r'[. \r\t:]*\n?',
                 re.I
             ),
 
             re.compile(
-                r'\n\s*(Per|PER).+,\s*J\s*(:\s*)?\n?',
+                r'\n[\s_]*(Per|PER).+,[\s_]*J[\s_]*(:[\s_]*)?\n?',
                 re.I
             ),
 
             # CORAM
             re.compile(
-                rf'\n\s*({spaced("PER")}|{spaced("CORAM")})\s*:\s*{spaced("JUSTICE")}.*',
+                rf'\n[\s_]*({spaced("PER")}|{spaced("CORAM")})[\s_]*:[\s_]*{spaced("JUSTICE")}.*',
                 re.I
             ),
 
@@ -2901,25 +2933,25 @@ class Main:
             # never matched that spelling and fell through to the much
             # weaker generic comma-based fallback below.
             re.compile(
-                rf"\n\s*(H\s*O\s*N\s*['’]?\s*B\s*L\s*E|{spaced('HONOURABLE')}).{{3,20}}{spaced('JUSTICE')}.*",
+                rf"\n[\s_]*(H[\s_]*O[\s_]*N[\s_]*['’]?[\s_]*B[\s_]*L[\s_]*E|{spaced('HONOURABLE')}).{{3,20}}{spaced('JUSTICE')}.*",
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("JUSTICE")}.{{0,30}}',
+                rf'\n[\s_]*{spaced("JUSTICE")}.{{0,30}}',
                 re.I
             ),
 
             # PRESENT
             re.compile(
-                rf'\n\s*{spaced("PRESENT")}\s*\n?',
+                rf'\n[\s_]*{spaced("PRESENT")}[\s_]*\n?',
                 re.I
             ),
 
             # PRONOUNCED
             re.compile(
-                rf'\n\s*({spaced("PRONOUNCED")}|{spaced("DICTATED")})'
-                rf'(\s+{phrase("IN COURT")})?',
+                rf'\n[\s_]*({spaced("PRONOUNCED")}|{spaced("DICTATED")})'
+                rf'([\s_]+{phrase("IN COURT")})?',
                 re.I
             ),
         ]
@@ -2930,15 +2962,15 @@ class Main:
         tier3 = [
 
             re.compile(
-                rf'\n\s*(({spaced("MEMBER")})\s*\((J|A|T)\)|'
-                rf'({spaced("CHAIRMAN")})(\s*\((A|J)\))?|'
+                rf'\n[\s_]*(({spaced("MEMBER")})[\s_]*\((J|A|T)\)|'
+                rf'({spaced("CHAIRMAN")})([\s_]*\((A|J)\))?|'
                 rf'(({phrase("JUDICIAL MEMBER")}|{phrase("ADMINISTRATIVE MEMBER")}|{phrase("TECHNICAL MEMBER")})))'
-                rf'\s*:?\s*\n?',
+                rf'[\s_]*:?[\s_]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("MEMBER")}[ .:-]*\n?',
+                rf'\n[\s_]*{spaced("MEMBER")}[ .:-]*\n?',
                 re.I
             ),
 
@@ -2990,12 +3022,12 @@ class Main:
             ),
 
             re.compile(
-                rf'\n\s*{phrase("FACT OF THE CASE")}\s*:?\s*\n?',
+                rf'\n[\s_]*{phrase("FACT OF THE CASE")}[\s_]*:?[\s_]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("EXORDIUM")}\s*:?\s*\n?',
+                rf'\n[\s_]*{spaced("EXORDIUM")}[\s_]*:?[\s_]*\n?',
                 re.I
             ),
 
@@ -3005,7 +3037,7 @@ class Main:
             ),
 
             re.compile(
-                rf'\n\s*{spaced("RESPONDENT")}(S)?.{{0,15}}',
+                rf'\n[\s_]*{spaced("RESPONDENT")}(S)?.{{0,15}}',
                 re.I
             ),
         ]
@@ -3015,13 +3047,13 @@ class Main:
         tier5 = [
 
             re.compile(
-                rf'\n\s*({spaced("DATED")}[\s:,]+({spaced("THE")}\s+)?)'
-                rf'\d{{1,2}}\s*(th|rd|nd|st)\s+({months})[,\s]+\d{{4}}\s*\n?',
+                rf'\n[\s_]*({spaced("DATED")}[\s:,]+({spaced("THE")}[\s_]+)?)'
+                rf'\d{{1,2}}[\s_]*(th|rd|nd|st)[\s_]+({months})[,\s]+\d{{4}}[\s_]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{spaced("DATED")}\s*:.*',
+                rf'\n[\s_]*{spaced("DATED")}[\s_]*:.*',
                 re.I
             ),
 
@@ -3031,12 +3063,12 @@ class Main:
             ),
 
             re.compile(
-                rf'\n\s*{phrase("ORDER DATED")}\s*:\s*\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}\s*\n?',
+                rf'\n[\s_]*{phrase("ORDER DATED")}[\s_]*:[\s_]*\d{{1,2}}[./-]\d{{1,2}}[./-]\d{{2,4}}[\s_]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("ORDER DATED")}\s*:\s*\n?',
+                rf'\n[\s_]*{phrase("ORDER DATED")}[\s_]*:[\s_]*\n?',
                 re.I
             ),
         ]
@@ -3045,17 +3077,17 @@ class Main:
         tier6 = [
 
             re.compile(
-                rf'\n\s*({phrase("BY THE COURT")}|{phrase("BY COURT")}|{phrase("PER COURT")}).*',
+                rf'\n[\s_]*({phrase("BY THE COURT")}|{phrase("BY COURT")}|{phrase("PER COURT")}).*',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*{phrase("FOR THE PETITIONER")}(S)?[\s.]*\n?',
+                rf'\n[\s_]*{phrase("FOR THE PETITIONER")}(S)?[\s.]*\n?',
                 re.I
             ),
 
             re.compile(
-                rf'\n\s*({phrase("PUBLIC PROSECUTOR")}|{phrase("FOR THE RESPONDENT")})(S)?[\s.]*\n?',
+                rf'\n[\s_]*({phrase("PUBLIC PROSECUTOR")}|{phrase("FOR THE RESPONDENT")})(S)?[\s.]*\n?',
                 re.I
             ),
 

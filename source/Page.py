@@ -1628,11 +1628,15 @@ class Page:
     def get_footnotes(
         self,
         seen_footnotes=None,
-        previous_page_footnote_font_size=None
+        previous_page_footnote_font_size=None,
+        protected_tbs=None
     ):
 
         if seen_footnotes is None:
             seen_footnotes = set()
+
+        if protected_tbs is None:
+            protected_tbs = set()
 
         FOOTNOTE_RE = re.compile(
             r'\{\{\^\{\{FOOTNOTE\s*(\d+)\}\}\}\}'
@@ -1695,7 +1699,7 @@ class Page:
                     re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
                 )
 
-                if not is_bare_number and self.all_tbs[tb] is None:
+                if not is_bare_number and self.all_tbs[tb] is None and tb not in protected_tbs:
                     self.all_tbs[tb] = 'footnote'
                     current_footnote_font_size = tb.avg_font_size
 
@@ -1705,7 +1709,11 @@ class Page:
             # continuation based on font size
             # -----------------------------------------
 
-            if current_footnote_font_size is not None and self.all_tbs[tb] is None:
+            if (
+                current_footnote_font_size is not None
+                and self.all_tbs[tb] is None
+                and tb not in protected_tbs
+            ):
 
                 same_font = (
 
@@ -1743,22 +1751,28 @@ class Page:
             referenced_nums.update(tb.footnotes_superscript.values())
         return referenced_nums
 
-    def mark_standalone_footnote_markers(self):
+    def mark_standalone_footnote_markers(self, protected_tbs=None):
         referenced_nums = self.get_referenced_footnote_nums()
         if not referenced_nums:
             return
-        self._mark_standalone_footnote_citations(referenced_nums)
+        self._mark_standalone_footnote_citations(referenced_nums, protected_tbs)
 
-    def detect_footnote_blocks_by_style(self):
+    def detect_footnote_blocks_by_style(self, protected_tbs=None):
+        if protected_tbs is None:
+            protected_tbs = set()
+
         try:
             referenced_nums = self.get_referenced_footnote_nums()
 
             if not referenced_nums:
                 return
 
-            self._mark_standalone_footnote_citations(referenced_nums)
+            self._mark_standalone_footnote_citations(referenced_nums, protected_tbs)
 
-            unlabeled_in_order = [tb for tb, label in self.all_tbs.items() if label is None]
+            unlabeled_in_order = [
+                tb for tb, label in self.all_tbs.items()
+                if label is None and tb not in protected_tbs
+            ]
             if not unlabeled_in_order:
                 return
 
@@ -1829,12 +1843,15 @@ class Page:
         except Exception as e:
             self.logger.warning(f"Page {self.pg_num}: Failed footnote-style detection: {e}")
 
-    def _mark_standalone_footnote_citations(self, referenced_nums):
+    def _mark_standalone_footnote_citations(self, referenced_nums, protected_tbs=None):
+        if protected_tbs is None:
+            protected_tbs = set()
+
         bare_number_re = re.compile(r'^\(?([0-9]{1,3})\)?$')
         tbs_in_order = list(self.all_tbs.keys())
 
         for idx, tb in enumerate(tbs_in_order):
-            if self.all_tbs[tb] is not None:
+            if self.all_tbs[tb] is not None or tb in protected_tbs:
                 continue
 
             if tb.footnotes_superscript:
