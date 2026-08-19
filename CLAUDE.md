@@ -166,12 +166,10 @@ python -m source.Main -i union_hindi.pdf -o out/ -t egazette -nfd   # names and 
 
 ### Testing
 ```bash
-# Layout unit tests
-python -m unittest test.TestPageLayout
-
 # Diff-based end-to-end tests (compares generated HTML against baselines)
 python -m unittest test.TestPdfToHtmlDiff
 ```
+The diff tests are the whole suite: `test/TestPageLayout.py` was removed, having been dead since `get_page_layout()` (the single method it exercised) was deleted from `Page.py` in June 2025 - by then its fixture pdf was gone too, its remaining calls were six signature changes out of date, and its one assertion was commented out, so it reported success while recording four of ten pages as mismatched. Multi-column layout is covered end-to-end instead, by `multicolumn.pdf` in `test/test_cases.csv`. `test/SampleTest.xml` (the parsed xml of that fixture, 10 pages) is kept as the input a rewritten layout unit test would use.
 See `test/README_diff_test.md` for details on configuring test cases via `test/test_cases.csv`.
 
 ### Installing Dependencies

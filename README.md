@@ -134,7 +134,6 @@ model/
 └── eng_hin_fonts.pkl       # font classifier used by -fm/--font-model (Git LFS)
 
 test/
-├── TestPageLayout.py        # Layout unit tests
 ├── TestPdfToHtmlDiff.py     # Diff-based end-to-end tests
 ├── test_cases.csv           # Test case configuration
 ├── test_pdfs/                # Sample input PDFs
@@ -147,9 +146,6 @@ cache_pdf/   # Temporary PDF storage (gitignored)
 ## Testing
 
 ```bash
-# Layout unit tests
-python -m unittest test.TestPageLayout
-
 # Diff-based end-to-end tests against baseline HTML
 python -m unittest test.TestPdfToHtmlDiff
 ```
