@@ -120,6 +120,37 @@ FONT_DETECT_MIN_WORDS = 20
 # --- and how sure the model has to be before its answer is acted on
 FONT_DETECT_MIN_PROB = 0.5
 
+# --- the fonts whose name does say what they are drawing, and says that it is
+# --- plain latin unicode: the standard text faces, the ones the corpus's
+# --- not_required class is built out of (see FontSurvey's -nf). A font named
+# --- like one of these is never handed to the model at all - there is nothing
+# --- for detection to add, since the answer is already known, and a false
+# --- positive on one of them would decode text that is perfectly readable as
+# --- it is. This is the name-based half of the same guard get_detected_font_key()
+# --- applies to the model's answers. Written with an optional separator inside
+# --- the multi word names because a pdf spells them both ways (Book Antiqua and
+# --- BookAntiqua, Yu Gothic and YuGothic), and matched anywhere in the name,
+# --- case insensitively, exactly as the -fc and the built in font names are -
+# --- so a subset prefix or a style suffix (ABCDEF+TimesNewRoman,Bold) matches too
+FONT_DETECT_SKIP_RE = re.compile(
+    r'times|arial|calibri|cambria|courier|helvetica|verdana|tahoma|garamond'
+    r'|book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro'
+    r'|minion[\s_-]*pro|segoe|malgun|yu[\s_-]*gothic',
+    re.IGNORECASE
+)
+
+# --- the one name the list above catches that must still be classified: Arial
+# --- Unicode MS is not a plain latin face, it is a devanagari font shipping a
+# --- ToUnicode map that was built wrong, so its text extracts as the wrong
+# --- devanagari and does need a decoder (see get_repaired_font_res). Normally
+# --- repair_tounicode() places it long before detection is reached, and the
+# --- whitelist is never consulted for it; this exception is for the build where
+# --- that does not happen - indic2unicode without ToUnicodeFixer - where the
+# --- model naming it arialuni is the only thing left that can place it. Spelt
+# --- with the same optional separator as the names above, since a pdf embeds it
+# --- both as Arial Unicode MS and as ArialUnicodeMS
+FONT_DETECT_SKIP_EXCEPT_RE = re.compile(r'arial[\s_-]*unicode', re.IGNORECASE)
+
 # --- evidence saturates long before a whole document is read (100 words of the
 # --- gazette's chanakya already score 1.00), while the features are every 1 to
 # --- 5 word phrase of the text, so there is nothing to gain from featurizing
@@ -638,7 +669,12 @@ class Main:
         A font is unplaced here when neither its name, nor a -fc mapping, nor a
         ToUnicode repair has said what its text is - which is exactly the case
         the classifier is for. The fonts that are already placed are left out:
-        their answer is known and a worse one must not overrule it.
+        their answer is known and a worse one must not overrule it. So are the
+        standard latin faces of FONT_DETECT_SKIP_RE, for the same reason read
+        the other way round: their name places them as needing no decoder at
+        all, and the model cannot improve on that, only get it wrong. Arial
+        Unicode MS is named like one of them but is not one of them
+        (FONT_DETECT_SKIP_EXCEPT_RE), so it is classified like anything else.
 
         The text of a font is collected as the runs of consecutive chars drawn
         in it joined with a space, and not as one string of every char it draws:
@@ -678,6 +714,14 @@ class Main:
 
         for font_name, runs in font_runs.items():
             if self.get_indic_font_key(font_name):
+                continue
+
+            if FONT_DETECT_SKIP_RE.search(font_name) and \
+                    not FONT_DETECT_SKIP_EXCEPT_RE.search(font_name):
+                self.logger.debug(
+                    "Font %s is one of the standard latin faces, whose text needs "
+                    "no decoder, so it is not classified at all", font_name
+                )
                 continue
 
             words = ' '.join(runs).split()
