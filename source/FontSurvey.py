@@ -11,10 +11,12 @@ sample alone.
 
 It also doubles as the corpus builder for the font classifier in
 machinelearning/: -tf/--training-font names a class of fonts needing a
-decoder by regexp and every run of text drawn in a font matching it is
-written, one sample per line, to <label>.txt in -td/--training-dir;
--nf/--not-required-font names the fonts needing no decoder, which make up
-not_required.txt. Text drawn in a font matched by neither is dropped. The
+decoder by regexp and every run of text drawn in a font matching it becomes a
+row of samples.csv in -td/--training-dir - label, font, pdf, text, one sample
+per row; -nf/--not-required-font names the fonts needing no decoder, which
+make up the not_required class. Carrying the font and pdf alongside the text
+is what says where a sample came from when a class looks polluted. Text drawn
+in a font matched by neither is dropped. The
 runs of one font are stitched together in drawing order until a sample is
 -tw/--training-words long, one line of a pdf being far too little evidence
 to classify an encoding from.
@@ -26,6 +28,7 @@ to classify an encoding from.
 
 import os
 import re
+import csv
 import glob
 import json
 import codecs
@@ -59,7 +62,7 @@ def get_words(text):
 
 
 class TrainingWriter:
-    """Writes the text drawn in each font into a per-class training file.
+    """Writes the text drawn in each font as a labelled row of samples.csv.
 
     Every class is named by a regexp matched against the font name the same
     way -fc/--font-conv matches its font names - anywhere in the name, case
@@ -69,24 +72,35 @@ class TrainingWriter:
     (-nf), so a font matching both is treated as needing one.
 
     Both sides of the corpus are named explicitly: -tf says which fonts need
-    decoding, -nf says which need none and make up not_required.txt. Text
-    drawn in a font that matches neither is *dropped*, because there is no
+    decoding, -nf says which need none and make up the not_required class.
+    Text drawn in a font matching neither is *dropped*, because there is no
     way to tell which side it belongs on - and a font that in fact needs
     decoding, silently swept into the negative class, would teach the
     classifier the exact opposite of the truth. The dropped fonts are
     reported so the regexps can be widened to cover them.
 
-    One line is one sample and one sample is min_words words of text drawn in
+    The whole corpus is one file, samples.csv, with a row per sample:
+    label, font, pdf, text. It is the single source machinelearning/ trains
+    from, and carrying the font and pdf on every row is what lets a suspect
+    sample be traced back to the font and the document that produced it - the
+    class alone cannot say which of the fonts a regexp matched drew it.
+
+    One row is one sample and one sample is min_words words of text drawn in
     one font: a single line of a pdf is far too little evidence to classify
     an encoding from, so the runs of a font are stitched together in the
     order they are drawn until the sample is that long and only then written
-    out. Newlines can never appear inside a sample. Stitching stops at the
+    out. Newlines can never appear inside a sample, so a row is always a
+    line. Stitching stops at the
     end of each document, so a sample never mixes two pdfs, and whatever a
     document ends with is written out short rather than dropped.
     """
 
     NOT_REQUIRED = 'not_required'
-    # the label is used as a filename, so keep it to something that is one
+    # the corpus itself: every sample, with the font and pdf it came from
+    CORPUS_NAME  = 'samples.csv'
+    CORPUS_FIELDS= ['label', 'font', 'pdf', 'text']
+    # the label is a class name read back by machinelearning/features.py, so
+    # keep it to something plain
     LABEL_RE     = re.compile(r'^[A-Za-z0-9_-]+$')
     # words per sample. enough to carry a distribution of words and phrases,
     # while still cutting a page of one font into several samples
@@ -96,7 +110,8 @@ class TrainingWriter:
         self.outdir    = Path(outdir)
         self.label_res = label_res
         self.min_words = min_words
-        self.files     = {}
+        self.corpus    = None
+        self.writer    = None
         self.counts    = {label: 0 for label, _re in label_res}
         self.words     = {label: 0 for label, _re in label_res}
         self.fonts     = {}
@@ -104,6 +119,10 @@ class TrainingWriter:
         # per font rather than per class, so two fonts of one class drawn
         # alternately do not interleave inside a sample
         self.pending   = {}
+        # the pdf each pending sample is being built from. a sample never
+        # spans two documents (flush() is called between them), so one file
+        # name describes the whole of it
+        self.pending_files = {}
         # fonts no regexp claimed, and how much text was dropped with them
         self.dropped   = {}
         self.logger    = logging.getLogger('fontsurvey.training')
@@ -123,19 +142,25 @@ class TrainingWriter:
                 return label
         return None
 
-    def get_file(self, label):
-        if label not in self.files:
-            path = self.outdir.joinpath(f'{label}.txt')
-            self.files[label] = codecs.open(str(path), 'w', encoding = 'utf8')
-        return self.files[label]
+    def get_writer(self):
+        """The corpus csv, opened and given its header on first use."""
+        if self.writer is None:
+            path = self.outdir.joinpath(self.CORPUS_NAME)
+            self.corpus = codecs.open(str(path), 'w', encoding = 'utf8', \
+                                      errors = 'replace')
+            self.writer = csv.writer(self.corpus, lineterminator = '\n')
+            self.writer.writerow(self.CORPUS_FIELDS)
+        return self.writer
 
-    def write_sample(self, label, fontname, words):
-        self.get_file(label).write(' '.join(words) + '\n')
+    def write_sample(self, label, fontname, words, filepath = None):
+        # a sample can never contain a newline, so a row is always a line
+        self.get_writer().writerow([label, fontname or '', filepath or '', \
+                                    ' '.join(words)])
         self.counts[label] += 1
         self.words[label]  += len(words)
         self.fonts.setdefault(label, set()).add(fontname)
 
-    def add_text(self, fontname, text):
+    def add_text(self, fontname, text, filepath = None):
         # a sample is a line, so nothing inside it may be one; the source
         # spans do not contain newlines, but a pdf can draw anything
         words = text.split()
@@ -149,10 +174,15 @@ class TrainingWriter:
             return
 
         pending = self.pending.setdefault(fontname, [])
+        # a sample is built inside one document, so the first pdf to
+        # contribute to it names the whole of it
+        self.pending_files.setdefault(fontname, filepath)
         pending.extend(words)
         if len(pending) >= self.min_words:
-            self.write_sample(label, fontname, pending)
+            self.write_sample(label, fontname, pending, \
+                              self.pending_files.get(fontname))
             self.pending[fontname] = []
+            self.pending_files.pop(fontname, None)
 
     def flush(self):
         """End of a document: write out every part-built sample as it is.
@@ -166,14 +196,17 @@ class TrainingWriter:
                 continue
             label = self.get_label(fontname)
             if label is not None:
-                self.write_sample(label, fontname, pending)
-        self.pending = {}
+                self.write_sample(label, fontname, pending, \
+                                  self.pending_files.get(fontname))
+        self.pending       = {}
+        self.pending_files = {}
 
     def close(self):
         self.flush()
-        for f in self.files.values():
-            f.close()
-        self.files = {}
+        if self.corpus is not None:
+            self.corpus.close()
+            self.corpus = None
+            self.writer = None
 
     def get_dropped_report(self, max_fonts = 25):
         if not self.dropped:
@@ -191,7 +224,8 @@ class TrainingWriter:
         return lines
 
     def get_report(self):
-        lines = ['', '=' * 78, f'training corpus in {self.outdir}', '=' * 78]
+        corpus = self.outdir.joinpath(self.CORPUS_NAME)
+        lines  = ['', '=' * 78, f'training corpus in {corpus}', '=' * 78]
         for label in self.counts:
             fonts = sorted(self.fonts.get(label, ()))
             shown = ', '.join(fonts[:10])
@@ -200,7 +234,7 @@ class TrainingWriter:
             lines.append('')
             count = self.counts[label]
             words = self.words[label]
-            lines.append(f'{label}.txt')
+            lines.append(f'{label}')
             lines.append(f'    samples : {count}')
             # a mean well under --training-words means the class is made of
             # documents that each draw the font only a little, so most of its
@@ -471,7 +505,7 @@ class FontSurvey:
                         continue
                     self.get_record(name).add_text(filepath, page.number, text)
                     if self.training:
-                        self.training.add_text(name, text)
+                        self.training.add_text(name, text, filepath)
 
     def survey_pdf(self, path, relative_to = None):
         filepath = str(path.relative_to(relative_to) if relative_to else path)
@@ -636,14 +670,14 @@ def get_arg_parser():
                                'by a regexp matched anywhere in the font name, '
                                'case insensitively (-tf nirmala="nirmala\\s*ui"). '
                                'Every run of text drawn in a matching font is '
-                               'written as one line of LABEL.txt in '
-                               '--training-dir. Repeatable, first match wins')
+                               'written as a row labelled LABEL in the corpus '
+                               'csv. Repeatable, first match wins')
     parser.add_argument('-nf', '--not-required-font', \
                         dest = 'not_required_fonts', action = 'append', \
                         default = None, metavar = 'REGEX', \
                         help = 'fonts that need no decoding, matched the same '
-                               'way; their text is the negative class and '
-                               'goes to not_required.txt. Repeatable. Text '
+                               'way; their text is the negative class, '
+                               'labelled not_required. Repeatable. Text '
                                'drawn in a font matched by neither --training-'
                                'font nor this is dropped, not guessed at')
     parser.add_argument('-tw', '--training-words', dest = 'training_words', \
@@ -658,9 +692,10 @@ def get_arg_parser():
                                f'an encoding from')
     parser.add_argument('-td', '--training-dir', dest = 'training_dir', \
                         action = 'store', default = None, \
-                        help = 'directory to write the per-class training '
-                               'files into (default training_data when '
-                               '--training-font is given)')
+                        help = 'directory to write the training corpus '
+                               f'({TrainingWriter.CORPUS_NAME}: label, font, '
+                               'pdf, text per sample) into (default '
+                               'training_data when --training-font is given)')
     parser.add_argument('-o', '--output-file', dest = 'output_file', \
                         action = 'store', default = None, \
                         help = 'write the report here instead of stdout')

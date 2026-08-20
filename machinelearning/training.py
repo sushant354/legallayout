@@ -2,8 +2,8 @@
 
     python -m machinelearning.training -d training_data -m model/eng_hin_fonts.pkl
 
-Reads the per-class corpus FontSurvey's -td/--training-dir wrote, builds the
-top 10,000 phrase features (see features.py), runs a stratified k fold cross
+Reads the samples.csv corpus FontSurvey's -td/--training-dir wrote, builds
+the top 10,000 phrase features (see features.py), runs a stratified k fold cross
 validation over every requested learner, and trains the chosen one on the
 whole corpus and pickles it together with its vocabulary so predict.py can
 classify the text of a font whose name says nothing about its encoding.
@@ -155,8 +155,9 @@ def get_arg_parser():
                       'which decoder a font needs from the text drawn in it.')
     parser.add_argument('-d', '--data-dir', dest = 'data_dir', \
                         action = 'store', default = 'training_data', \
-                        help = 'directory of per-class corpus files written '
-                               'by FontSurvey -td (default training_data)')
+                        help = 'directory holding the samples.csv corpus '
+                               'written by FontSurvey -td (default '
+                               'training_data)')
     parser.add_argument('-m', '--model-file', dest = 'model_file', \
                         action = 'store', default = None, \
                         help = 'pickle the trained model and its vocabulary '

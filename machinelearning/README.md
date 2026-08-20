@@ -9,7 +9,7 @@ learnable, and this is the pipeline that learns it.
 
     corpus            features             model
     FontSurvey -td -> 1..5 word phrases -> Orange3 classifier
-    <label>.txt       top 10,000
+    samples.csv       top 10,000
 
 ## 1. Build the corpus
 
@@ -17,10 +17,11 @@ learnable, and this is the pipeline that learns it.
 regexps, matched (anywhere, case insensitively) against the font name:
 
 - `-tf/--training-font LABEL=REGEX` - a class of fonts that **needs** a
-  decoder. The text drawn in a matching font is written to `<label>.txt`.
+  decoder. The text drawn in a matching font is written with `LABEL` as its
+  class.
 - `-nf/--not-required-font REGEX` - fonts that need **no** decoder. Their
-  text is the negative class, `not_required.txt`. Repeat the option to list
-  the families a few at a time.
+  text is the negative class, `not_required`. Repeat the option to list the
+  families a few at a time.
 
 ```bash
 python -m source.FontSurvey -i pdfs/ -r -td training_data \
@@ -31,6 +32,29 @@ python -m source.FontSurvey -i pdfs/ -r -td training_data \
     -tf type3='^type3' \
     -nf 'times|arial|calibri|cambria|courier|helvetica' \
     -nf 'liberation|dejavu|nimbus|century|tahoma'
+```
+
+The whole corpus is one file, `training_data/samples.csv`, a row per sample:
+
+```
+label,font,pdf,text
+chanakya,TT572t00,union_hindi.pdf,"ubZ fnYyh] 3 tqykbZ] 2018 …"
+not_required,TimesNewRomanPSMT,act1.pdf,"The following Act of Parliament …"
+```
+
+Only `label` and `text` are learned from. `font` and `pdf` are there because
+a class that looks wrong is a question the label cannot answer: a regexp like
+`chanakya='chanakya|TT[0-9A-F]+t[0-9]+'` matches a *shape*, not an encoding,
+so any unrelated `TT…t…` font lands in that class and only the font name says
+which. Group the csv to see what actually fed a class:
+
+```bash
+python -c "
+import csv, collections
+rows = [r for r in csv.DictReader(open('training_data/samples.csv'))
+        if r['label'] == 'chanakya']
+for k, v in sorted(collections.Counter((r['font'], r['pdf']) for r in rows).items()):
+    print(v, k)"
 ```
 
 `type3` is a class like any other: the Type3 fonts of a distilled gazette
@@ -62,7 +86,7 @@ drawn in it - read it first and write the regexps from it.
 
 ### Sample size
 
-One line of the file is one sample, and one sample is `-tw/--training-words`
+One row of the csv is one sample, and one sample is `-tw/--training-words`
 words (default 50) of text drawn in one font. A single line of a pdf is about
 six words, which is nowhere near enough to tell one encoding from another, so
 the runs of a font are stitched together in the order they are drawn until
@@ -96,7 +120,10 @@ python -m machinelearning.training -d training_data -m model/eng_hin_fonts.pkl \
     -k 10 -mc 20000 -vf vocab.json
 ```
 
-`features.py` counts every 1 to 5 word phrase in the corpus, keeps the
+`features.py` reads `samples.csv` (a directory of per-class `<label>.txt`
+files, the layout FontSurvey wrote before the csv, is still read when there
+is no `samples.csv` in it), counts every 1 to 5 word phrase in the corpus,
+keeps the
 `-tk/--top-k` most frequent (10,000 by default) as the feature set, and
 builds a sparse Orange `Table` of per-sample phrase counts with the class
 name as the target. `training.py` then runs a stratified `-k` fold
@@ -112,7 +139,7 @@ needs `git lfs pull` before the checked-in model is anything but a pointer.
 Options worth knowing:
 
 - `-mc/--max-per-class` caps the samples read from each class. Real corpora
-  are wildly imbalanced (a hundred thousand `not_required` lines against a
+  are wildly imbalanced (a hundred thousand `not_required` rows against a
   few hundred nirmala ones) and the cap is the cheapest fix. The confusion
   matrix is printed in samples so the imbalance stays visible either way.
 - `-ms/--min-samples` drops a class with fewer samples than the fold count
