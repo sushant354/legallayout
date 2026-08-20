@@ -29,11 +29,86 @@ LEGAL_ABBREVIATIONS= {
             "XRH.", "SEBI.", "RBI.", "CBI.", "CBDT.", "ITAT.", "NCLT.", "NCLAT.", "HC.", "SC.",
 
             # Special references
-            "No.", "pp.", "para.", "cl.", "art.", "reg.", "sch.", "Vol.", "Ed.", "Ch."
+            "No.", "pp.", "para.", "cl.", "art.", "reg.", "sch.", "Vol.", "Ed.", "Ch.",
+
+            # Case citation party-separator ("X v. Y")
+            "v.",
         }
 
+EXTENDED_LEGAL_ABBREVIATIONS = {
+    'ld.', 'learned', 'adv.', 'advocate', 'sr.', 'senior', 'jr.', 'junior',
+    'retd.', 'retired', 'addl.', 'additional', 'asstt.', 'assistant',
+    'govt.', 'government', 'dept.', 'department', 'min.', 'ministry',
+    'commr.', 'commissioner', 'collr.', 'collector', 'dist.', 'district',
+    'tehsildar', 'sdo', 'bdo', 'ceo', 'cfo', 'cmd', 'md', 'gm', 'dgm',
+    'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'vs', 'versus', 'versus.', 'ors', 'ors.'
+}
+
+SECTION_REFERENCE_PATTERNS = [
+    re.compile(r'^(Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\.\s*\d+$', re.I),
+    re.compile(r'^\d+\.$'),
+    re.compile(r'^\d+\.\d+\.$'),
+    re.compile(r'^\d+\.\d+\.\d+\.$'),
+    re.compile(r'^(Sec|Section|Art|Article|Rule)\s+\d+\.$', re.I),
+    re.compile(r'^(Exh|Exhibit|Ex)\.?\s*\d+[A-Za-z]*\.?$', re.I),
+]
+
+STATUTORY_ACRONYM_RE = re.compile(
+    r'^(SEBI|RBI|CBDT|ITAT|NCLT|NCLAT|CBI|ED|FIU|MCA|ROC|DIN|PAN|TAN|GST|CGST|SGST|IGST|UTI|LIC|SBI|HDFC|ICICI|AXIS)\.$',
+    re.I
+)
+
+INITIALS_RE = re.compile(r'^[A-Z]+(\.[A-Z]+)+\.?$', re.I)
+DECIMAL_RE = re.compile(r'^\d+\.\d+$')
+
+_ABBR_CLEAN = {abbr.lower() for abbr in LEGAL_ABBREVIATIONS}
+
+
+def is_abbreviation_like_token(last_token):
+    """
+    True when `last_token` (the word immediately before a sentence-ending
+    punctuation mark) is a name-initial, acronym, decimal, section/exhibit
+    reference, or known legal abbreviation rather than the end of a real
+    sentence - e.g. "K.S." in "K.S. Puttaswamy", "SEBI.", "Sec. 33", "1.23".
+    """
+    if not last_token:
+        return False
+
+    if len(last_token) == 1 and last_token.isalpha():
+        return True
+
+    if DECIMAL_RE.match(last_token):
+        return True
+
+    if INITIALS_RE.match(last_token):
+        return True
+
+    if STATUTORY_ACRONYM_RE.match(last_token):
+        return True
+
+    for pattern in SECTION_REFERENCE_PATTERNS:
+        if pattern.match(last_token.strip()):
+            return True
+
+    clean_token = re.sub(r'[^\w]', '', last_token).lower()
+    variants = (
+        clean_token + '.',
+        last_token.lower(),
+        clean_token,
+        last_token.lower().rstrip('.'),
+    )
+
+    if any(variant in _ABBR_CLEAN for variant in variants):
+        return True
+
+    if any(variant in EXTENDED_LEGAL_ABBREVIATIONS for variant in variants):
+        return True
+
+    return False
+
+
 class LegalSentenceDetector:
-    
+
     def __init__(self):
         self._abbr_clean = {abbr.lower() for abbr in LEGAL_ABBREVIATIONS}
         self.same_line_tolerance = 0.25
@@ -138,50 +213,20 @@ class LegalSentenceDetector:
                       return True
               return False   
 
-      # 4. DECIMALS & ACRONYMS
-      if re.match(r'^\d+\.\d+$', last_token):
-          return False
-      if re.match(r'^[A-Z]+(\.[A-Z]+)+\.?$', last_token, re.I):
-          return False
-      if re.match(r'^(SEBI|RBI|CBDT|ITAT|NCLT|NCLAT|CBI|ED|FIU|MCA|ROC|DIN|PAN|TAN|GST|CGST|SGST|IGST|UTI|LIC|SBI|HDFC|ICICI|AXIS)\.$', last_token, re.I):
+      # 4-6. DECIMALS, ACRONYMS, INITIALS, SECTION/EXHIBIT REFERENCES, LEGAL ABBREVIATIONS
+      if is_abbreviation_like_token(last_token):
           return False
 
-      # 5. SECTION/EXHIBIT REFERENCES
-      section_patterns = [
-          re.compile(r'^(Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\.\s*\d+$', re.I),
-          re.compile(r'^\d+\.$'),
-          re.compile(r'^\d+\.\d+\.$'),
-          re.compile(r'^\d+\.\d+\.\d+\.$'),
-          re.compile(r'^(Sec|Section|Art|Article|Rule)\s+\d+\.$', re.I),
-          re.compile(r'^(Exh|Exhibit|Ex)\.?\s*\d+[A-Za-z]*\.?$', re.I),
-      ]
-      for pattern in section_patterns:
-          if pattern.match(last_token.strip()):
-              return False
+      last_token_dot_count = last_token.count('.')
+      if last_token_dot_count > 2:
+          return False
 
-      # 6. LEGAL ABBREVIATIONS
-      clean_token_for_abbr = re.sub(r'[^\w]', '', last_token).lower()
-      abbr_variants = [
-          clean_token_for_abbr + '.',
-          last_token.lower(),
-          clean_token_for_abbr,
-          last_token.lower().rstrip('.')
-      ]
-      for abbr in abbr_variants:
-          if abbr in self._abbr_clean:
-              return False
-
-      extended_legal_abbrevs = {
-          'ld.', 'learned', 'adv.', 'advocate', 'sr.', 'senior', 'jr.', 'junior',
-          'retd.', 'retired', 'addl.', 'additional', 'asstt.', 'assistant',
-          'govt.', 'government', 'dept.', 'department', 'min.', 'ministry',
-          'commr.', 'commissioner', 'collr.', 'collector', 'dist.', 'district',
-          'tehsildar', 'sdo', 'bdo', 'ceo', 'cfo', 'cmd', 'md', 'gm', 'dgm',
-          'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'ors', 'ors.'
-      }
-      for abbr_variant in abbr_variants:
-          if abbr_variant in extended_legal_abbrevs:
-              return False
+      if last_token_dot_count == 1 and next_text is not None:
+          nxt_stripped = next_text.strip()
+          if nxt_stripped:
+              first_word = nxt_stripped.split()[0]
+              if re.search(r'\.\S', first_word):
+                  return False
 
       # 7. LOOKAHEAD CHECK
       if next_text is not None:

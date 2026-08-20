@@ -28,10 +28,13 @@ COMBINED_RE = re.compile(
             )
 
 class Acts(TableBuilder, SentenceMaker):
-    def __init__(self, sentence_completion_punctuation = tuple(), pdf_type = None, docend_symbol = False):
+    def __init__(self, all_footnote_text, sentence_completion_punctuation = tuple(), pdf_type = None, docend_symbol = False):
         TableBuilder.__init__(self)
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
+        self.all_footnote_text = all_footnote_text
+        self.current_page_num = None
+        self.footnote_to_add = None
         self.sentence_completion_punctuation = sentence_completion_punctuation
         self.stack_for_section = []
         self.hierarchy = []
@@ -967,6 +970,10 @@ class Acts(TableBuilder, SentenceMaker):
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s .\nTable preview\n %s",e, table.head().to_string(index=False))
 
+        if self.footnote_to_add:
+            self.add_footnote(footnotes = self.footnote_to_add)
+            self.footnote_to_add = None
+
     def addAmendment(self, label, tb, side_note_datas, page_height):
         try:
             text = self.normalize_text(tb.extract_text_from_tb())
@@ -1038,15 +1045,72 @@ class Acts(TableBuilder, SentenceMaker):
                 except Exception as e:
                     self.logger.warning("Exception while removing unwanted side notes: %s", e)
 
+    def contains_footnote(self, text):
+        pattern = re.compile(
+            r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}'
+        )
+
+        matches = pattern.findall(text)
+
+        return matches if matches else []
+
+    def add_footnote(self, footnotes):
+        footnote_abbreviation_pattern = re.compile(
+                    r'(?:\b[a-z]\.){2,}$|\b(?:no|ref)\.$',
+                    re.IGNORECASE
+                )
+        if not footnotes:
+            return
+
+        if isinstance(footnotes, str):
+            footnotes = [footnotes]
+
+        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
+
+        for footnote in footnotes:
+            if footnote not in page_footnote_text:
+                continue
+
+            rawlines = page_footnote_text[footnote].split('\n')
+            if not rawlines:
+                continue
+            arranged_text = []
+            current_sentence = ""
+
+            for line in rawlines:
+                if current_sentence:
+                    current_sentence += " " + line
+                else:
+                    current_sentence = line
+
+                is_sentence_completed =( current_sentence.endswith(
+                                        self.sentence_completion_punctuation)
+
+                                        and
+                                        not footnote_abbreviation_pattern.search(current_sentence)
+                                        )
+
+                if is_sentence_completed:
+                    arranged_text.append(current_sentence.strip())
+                    current_sentence = ""
+
+            if current_sentence:
+                arranged_text.append(current_sentence.strip())
+
+            self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"FOOTNOTE {footnote}"
+            for textline in arranged_text:
+                self.builder  += "\n" + ("\t" * (self.curr_tab_level+2))+f"{textline}"
+
     def build(self, page, has_side_notes) :
+        self.current_page_num = int(page.pg_num)
         self.remove_unwanted_sidenotes(page.side_notes_datas)
         visited_for_table = set()
-       
+
         all_items = list(page.all_tbs.items())
         for idx, (tb, label) in enumerate(all_items):
             if self.is_act_ended and self.docend_symbol:
                 break
-            if label == "header" or label == "footer" :
+            if label == "header" or label == "footer" or label == "footnote" or label == "toc":
                continue
             if not ((isinstance(label, tuple) and (label[0] == "table" or \
                                                    label[0] == "borderless_table"))):
@@ -1057,6 +1121,15 @@ class Acts(TableBuilder, SentenceMaker):
             text = ''
             if label not in ('figure',):
                 text = self.normalize_text(tb.extract_text_from_tb())
+
+            is_table_label = isinstance(label, tuple) and label[0] in ("table", "borderless_table")
+            if not is_table_label and label != "figure":
+                self.is_footnote_detected = self.contains_footnote(text)
+                if self.is_footnote_detected:
+                    if not self.footnote_to_add:
+                        self.footnote_to_add = self.is_footnote_detected
+                    else:
+                        self.footnote_to_add.extend(self.is_footnote_detected)
 
             if isinstance(label, tuple) and label[0] == "table":
                 table_id = label[1]
@@ -1130,7 +1203,11 @@ class Acts(TableBuilder, SentenceMaker):
             elif label is None:
                 if not self.is_pg_num(tb,page.pg_width):
                     self.addUnlabelled(text)
-    
+
+            if self.previous_sentence_end_status and self.footnote_to_add:
+                self.add_footnote(footnotes = self.footnote_to_add)
+                self.footnote_to_add = None
+
     def flushTables(self):
         if self.pending_table is not None and len(self.pending_table) <= 2:
             self.addTable(self.pending_table[0])

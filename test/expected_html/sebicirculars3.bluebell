@@ -142,8 +142,6 @@ ANNEXURE Annexure
 							Circular No. SEBI/ HO/ MIRSD/ MIRSD4/ CIR/ P/ 2017/ 71 dated June 30, 2017
 				PARA 2.1.6.
 					For  structured  products/  market  linked  debentures,  the  credit  rating  shall  bear  a prefix 'PP-MLD' denoting Principal Protected Market Linked Debentures, followed by the standardized rating symbols for long/ short term debt on the lines specified below.{{^{{FOOTNOTE 8}}}}
-					FOOTNOTE 8
-						Cir. /IMD/DF/17/2011 dated September 28, 2011
 ANNEXURE ANNEXURE 1
 	SUBPART - Rating Symbols and Definitions for Long Term Debt Instruments
 	SUBPART - Long  term  debt  instruments:  The  instruments  with  original  maturity  exceeding  one
@@ -267,11 +265,11 @@ ANNEXURE Annexure: Instrument-wise definition of default
 	TABLE
 		TR
 			TH
-				Facilities
+				Rating Facilities Proposed Definition of Default Scale
 			TH
-				Rating Scale
+
 			TH
-				Proposed Definition of Default
+
 		TR
 			TC
 				Fund-based facilities & Facilities with pre-defined repayment schedule
@@ -353,18 +351,18 @@ ANNEXURE Annexure: Instrument-wise definition of default
 
 		TR
 			TC
-				Cash Credit
+				Cash Credit Long Term Continuously overdrawn for more than 30 days.
 			TC
-				Long Term
+
 			TC
-				Continuously overdrawn for more than 30 days.
+
 		TR
 			TC
-				Overdraft
+				Overdraft Short Term Continuously overdrawn for more than 30 days.
 			TC
-				Short Term
+
 			TC
-				Continuously overdrawn for more than 30 days.
+
 		TR
 			TC
 				Non fund-based facilities
@@ -374,18 +372,19 @@ ANNEXURE Annexure: Instrument-wise definition of default
 
 		TR
 			TC
-				Letter of credit (LC)
+				Overdue for more than 30 days from Letter of credit (LC) Short Term the day of devolvement.
 			TC
-				Short Term
+
 			TC
-				Overdue for more than 30 days from the day of devolvement.
+
 		TR
 			TC
-				Bank Guarantee (BG)(Performance/ Financial)
+				Amount remaining unpaid from 30 Bank Guarantee Short Term days from invocation of the facility.
+				(BG)(Performance/ Financial)
 			TC
-				Short Term
+
 			TC
-				Amount remaining unpaid from 30 days from invocation of the facility.
+
 		TR
 			TC
 				Other Scenarios
@@ -529,48 +528,7 @@ ANNEXURE Annexure: Standard Template for No Default Statement (Minimum Informati
 			We also confirm that there has been no overdraw of the drawing power  sanctioned by the bank for a period of more than 30 consecutive days in case of bank facilities which do not have scheduled maturity/repayment dates.
 		SEC 6.
 			Details of delay/ default/ rescheduling of interest or principal as on date/ in the month ended <Month and Year name>, in any of the above case (if any) :
-			TABLE
-				TR
-					TH
-						ame of the Instrument
-					TH
-						ISIN
-					TH
-						Amount to be paid
-					TH
-						Due Date of Payment
-					TH
-						Actual Date of Payment
-					TH
-						Remarks
-				TR
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-				TR
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-			Thanking You,
-			Yours faithfully, <Authorized Signatory of Issuer>
+			ISIN  Amount  to Remarks Name  of  the Instrument be paid Due  Date  of Payment Actual  Date of Payment Thanking You, Yours faithfully, <Authorized Signatory of Issuer>
 		{{IMG media/Image197.png}}
 			SUBSEC 2.5
 				Standardization of Press Release for Rating Actions{{^{{FOOTNOTE 13}}}}
@@ -597,33 +555,12 @@ ANNEXURE Annexure: Standard Template for Press Release (Minimum Information be d
 	SUBPART - Name of the Company
 	SUBPART - Date of Press Release
 	SUBPART - Details of Instrument(s)
-		TABLE
-			TR
-				TH
-					Name of the instrument
-				TH
-					Date of issuance
-				TH
-					Coupon rate Maturity
-				TH
-					Date
-				TH
-					Size of the issue
-				TH
-					Rating assigned, along with Rating Outlook
-			TR
-				TC
-
-				TC
-
-				TC
-
-				TC
-
-				TC
-
-				TC
-
+		Coupon rate   Maturity
+		Name of the instrument
+		Date of issuance
+		Date
+		Size of the issue
+		Rating assigned, along with Rating Outlook
 		Rating action (assigned/ upgraded/ downgraded) for the instrument.
 		Detailed Rationale justifying the Rating Action/ rating assigned.
 		List of key rating drivers for the Rating Action i.e. factors justifying favourable assessment (strengths) and factors constituting risk (weakness).
@@ -1006,12 +943,8 @@ ANNEXURE ANNEXURE: Sharing of information between Debenture Trustees (DTs) and
 				PARA a.
 					In order to enable CRAs to disseminate information on ratings promptly through press  releases  as  per  requirements  of  Regulation  15  and  16  of  SEBI  (CRA) Regulations, following is clarified:
 	SUBPART - i.  Initial Rating:
-		TABLE
-			TR
-				TH
-					Scenario
-				TH
-					Timelines – immediately but not later than
+	SUBPART - Scenario  Timelines  –  immediately  but
+	SUBPART - not later than
 	{{IMG media/Image229.png}}
 		TABLE
 			TR
@@ -1137,37 +1070,13 @@ ANNEXURE Annexure II–Movement\* of Each Credit Rating
 		TR
 			TH
 				Rating Movements between Apr-Sep / Oct - Mar
-			TH
-
-			TH
-
-			TH
-
 		TR
 			TC
-				S. No
-			TC
-				Name of the Issuer
-			TC
-				Rating prior to Revision
-			TC
-				Rating post Revision
+				S. No Name of the Issuer Rating prior to Revision Rating post Revision
 		TR
 			TC
 
-			TC
-
-			TC
-
-			TC
-
 		TR
-			TC
-
-			TC
-
-			TC
-
 			TC
 
 ANNEXURE Annexure III - Movement of each credit rating from investment grade to non-
@@ -1193,13 +1102,13 @@ ANNEXURE Annexure III - Movement of each credit rating from investment grade to 
 
 			TR
 				TC
-					S. No
+					S. No Name of the Issuer Rating prior to Revision Rating post Revision
 				TC
-					Name of the Issuer
+
 				TC
-					Rating prior to Revision
+
 				TC
-					Rating post Revision
+
 			TR
 				TC
 
@@ -1270,258 +1179,73 @@ ANNEXURE Annexure IV: Movement of each credit rating that has moved by more than
 			TR
 				TH
 					Rating Movement by more than one notch between Apr-Sep/ Oct -Mar
-				TH
-
-				TH
-
-				TH
-
-				TH
-
 			TR
 				TC
-					S. No.
-				TC
-					Name of the Issuer
-				TC
-					Rating post revision
-				TC
-					Notch Difference
-				TC
-					Date of Rating Change
+					Date of Rating S. No.
+					Name of the Issuer Rating post revision Notch Difference Change
 			TR
 				TC
 					Rating prior to revision- AAA category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					Rating prior to revision- AA category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					Rating prior to revision- A category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					Rating prior to revision- BBB category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					Rating prior to revision- BB category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					Rating prior to revision- B category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					Rating prior to revision- C category
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					1.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
 			TR
 				TC
 					2.
-				TC
-
-				TC
-
-				TC
-
-				TC
-
-		FOOTNOTE 30
-			Circular No. SEBI/HO/MIRSD/MIRSD4/CIR/P/2016/119 dated November 1, 2016
 	{{IMG media/Image239.png}}
 ANNEXURE Annexure V – History of Credit Rating of all Outstanding Securities
 	TABLE
@@ -1550,8 +1274,8 @@ ANNEXURE Annexure V – History of Credit Rating of all Outstanding Securities
 
 		TR
 			TC
-				S.
 				N o
+				S.
 			TC
 				Nam e of the Issu er
 			TC
@@ -1578,414 +1302,120 @@ ANNEXURE Annexure VI A – Long Term Scale
 		TR
 			TH
 				Rating Movement by more than one notch between Apr-Sep/ Oct -Mar
-			TH
-
-			TH
-
-			TH
-
-			TH
-
 		TR
 			TC
-				S. No.
-			TC
-				Name of the Issuer
-			TC
-				Initial rating
-			TC
-				Date of Initial Rating
-			TC
-				Date of Default Recognition
+				Date of Default S. No.
+				Name of the Issuer Initial rating Date of Initial Rating Recognition
 		TR
 			TC
 				Rating prior to default- AAA category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- AA category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- A category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- BBB category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- BB category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- B category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- C category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 ANNEXURE Annexure VI B – Short Term Scale
 	TABLE
 		TR
 			TH
 				Rating Movement by more than one notch between Apr-Sep/ Oct -Mar
-			TH
-
-			TH
-
-			TH
-
-			TH
-
 		TR
 			TC
-				S. No.
-			TC
-				Name of the Issuer
-			TC
-				Initial rating
-			TC
-				Date of Initial Rating
-			TC
-				Date of Default Recognition
+				Date of Default S. No.
+				Name of the Issuer Initial rating Date of Initial Rating Recognition
 		TR
 			TC
 				Rating prior to default- A1 category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 {{IMG media/Image241.png}}
 	TABLE
 		TR
 			TH
 				1.
-			TH
-
-			TH
-
-			TH
-
-			TH
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- A2 category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- A3 category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				Rating prior to default- A4 category
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				1.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 		TR
 			TC
 				2.
-			TC
-
-			TC
-
-			TC
-
-			TC
-
 ANNEXURE Annexure VII – Average Default Rates for the last 5-Financial Year Period
 ANNEXURE Annexure VII A- STRUCTURED INSTRUMENTS
 	TABLE
@@ -2113,28 +1543,16 @@ ANNEXURE ANNEXURE VIII
 					Name of the Issuer
 				TH
 					Rating assigned
-				TH
-
-				TH
-
 			TR
 				TC
 
 				TC
 
 				TC
-					Financial Year
+					Financial Year Financial Year Financial Year 3
 					1
-				TC
-					Financial Year
 					2
-				TC
-					Financial Year 3
 			TR
-				TC
-
-				TC
-
 				TC
 
 				TC
@@ -2144,35 +1562,8 @@ ANNEXURE ANNEXURE VIII
 		\* If in a particular financial year, a rating has subsequently been changed, then that shall also be disclosed
 	SUBPART - Solicited Credit Ratings assigned to those issuers mentioned in the table above in the
 	SUBPART - last financial year\*\*
-		TABLE
-			TR
-				TH
-					S. No.
-				TH
-					Name of the Issuer
-				TH
-					Rating assigned
-			TR
-				TC
-
-				TC
-
-				TC
-
-			TR
-				TC
-
-				TC
-
-				TC
-
-			TR
-				TC
-
-				TC
-
-				TC
-
+	SUBPART - S. No.  Name of the Issuer  Rating assigned
+		\*\* Any subsequent revision of the rating in the same year shall also be disclosed
 	{{IMG media/Image245.png}}
 		SEC 3.4
 			Rating Criteria, Rating Process and their Disclosure{{^{{FOOTNOTE 31}}}}
@@ -2223,42 +1614,12 @@ ANNEXURE ANNEXURE VIII
 					Credit Rating with name of Credit Rating Agency and Date of Credit Rating:
 					SUBPARA i.
 						Current  rating  (if  rated  by  multiple  Credit  Rating  Agencies,  include  all such ratings):
-						TABLE
-							TR
-								TH
-									Name of the CRA
-								TH
-									Credit Rating
-								TH
-									Date of Credit Rating
-							TR
-								TC
-
-								TC
-
-								TC
-
+					SUBPARA ii.
+						
+						Name of the CRA  Credit Rating  Date of Credit Rating
 					SUBPARA iii.
 						Earlier rating and date of rating (if any):
-						TABLE
-							TR
-								TH
-									Name of the CRA
-								TH
-									Credit Rating
-								TH
-									Date of Credit Rating
-								TH
-									Date of Rating change
-							TR
-								TC
-
-								TC
-
-								TC
-
-								TC
-
+						Name of the CRA  Credit Rating  Date of Credit Rating Date of Rating change
 			SUBSEC 3.6.3.
 				Information providers:
 				PARA a.
@@ -2267,38 +1628,11 @@ ANNEXURE ANNEXURE VIII
 					CRAs shall be provided secure logins by the depositories for verification and updation of the requisite information in the database on an ongoing basis.
 				PARA c.
 					CRAs  shall  access  the  database  and  shall  update  the  credit  rating  provided by  the  agency  and  the  subsequent  rating  migrations,  within  the  time stipulated below:
-					TABLE
-						TR
-							TH
-								Sr.
-								No.
-							TH
-								Activity
-							TH
-								Remarks
-						TR
-							TC
-								1
-							TC
-								Verification of initial rating information provided by the Issuer in respect of the ISINs
-							TC
-								In case of any variation, CRAs to update the
-				{{IMG media/Image249.png}}
-					TABLE
-						TR
-							TH
-
-							TH
-								for the instruments.
-							TH
-								same within 3 working days.
-						TR
-							TC
-								2
-							TC
-								Updation of subsequent rating migrations information in the database.
-							TC
-								Within one working day from the press release
+	SUBPART - Activity  Remarks
+					SUBPARA Sr.
+						No. 1  Verification of initial rating information provided by the Issuer in respect of the ISINs In case of any variation, CRAs to update the
+					{{IMG media/Image249.png}} for the instruments.   same within 3 working information in the database.
+						days. Within one working day from the press release
 			SUBSEC 3.6.4.
 				Updation  of  database:  The  information  mentioned  in  this circular  shall  be  provided  by  the  issuer  at  the  time  of  applying  for  ISIN  to Depositories  and  shall  hosted  by  the  Depositories.  In  case  of  any  changes/ updation  to  the  information,  as  available  in  the  database,  the  Issuer  must promptly  inform  the  Depositories  and  the  information  providers  such  as  Stock Exchanges,  Credit  Rating  Agencies  and  Debenture  Trustees  shall  update  the same.
 	SUBPART - SECTION 4: INTERNAL AUDIT FOR CREDIT RATING AGENCIES
@@ -2423,33 +1757,12 @@ ANNEXURE ANNEXURE VIII
 					The file should be an excel file. b.  The  name  of  the  file  and  the  subject  of  the  email  shall  specify  the  type  of intermediary  and  the  name  of  the  intermediary.  For  example  –  "Credit Rating Agency – ABC co. Ltd."
 				PARA c.
 					The file shall contain the following details:
-					TABLE
-						TR
-							TH
-								Name
-							TH
-								Address
-							TH
-								Category
-							TH
-								Registrati on No.
-							TH
-								Designated email id
-							TH
-								Name of compliance officer
-						TR
-							TC
-
-							TC
-
-							TC
-
-							TC
-
-							TC
-
-							TC
-
+	SUBPART - Name  Address  Category  Registrati
+	SUBPART - on No.
+	SUBPART - Designated
+	SUBPART - email id
+	SUBPART - Name  of
+	SUBPART - compliance officer
 		SEC 5.2
 			Redressal  of  investor  grievances  through  SEBI  Complaints  Redress  System
 	SUBPART - (SCORES) platform{{^{{FOOTNOTE 38}}}}
@@ -2672,8 +1985,6 @@ ANNEXURE Annexure
 						Logs for any usage of such Blogs/Chat forums/Messenger sites (called by any  nomenclature)  shall  be  treated  as  records  and  the  same  should  be maintained  as  specified  by  the  respective  Regulations  which  govern  the concerned intermediary.
 					SUBPARA e.
 						Employees should be directed that any market related news received by them either in their official mail/personal mail/blog or in any other manner, should be forwarded only after the same has been seen and approved by the  concerned  SEBI  registered  CRAs'  '  Compliance  Officer.  If  an employee  fails  to  do  so,  he/  she  shall  be  deemed  to  have  violated  the various  provisions  contained  in  SEBI  Act/  Rules/  Regulations  etc.  and shall be liable for action. The Compliance Officer shall also be held liable for breach of duty in this regard.{{^{{FOOTNOTE 42}}}}
-						FOOTNOTE 42
-							Circular No. CIR/ISD/2/2011 dated March 24, 2011
 			SUBSEC 6.3
 				General  Guidelines  for  dealing  with  Conflicts  of  Interest  of  Credit  Rating
 	SUBPART - Agencies and their Associated Persons in Securities Market{{^{{FOOTNOTE 43}}}}

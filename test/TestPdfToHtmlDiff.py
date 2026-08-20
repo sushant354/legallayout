@@ -101,11 +101,14 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     Compares generated HTML against expected baseline files or detects changes.
     """
 
+    selected_csvs = None
+
     @classmethod
     def setUpClass(cls):
         """Set up test environment and locate test PDFs."""
         cls.test_dir = Path(__file__).parent
         cls.test_pdfs_dir = cls.test_dir / "test_pdfs"
+        cls.test_judgment_pdfs_dir = cls.test_dir / "test_judgment_pdfs"
         cls.expected_output_dir = cls.test_dir / "expected_html"
         cls.actual_output_dir = cls.test_dir / "actual_html"
         cls.diff_output_dir = cls.test_dir / "diff_results"
@@ -117,11 +120,23 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         # Set up logging for tests
         logging.basicConfig(level=logging.WARNING)  # Reduce noise during tests
 
-        cls.test_cases = []
         cls.csv_file = cls.test_dir / "test_cases.csv"
+        cls.judgment_csv_file = cls.test_dir / "test_judgment_cases.csv"
+        cls.csv_registry = {
+            cls.csv_file.name: (cls.csv_file, cls.test_pdfs_dir),
+            cls.judgment_csv_file.name: (cls.judgment_csv_file, cls.test_judgment_pdfs_dir),
+        }
 
-        # Read test cases from CSV file
-        cls._load_test_cases_from_csv()
+        cls.test_cases = []
+        selected = cls.selected_csvs or list(cls.csv_registry.keys())
+        for name in selected:
+            name = Path(name).name
+            if name not in cls.csv_registry:
+                print(f"Warning: unknown --csv selection '{name}' (known: "
+                      f"{', '.join(cls.csv_registry)}) - skipping")
+                continue
+            csv_path, pdfs_dir = cls.csv_registry[name]
+            cls._load_test_cases_from_csv(csv_path, pdfs_dir)
 
     def setUp(self):
         """Set up for each test case."""
@@ -332,19 +347,20 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         return str(server_root.resolve())
 
     @classmethod
-    def _load_test_cases_from_csv(cls):
+    def _load_test_cases_from_csv(cls, csv_file, pdfs_dir):
         selected = cls.get_selected_cases()
         skipped = []
+        added_before = len(cls.test_cases)
 
         try:
-            with open(cls.csv_file, 'r', encoding='utf-8') as f:
+            with open(csv_file, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     filename = row['filename'].strip()
                     if not filename:
                         continue
 
-                    pdf_path = cls.test_pdfs_dir / filename
+                    pdf_path = pdfs_dir / filename
                     if not pdf_path.exists():
                         print(f"Warning: PDF file not found: {pdf_path}")
                         continue
@@ -417,14 +433,15 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
         except Exception as e:
-            print(f"Error reading CSV file {cls.csv_file}: {e}")
+            print(f"Error reading CSV file {csv_file}: {e}")
 
+        added = cls.test_cases[added_before:]
         if selected:
-            print(f"Selected {len(cls.test_cases)} of {len(cls.test_cases) + len(skipped)} "
-                  f"case(s) in {cls.csv_file.name}: "
-                  f"{', '.join(tc['pdf_name'] for tc in cls.test_cases) or 'none'}")
+            print(f"Selected {len(added)} of {len(added) + len(skipped)} "
+                  f"case(s) in {csv_file.name}: "
+                  f"{', '.join(tc['pdf_name'] for tc in added) or 'none'}")
 
-            if not cls.test_cases and skipped:
+            if not added and skipped:
                 print(f"Available cases are: {', '.join(skipped)}")
 
     def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
@@ -631,7 +648,20 @@ if __name__ == "__main__":
              "name it is reported under (changeofnames_scanned) or a glob (sebi*). "
              "Defaults to the DIFF_TEST_CASES env var."
     )
+    parser.add_argument(
+        "--csv",
+        dest="csv_files",
+        action="append",
+        default=None,
+        help="Which test-cases CSV to run (by filename, e.g. test_cases.csv or "
+             "test_judgment_cases.csv). Repeatable. Default: run every registered CSV. "
+             "Output always goes to actual_html/ (and expected_html/, diff_results/) "
+             "regardless of which CSV(s) are selected."
+    )
     args, remaining = parser.parse_known_args()
+
+    if args.csv_files:
+        TestPdfToHtmlDiff.selected_csvs = args.csv_files
 
     if args.workers:
         # picked up by TestPdfToHtmlDiff.get_worker_count()

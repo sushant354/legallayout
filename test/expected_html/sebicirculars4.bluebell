@@ -40,7 +40,7 @@ CHAP I - REGULATORY COMPLIANCE AND PERIODIC
 	SEC 1.  
 		Conditions  for  granting  registration  where  a  connected  persons  has    been granted registration{{^{{FOOTNOTE 1}}}} 1.1. The  Board  may  consider  grant  of  certificate  to  an  applicant, notwithstanding that another entity in the same group has been previously granted registration by the Board, if the following conditions are fulfilled: 1.1.1.  The entities are incorporated as separate legal entities. 1.1.2.  The  entities  have  independent  Board  of  Directors.  Independent Board  of  Directors  for  this  purpose  means  that  common  directors should not be in majority in both the Boards.
 		FOOTNOTE 1
-			RUW Circular No. 1 (2002-2003) dated September 23, 2002 3
+			RUW Circular No. 1 (2002-2003) dated September 23, 2002
 		PARA 1.1.3.
 			There  is  absolute  arm's  length  relationship  with  reference  to  their operations.
 		PARA 1.1.4.
@@ -60,7 +60,7 @@ CHAP I - REGULATORY COMPLIANCE AND PERIODIC
 	SEC 2.  
 		Designated e-mail ID for regulatory communication with SEBI{{^{{FOOTNOTE 2}}}}
 		FOOTNOTE 2
-			SEBI Circular No. MIRSD/ DPSIII/ Cir-21/ 08 dated July 07, 2008 4
+			SEBI Circular No. MIRSD/ DPSIII/ Cir-21/ 08 dated July 07, 2008
 			SUBSEC 2.1.
 				SEBI has been communicating with the registered market intermediaries, stock exchanges and depositories etc. through circulars, letters, directions etc. SEBI has already put in place a system for issuance of digitally signed circulars  with  respect  to  stock  exchanges,  depositories  and  merchant bankers.
 			SUBSEC 2.2.
@@ -74,21 +74,7 @@ ANNEXURE ANNEXURE I
 	SUBPART - SEBI
 		SEC 1.
 			The file should be an excel file. 2. The name of the file and the subject of the email shall specify the type of intermediary and the name of the intermediary. For example – "Registrar to an issue – ABC co. Ltd." 3. The file shall contain the following details:
-			TABLE
-				TR
-					TH
-						Name
-					TH
-						Address
-					TH
-						Category
-					TH
-						Registration No
-					TH
-						Designated email id
-					TH
-						Name of compliance officer
-			The file shall be emailed to intermediary@sebi.gov.in.
+			Name  Address  Category  Registration No Designated email id Name  of compliance officer The file shall be emailed to intermediary@sebi.gov.in.
 		SEC 3.
 			Periodic Reporting on change in status or constitution{{^{{FOOTNOTE 3}}}}
 			FOOTNOTE 3
@@ -99,8 +85,6 @@ ANNEXURE ANNEXURE I
 				The  above  report shall be submitted in electronic form only to e-mail id uw@sebi.gov.in,  with  the  subject  line  "Report  on  change  of  status  or constitution submitted by aaa for the half-year ended xxx yyyy" where aaa represents the name of underwriter, xxx represents the month at the end of  the  half-year  and  yyyy  represents  the  year.  For  example,  if  an underwriter  ABC  Limited  submits  the  aforesaid  report  for  the  half-year ended  September  2011,  the  e-mail  sent  to  uw@sebi.gov.in  shall  bear  the subject line "Report on change of status or constitution submitted by ABC Limited for the half-year ended September 2011".
 		SEC 4.
 			Revised procedure for seeking prior approval for change in control through single window{{^{{FOOTNOTE 4}}}} 4.1. With a view to expedite the process of granting prior approval, it has been decided to adopt a 'single window clearance at SEBI', for the Stock Brokers and Sub-brokers, Merchant Bankers, Debenture Trustees, Registrar to an Issue and Share Transfer Agents, Underwriters, Depository Participants, Bankers  to  an  Issue  and  Credit  Rating  Agencies,  in  case  of  their  having multiple  registrations  with  SEBI.  Accordingly,  in  consultation  with  the major  stock  exchanges  and  market  participants,  it  has  been  decided  to adopt the following procedure; 4.1.1.  In case an applicant holds multiple registrations with SEBI, it shall make  only  one  application  to  SEBI  accompanied  by  the  following information about itself, the acquirer and the directors/partners of the acquirer; •  Whether  any  application  was  made  in  the  past  to  SEBI  seeking registration  in  any  capacity  but  it  was  not  granted?  If  yes,  details thereof. • Whether any action has been initiated / taken under SCRA/SEBI Act or rules and regulations made thereunder? If yes, status thereof along with corrective action taken to avoid such violations in the future. The acquirer  shall  also  confirm  that  it  shall  honour  all  past  liabilities  / obligations of the applicant, if any. • Whether any investor complaint is pending? If yes, steps taken and confirmation that the acquirer shall resolve the same. • Details of litigation, if any. • That all the fees due to SEBI have been paid. •  That  there  will  not  be  any  change  in  the  Board  of  Directors  of incumbent, till the time prior approval is granted. • That the incumbent shall inform all its existing investors / clients in order  to  enable  them  to  take  informed  decision  regarding  their continuance or otherwise with the entity with new management. 4.1.2.  Further, in case the incumbent is a registered stock broker and / or depository  participant,  in  addition  to  the  above,  it  shall  obtain approval / NOC from all the Stock Exchanges / Depositories, where the  incumbent  is  a  member  /  Depository  Participant  and  forward  a self-attested copy of the same to SEBI.
-			FOOTNOTE 4
-				SEBI Circular No. CIR/MIRSD/14/2011 dated August 02, 2011 5
 				PARA 4.1.3.
 					The  application  shall  be  addressed  to  "Chief  General  Manager, MIRSD, SEBI".
 				PARA 4.1.4.
@@ -108,7 +92,7 @@ ANNEXURE ANNEXURE I
 		SEC 5.
 			Online Registration Mechanism for Securities Market Intermediaries{{^{{FOOTNOTE 5}}}}
 			FOOTNOTE 5
-				SEBI Circular No. SEBI/HO/MIRSD/MIRSD1/CIR/P/2017/38 dated May 02, 2017 7
+				SEBI Circular No. SEBI/HO/MIRSD/MIRSD1/CIR/P/2017/38 dated May 02, 2017
 			SUBSEC 5.1.
 				SEBI  has  decided  to  operationalize  SEBI  Intermediary  Portal (https://siportal.sebi.gov.in)  for  the  intermediaries  to  submit  all  the registration applications online. The SEBI Intermediary Portal shall include online application for registration, processing of application, grant of final registration,  application  for  surrender  /  cancellation,  submission  of periodical  reports,  requests  for  change  of  name/address/  other  details, etc., Link for SEBI Intermediary Portal is also available on SEBI website - www.sebi.gov.in.
 			SUBSEC 5.2.
@@ -127,7 +111,6 @@ ANNEXURE ANNEXURE I
 			Grievance Redressal Mechanism{{^{{FOOTNOTE 6}}}}
 			FOOTNOTE 6
 				SEBI Circulars No. MIRSD/DPS III/Cir-01/07 dated January 22, 2007,CIR/MIRSD/17/2011 dated August 24, 2011,CIR/MIRSD/3/2014 dated August 28, 2014, CIR/OIAE/1/2014 dated December 18, 2014 and SEBI/HO/OIAE/IGRD/CIR/P/2018/58 dated March 26, 2018.
-				8
 			SUBSEC 6.1.
 				All registered Merchant Bankers, registered Registrars to an Issue/ Share Transfer  Agents,  registered  Debenture  Trustees,  registered  Bankers  to Issue and registered Underwriters are advised to designate an e-mail ID of the  grievance  redressal  division/compliance  officer  exclusively  for  the purpose of registering complaints by investors.
 			SUBSEC 6.2.
@@ -218,132 +201,11 @@ ATTACHMENT FORM - B
 			PARA 6.18.2.
 				An  investor  shall  use  login  credentials  for  lodging  complaint  on SCORES ("Login for registered user" section). Details on how to lodge a complaint on SCORES is at Annexure VI.
 ANNEXURE How to lodge a complaint on SCORES with effect from August 01, 2018.   ANNEXURE VI
-	SCORES Portal / http://www.scores.gov.in
-	TABLE
-		TR
-			TH
-				CLICK
-			TH
-
-			TH
-
-		TR
-			TC
-
-			TC
-				User Registration Register Here " ) ( Under "
-			TC
-
-		TR
-			TC
-
-			TC
-
-			TC
-
-	Press submit to complete the registration. An Email/ SMS informing User ID and Password will be sent to investor.
-	TABLE
-		TR
-			TH
-				CLICK
-			TH
-
-			TH
-
-		TR
-			TC
-
-			TC
-
-			TC
-
-		TR
-			TC
-
-			TC
-				( As per nature of complaint )
-			TC
-
-	TABLE
-		TR
-			TH
-				Enter
-			TH
-
-			TH
-
-		TR
-			TC
-
-			TC
-
-			TC
-				Details like Period of cause of event, Date of grievance taken up with the entity,
-		TR
-			TC
-
-			TC
-				address of direct complaint to the entity, Share certificate number / folio number etc.
-			TC
-
-	TABLE
-		TR
-			TH
-				TYPE
-			TH
-
-			TH
-
-		TR
-			TC
-
-			TC
-
-			TC
-				Complaint details in brief (1000 characters )
-{{IMG media/Image218.png}}
-	Upload supporting documents ( upto 2 MB in PDF format )
-	TABLE
-		TR
-			TH
-				CLICK
-			TH
-
-		TR
-			TC
-
-			TC
-				Add
-		TR
-			TC
-
-			TC
-
-{{IMG media/Image168.png}}
-	TABLE
-		TR
-			TH
-				Enter
-			TH
-
-			TH
-				Character shown in image
-		TR
-			TC
-				CLICK
-			TC
-
-			TC
-
-		TR
-			TC
-
-			TC
-
-			TC
-				Submit
-	Complaint Registration Number is generated and sent to
-	email id and to mobile number of the complainant.
+	SCORES Portal / http://www.scores.gov.in CLICK User Registration Under " (  Register Here ") Press submit to complete the registration. An Email/ SMS informing User ID and Password will be sent to investor.
+	CLICK ( As per nature of complaint Login to  SCORES and Click on "Complaint Registration " Enter Details like   Period of cause of event, Date of grievance taken up with the entity, address of direct complaint to the entity,   Share certificate number /   folio number etc  .
+	TYPE
+{{IMG media/Image218.png}} Complaint details in brief (1000  characters ) Upload supporting documents ( upto 2 MB in PDF format ) CLICK Add
+{{IMG media/Image168.png}} Enter Character shown in image CLICK Submit Complaint Registration Number is generated and sent to email id and to mobile number of the complainant.
 	SEC 6.18.3.
 		The complainant may use SCORES to submit the grievance directly to companies / intermediaries and the complaint shall be forwarded to  the  entity  for  resolution.  The  entity  is  required  to  redress  the grievance  within  30  days,  failing  which  the  complaint  shall  be registered in SCORES
 	SEC 6.18.4.
@@ -372,7 +234,7 @@ ANNEXURE How to lodge a complaint on SCORES with effect from August 01, 2018.   
 				PARA 8.
 					Guidelines on Outsourcing of Activities by Intermediaries{{^{{FOOTNOTE 8}}}}
 					FOOTNOTE 8
-						SEBI Circular No. CIR/MIRSD/24/2011 dated December 15, 2011 17
+						SEBI Circular No. CIR/MIRSD/24/2011 dated December 15, 2011
 					SUBPARA 8.1.
 						Principles for Outsourcing The  risks  associated  with  outsourcing  may  be  operational  risk, reputational risk, legal risk, country risk, strategic risk, exit-strategy risk, counter party risk, concentration and systemic risk. In order to address the concerns arising from the outsourcing of activities by intermediaries based on the principles advocated by the IOSCO and the experience of Indian markets, SEBI had prepared a concept paper on outsourcing of activities related to services offered by intermediaries. Based  on  the  feedback  received  on  the  discussion  paper  and  also discussion  held  with  various  intermediaries,  stock  exchanges  and depositories, the principles for outsourcing  by  intermediaries have been framed  (Annexure  VII).  These  principles  shall  be  followed  by  all intermediaries registered with SEBI.
 ANNEXURE ANNEXURE VII
@@ -394,7 +256,7 @@ ANNEXURE ANNEXURE VII
 		SEC 9.
 			General Guidelines for dealing with conflicts of interest{{^{{FOOTNOTE 9}}}}
 			FOOTNOTE 9
-				SEBI Circular No. CIR/MIRSD/5/2013 dated August 27, 2013 23
+				SEBI Circular No. CIR/MIRSD/5/2013 dated August 27, 2013
 			SUBSEC 9.1.
 				All  intermediaries,  recognised  stock  exchanges,  recognised  clearing corporations and depositories (hereinafter collectively referred to as "such entities") are presently governed by the provisions for avoidance of conflict of  interest  as  mandated  in  the  respective  regulations  read  with  relevant circulars issued from time to time by SEBI. On the lines of Principle 8 of the International Organisation of Securities Commissions (IOSCO) Objectives and Principles of Securities Regulations, it has been decided to put in place comprehensive  guidelines  to  collectively  cover  such  entities  and  their associated persons, for elimination of their conflict of interest, as detailed hereunder.
 			SUBSEC 9.2.
@@ -430,7 +292,7 @@ ANNEXURE ANNEXURE VII
 		SEC 10.
 			Digital Mode of Payment{{^{{FOOTNOTE 10}}}}
 			FOOTNOTE 10
-				SEBI Circular No. SEBI/HO/GSD/T&A/CIR/P/2017/42 dated May 16, 2017 24
+				SEBI Circular No. SEBI/HO/GSD/T&A/CIR/P/2017/42 dated May 16, 2017
 			SUBSEC 10.1.
 				SEBI has notified the SEBI (Payment of Fees and Mode of Payment) (Amendment) Regulations, 2017 on March 06, 2017 to enable digital mode of payment  (RTGS/NEFT/IMPS  etc.)  of  fees/penalties/remittance/other payments etc.
 			SUBSEC 10.2.
@@ -466,7 +328,7 @@ ANNEXURE ANNEXURE VIII
 		SUBSEC 11.
 			Intermediaries in IFSC{{^{{FOOTNOTE 11}}}}
 			FOOTNOTE 11
-				SEBI Circulars No. SEBI/HO/CIR/P/2017/85 dated July 27, 2017 and SEBI/HO/MRD/DSA/CIR/P/2017/117 dated October 17, 2017 25
+				SEBI Circulars No. SEBI/HO/CIR/P/2017/85 dated July 27, 2017 and SEBI/HO/MRD/DSA/CIR/P/2017/117 dated October 17, 2017
 	SEC 11.1.
 		Clause 8 of SEBI IFSC Guidelines which specifies that any recognised entity  or  entities  desirous  of  operating  in  IFSC  as  an  intermediary,  may form  a  company  to  provide  such  financial  services  relating  to  securities market has been amended as follows: "8.  (1)  Any  SEBI-registered  intermediary  (except  trading  member  or  clearing member) or its international associates in collaboration with such SEBI-registered intermediary may provide financial services relating to securities market, in IFSC, without forming a separate company, subject to the prior approval of the Board.
 			SUBPART - \*\*\*\*\*\*\*\*\*
