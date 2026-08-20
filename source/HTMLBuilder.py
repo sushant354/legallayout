@@ -14,13 +14,23 @@ from .NormalizeText import NormalizeText
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
 VOID_TAGS = {"br"}
+FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+FOOTNOTE_ABBREVIATION_RE = re.compile(
+    r'(?:\b[a-z]\.){2,}$|\b(?:no|ref)\.$',
+    re.IGNORECASE
+)
 
 class HTMLBuilder(TableBuilder):
     
-    def __init__(self, unique_images, sentence_completion_punctuation = tuple(), pdf_type = None):
+    def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation = tuple(), pdf_type = None):
         TableBuilder.__init__(self)
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
+        self.all_footnote_text = all_footnote_text
+        self.current_page_num = None
+        self.footnote_refs_used = []
+        self.toc_html = None
+        self.toc_rendered = False
         self.pending_text = ""
         self.pending_tag = None
         self.sentence_completion_punctuation = sentence_completion_punctuation
@@ -32,10 +42,12 @@ class HTMLBuilder(TableBuilder):
         self.is_real_sentence_end = self._sentence_detector.is_real_sentence_end
         self.previous_sentence_end_status = True
         self.is_pre_added = False
-        self.normalize_text = NormalizeText().normalize_text
+        self._base_normalize_text = NormalizeText().normalize_text
+        self.normalize_text = self._normalize_and_linkify_footnotes
         self.builder = ""
         self.unique_images = unique_images
         self.pending_header_footer = []
+        self.pending_pre_lines = []
         self.main_builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -71,7 +83,18 @@ class HTMLBuilder(TableBuilder):
     display: block;
     margin-left: 20%;
   }
-  p {
+
+  .footnotes {
+    display: block;
+    font-size: 0.9em;
+    border-top: 1px solid #999;
+    margin-top: 1em;
+  }
+
+  sup a {
+    text-decoration: none;
+  }
+  p, pre {
     white-space: pre-wrap;
   }
 
@@ -110,6 +133,27 @@ class HTMLBuilder(TableBuilder):
     max-width: 100%;
     height: auto;
   }
+  
+  nav.toc .toc-title {
+    font-weight: bold;
+  }
+
+  nav.toc .toc-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  nav.toc .toc-table td {
+    border: none;
+    padding: 0.15em 0.4em;
+    white-space: pre-wrap;
+  }
+
+  nav.toc .toc-page {
+    text-align: right;
+    color: #555;
+    white-space: nowrap;
+  }
 </style>
 </head>
 <body>
@@ -127,27 +171,20 @@ class HTMLBuilder(TableBuilder):
       except Exception as e:
           self.logger.exception("Error while flushing previous content - [%s] in html: %s",self.pending_text,e)
 
+    def flush_pre_lines(self):
+        if self.pending_pre_lines:
+            self.render_pre_block(self.pending_pre_lines)
+            self.pending_pre_lines = []
+
     
     def close_levels(self):
         try:
             while self.stack_for_level:
-                  if len(self.stack_for_level) >= 2:
-                    if self.stack_for_level[-1] == self.stack_for_level[-2]:
-                        tag = self.stack_for_level.pop()
-                        if tag == 0:
-                            self.builder += "</p>\n"
-                    else:
-                        tag = self.stack_for_level.pop()
-                        if tag == 0:
-                            self.builder += "</p>\n"
-                        else:
-                            self.builder += "</li>\n</ul>\n"
-                  else:
-                      tag = self.stack_for_level.pop()
-                      if tag == 0:
-                            self.builder += "</p>\n"
-                      else:
-                            self.builder += "</li>\n</ul>\n"
+                tag = self.stack_for_level.pop()
+                if tag == 0:
+                    self.builder += "</p>\n"
+                else:
+                    self.builder += "</li>\n</ul>\n"
         except Exception as e:
            self.logger.warning(f'when closing levels: {e}')
           
@@ -205,7 +242,7 @@ class HTMLBuilder(TableBuilder):
     # --- func to add Title in the html ---
     def addTitle(self, tb,pg_width,pg_height, next_text, next_text_tb,  at_page_end,next_label = None):
         try:
-          text = tb.extract_text_from_tb().strip()
+          text = self.normalize_text(tb.extract_text_from_tb()).strip()
           #original
           sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
           if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):
@@ -917,8 +954,74 @@ class HTMLBuilder(TableBuilder):
                 self.builder += item
             self.pending_header_footer = []
         
+    def _normalize_and_linkify_footnotes(self, text):
+        text = self._base_normalize_text(text)
+        if not text or self.current_page_num is None:
+            return text
+
+        def replace(match):
+            footnote_num = match.group(1)
+            if footnote_num not in self.footnote_refs_used:
+                self.footnote_refs_used.append(footnote_num)
+            anchor = f"fn-{self.current_page_num}-{footnote_num}"
+            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
+
+        return FOOTNOTE_MARKER_RE.sub(replace, text)
+
+    def arrange_footnote_sentences(self, raw_text):
+        rawlines = raw_text.split('\n')
+        arranged_text = []
+        current_sentence = ""
+
+        for line in rawlines:
+            if current_sentence:
+                current_sentence += " " + line
+            else:
+                current_sentence = line
+
+            is_sentence_completed = (current_sentence.endswith(
+                                    self.sentence_completion_punctuation)
+                                    and
+                                    not FOOTNOTE_ABBREVIATION_RE.search(current_sentence)
+                                    )
+
+            if is_sentence_completed:
+                arranged_text.append(current_sentence.strip())
+                current_sentence = ""
+
+        if current_sentence:
+            arranged_text.append(current_sentence.strip())
+
+        return " ".join(arranged_text)
+
+    def render_footnote_section(self):
+        if not self.footnote_refs_used:
+            return
+
+        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
+        items = []
+
+        for footnote_num in sorted(self.footnote_refs_used, key=lambda n: int(n) if n.isdigit() else n):
+            if footnote_num not in page_footnote_text:
+                continue
+
+            body = self.arrange_footnote_sentences(page_footnote_text[footnote_num])
+            anchor = f"fn-{self.current_page_num}-{footnote_num}"
+            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            items.append(f'<li id="{anchor}" value="{footnote_num}">{body} <a href="#{ref}">↩</a></li>\n')
+
+        if items:
+            self.builder += '<section class="footnotes">\n<hr>\n<ol>\n'
+            for item in items:
+                self.builder += item
+            self.builder += '</ol>\n</section>\n'
+
+        self.footnote_refs_used = []
+
     def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
+        self.current_page_num = int(page.pg_num)
         self._sentence_detector.column_bounds = page.column_bounds if page.is_multicolumn else None
         # try:
         #   if section_end_page and int(section_end_page)+1 == int(page.pg_num):
@@ -950,6 +1053,15 @@ class HTMLBuilder(TableBuilder):
                     next_text_tb = next_tb
 
             at_page_end = (idx == len(all_items) - 1)
+
+            if label not in ("pre", "pre_header") and self.pending_pre_lines:
+                self.flushPrevious()
+                self.flush_pre_lines()
+
+            if label in ("pre", "pre_header"):
+                self.pending_pre_lines.extend(self.extract_textlines(tb))
+                continue
+
             if label == "header":
                 self.add_header(
                   self.normalize_text(tb.extract_text_from_tb())
@@ -961,14 +1073,28 @@ class HTMLBuilder(TableBuilder):
                   self.normalize_text(tb.extract_text_from_tb())
                )
                 continue
-            
+
+            elif label == "footnote":
+                continue
+
+            elif label == "toc":
+                if self.toc_html and not self.toc_rendered:
+                    self.flushPrevious()
+                    if self.pending_table is not None and len(self.pending_table) <= 2:
+                        self.addTable(self.pending_table[0])
+                        self.pending_table = None
+                        self.flush_pending_header_footer()
+                    self.builder += self.toc_html
+                    self.toc_rendered = True
+                continue
+
             if not ((isinstance(label, tuple) and (label[0] == "table" or\
                                                    label[0] == "borderless_table"))):
                 if self.pending_table is not None and len(self.pending_table) <= 2:
                     self.addTable(self.pending_table[0])
                     self.pending_table = None
                     self.flush_pending_header_footer()
-            
+
             if self.pdf_type == 'sebi' and not self.is_pre_added and label in ('title', 'level1'):
                 self.check_for_pre_ended(self.normalize_text(tb.extract_text_from_tb()), label)
 
@@ -1036,6 +1162,8 @@ class HTMLBuilder(TableBuilder):
                 # if not self.is_pg_num(tb,page.pg_width):
                   self.addUnlabelled(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
 
+        self.render_footnote_section()
+
     def is_pg_num(self,tb,pg_width):
         if  tb.width < 0.04 * pg_width and self.check_isDigit(tb):
             self.logger.debug("The unlabelled textbox [%s] is classified as pg_num",tb.extract_text_from_tb())
@@ -1076,9 +1204,12 @@ class HTMLBuilder(TableBuilder):
     
     def get_html(self):
         self.flushPrevious()
+        self.flush_pre_lines()
+        self.close_levels()
+        self.close_sections()
         self.flushTables()
         return self.close_html()
-    
+
     def flushTables(self):
         """Flush pending_table into final storage."""
         if self.pending_table is not None and len(self.pending_table) <= 2:
@@ -1100,62 +1231,33 @@ class HTMLBuilder(TableBuilder):
                   self.flushPrevious()
                   if hierarchy_index == 0:
                       while self.stack_for_level:
-                          if len(self.stack_for_level) >= 2:
-                            if self.stack_for_level[-1] == self.stack_for_level[-2]:
-                                tag = self.stack_for_level.pop()
-                                if tag == 0:
-                                    self.builder += "</p>\n"
-                            else:
-                                tag = self.stack_for_level.pop()
-                                if tag == 0:
-                                    self.builder += "</p>\n"
-                                else:
-                                    self.builder += "</li>\n</ul>\n"
+                          tag = self.stack_for_level.pop()
+                          if tag == 0:
+                              self.builder += "</p>\n"
                           else:
-                              tag = self.stack_for_level.pop()
-                              if tag == 0:
-                                    self.builder += "</p>\n"
-                              else:
-                                    self.builder += "</li>\n</ul>\n"
-
+                              self.builder += "</li>\n</ul>\n"
                   else:
-                      if self.stack_for_level and self.stack_for_level[-1] > 0 \
-                        and self.stack_for_level[-1] == hierarchy_index:
-                          self.builder += "</li>\n"
-                      # original
+                      if self.stack_for_level and self.stack_for_level[-1] == 0:
+                          self.stack_for_level.pop()
+                          self.builder += "</p>\n"
                       while self.stack_for_level and self.stack_for_level[-1] > hierarchy_index:
-                          if len(self.stack_for_level) >= 2:
-                              if self.stack_for_level[-1] == self.stack_for_level[-2]:
-                                  self.stack_for_level.pop()
-                              else:
-                                  tag = self.stack_for_level.pop()
-                                  self.builder += "</li>\n</ul>\n"
-                                  if tag == hierarchy_index + 1:
-                                        self.builder += "</li>\n"
-                          else:
-                              tag = self.stack_for_level.pop()
-                              if tag == 0:
-                                    self.builder += "</p>\n"
-                              else:
-                                    self.builder += "</li>\n</ul>\n"
-                                    if tag == hierarchy_index + 1:
-                                        self.builder += "</li>\n"
-              
+                          self.stack_for_level.pop()
+                          self.builder += "</li>\n</ul>\n"
+                      if self.stack_for_level and self.stack_for_level[-1] == hierarchy_index:
+                          self.builder += "</li>\n"
+
               self.previous_sentence_end_status = self.is_real_sentence_end(text, next_text, at_page_end, tb, next_text_tb, pg_height, pg_width)
               # Open new tag depending on level
               if hierarchy_index == 0:
                   # Paragraph level always opens fresh
                   self.builder += f"<p>{text}"
+                  self.stack_for_level.append(hierarchy_index)
               else:
                   # If going deeper than parent, open a new <ul>
-                  if self.stack_for_level and self.stack_for_level[-1] == 0 and hierarchy_index == 1:
-                     self.close_levels()
                   if not self.stack_for_level or self.stack_for_level[-1] < hierarchy_index:
                       self.builder += "<ul>\n"
+                      self.stack_for_level.append(hierarchy_index)
                   self.builder += f"<li>{text}"
-
-              # Push this level onto stack
-              self.stack_for_level.append(hierarchy_index)
 
               self.logger.debug("Opened section at hierarchy level: %d", hierarchy_index)
 

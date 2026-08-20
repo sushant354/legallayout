@@ -21,8 +21,7 @@ class TextBox:
         # {(x0,y0,x1,y1): "3"}
         self.footnotes_superscript = {}
 
-        if pdf_type in set(['sebi_circulars']):
-            self.get_footnotes_superscript()
+        self.get_footnotes_superscript()
 
 
     def get_avg_font_size(self):
