@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 import subprocess
 import logging
+import re
 import asyncio
 import io
 from html import escape
@@ -9,6 +10,16 @@ import pymupdf
 from PIL import Image
 from chrome_lens_py import LensAPI
 from statistics import median
+
+# XML 1.0 permits only tab, newline, carriage return and the printable ranges
+# below as character data. pdfminer writes each glyph's decoded character
+# straight through, so a font whose ToUnicode map has a hole - the glyph maps to
+# U+0000 - puts a raw NUL in the xml and makes the whole document unparseable
+# (seen in the Mangal subset of gazette pdfs, mid-word among real devanagari).
+ILLEGAL_XML_CHARS_RE = re.compile(
+    '[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD'
+    '\U00010000-\U0010FFFF]'
+)
 
 class ParserTool:
     def __init__(self):
@@ -47,9 +58,35 @@ class ParserTool:
         except subprocess.CalledProcessError as e:
             self.logger.error(f"[✖] Parse failed: {e}")
     
+    def parse_xml(self, xml_path):
+        """Parse the pdfminer xml, dropping characters XML 1.0 forbids.
+
+        A plain parse is tried first, so a well-formed file - the overwhelming
+        majority - pays nothing for this. Only when that fails is the file
+        re-read and stripped, and a failure that stripping does not explain is
+        re-raised untouched.
+        """
+        try:
+            return ET.parse(xml_path)
+        except ET.ParseError:
+            with open(xml_path, encoding='utf-8', errors='replace') as f:
+                raw = f.read()
+
+            cleaned, removed = ILLEGAL_XML_CHARS_RE.subn('', raw)
+            if not removed:
+                raise
+
+            self.logger.warning(
+                f"Dropped {removed} character(s) illegal in XML from "
+                f"{xml_path}. These are glyphs the pdf font's ToUnicode map "
+                f"does not resolve; the text they stood for is lost."
+            )
+            # back to bytes so the file's own encoding declaration still holds
+            return ET.ElementTree(ET.fromstring(cleaned.encode('utf-8')))
+
     def get_pages_from_xml(self,xml_path,start_page,end_page):
         try:
-            tree = ET.parse(xml_path)
+            tree = self.parse_xml(xml_path)
             root = tree.getroot()
             pages = root.findall(".//page")
             if not pages:

@@ -106,8 +106,16 @@ FONT_CLASS_NOT_REQUIRED = 'not_required'
 # --- classes that do identify the font but have no converter to point it at. A
 # --- Type3 font's text is put right by repair_tounicode() before anything is
 # --- extracted from the pdf, so by the time it can be classified at all there
-# --- is nothing left to do to it
-FONT_CLASSES_WITHOUT_CONVERTER = {'type3'}
+# --- is nothing left to do to it. Mangal is here for both halves of the same
+# --- reason: repair_tounicode() puts its text right too, and a Mangal that
+# --- reaches detection at all is one the repair could not place - whose text
+# --- is therefore still missing the characters of every glyph the shaper made,
+# --- since that map hands them <0000> rather than the wrong character. Those
+# --- characters are simply not in the text and no decoder can put back what
+# --- was never extracted, so the only correct thing to do with such a font is
+# --- to leave it alone. mangal_glyphs is a reordering pass for text the repair
+# --- did place, and is reached through get_repaired_font_res(), never here
+FONT_CLASSES_WITHOUT_CONVERTER = {'type3', 'mangal'}
 
 # --- how much text drawn in one font is enough to say what it is. The model is
 # --- trained on samples of 50 words and its confidence falls apart well below
@@ -166,7 +174,8 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- which is what makes the check in get_detected_font_key() possible, and
 # --- what makes assuming it of a class not named here the safe default
 FONT_CLASSES_INDIC_TEXT = {
-    'arialuni', 'nirmala', 'nirmalaui', 'type3', FONT_CLASS_NOT_REQUIRED,
+    'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal',
+    FONT_CLASS_NOT_REQUIRED,
 }
 
 # --- the indic scripts, from devanagari through sinhala plus the devanagari
