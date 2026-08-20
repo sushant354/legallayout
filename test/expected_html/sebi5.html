@@ -33,7 +33,18 @@
     display: block;
     margin-left: 20%;
   }
-  p {
+
+  .footnotes {
+    display: block;
+    font-size: 0.9em;
+    border-top: 1px solid #999;
+    margin-top: 1em;
+  }
+
+  sup a {
+    text-decoration: none;
+  }
+  p, pre {
     white-space: pre-wrap;
   }
 
@@ -71,6 +82,27 @@
     display: block;
     max-width: 100%;
     height: auto;
+  }
+  
+  nav.toc .toc-title {
+    font-weight: bold;
+  }
+
+  nav.toc .toc-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  nav.toc .toc-table td {
+    border: none;
+    padding: 0.15em 0.4em;
+    white-space: pre-wrap;
+  }
+
+  nav.toc .toc-page {
+    text-align: right;
+    color: #555;
+    white-space: nowrap;
   }
 </style>
 </head>
@@ -115,27 +147,29 @@ In respect of:
 </table>
 Street Group/ JS Group")
 In the matter of Index manipulation by Jane Street Group
-</pre>
-<h4>TABLE OF CONTENTS</h4>
-<h4>BACKGROUND: ........................................................................................................ 2</h4>
-<h4>ENTITIES INVOLVED IN THE MATTER ................................................................... 3</h4>
-<h4>EXPLAINER ON CASH AND F&O MARKETS AND THEIR INTERPLAY................ 5</h4>
-<h4>I.  Prices of derivatives and their underlying stocks are interrelated ............ 5</h4>
-<h4>II.  On expiry day, volumes and participation in index options is far higher</h4>
-<h4>than in the underlying constituent stocks and futures ..................................... 6</h4>
-<h4>III.  Influencing underlying stock and index to profit from index options .... 8</h4>
-<h4>METHODOLOGY FOR ANALYSIS ........................................................................... 9</h4>
-<h4>Methodology for Identification of impugned trading days ................................ 9</h4>
-<h4>MANIPULATIVE STRATEGIES .............................................................................. 12</h4>
+<nav class="toc">
+<p class="toc-title">Table of Contents</p>
+<table class="toc-table">
+<tr class="toc-level-1"><td class="toc-entry">BACKGROUND:</td><td class="toc-page">2</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">ENTITIES INVOLVED IN THE MATTER</td><td class="toc-page">3</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">EXPLAINER ON CASH AND F&amp;O MARKETS AND THEIR INTERPLAY</td><td class="toc-page">5</td></tr>
+<tr class="toc-level-2"><td class="toc-entry" style="padding-left: 1.5em;">I. Prices of derivatives and their underlying stocks are interrelated</td><td class="toc-page">5</td></tr>
+<tr class="toc-level-2"><td class="toc-entry" style="padding-left: 1.5em;">II. On expiry day, volumes and participation in index options is far higher than in the underlying constituent stocks and futures</td><td class="toc-page">6</td></tr>
+<tr class="toc-level-2"><td class="toc-entry" style="padding-left: 1.5em;">III. Influencing underlying stock and index to profit from index options</td><td class="toc-page">8</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">METHODOLOGY FOR ANALYSIS</td><td class="toc-page">9</td></tr>
+<tr class="toc-level-2"><td class="toc-entry" style="padding-left: 1.5em;">Methodology for Identification of impugned trading days</td><td class="toc-page">9</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">MANIPULATIVE STRATEGIES</td><td class="toc-page">12</td></tr>
+<tr class="toc-level-2"><td class="toc-entry" style="padding-left: 1.5em;">“Intra-day Index Manipulation” Strategy – Analysis of trading on January 17, 2024 as a sample</td><td class="toc-page">12</td></tr>
+<tr class="toc-level-2"><td class="toc-entry" style="padding-left: 1.5em;">“Extended Marking The Close” Strategy</td><td class="toc-page">51</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">CONTINUING VIOLATION &amp; DISREGARD FOR REGULATORY CAUTION</td><td class="toc-page">68</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">ALLEGED VIOLATIONS of SEBI ACT AND PFUTP REGULATIONS</td><td class="toc-page">87</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">COMPUTATION OF ILLEGAL GAINS</td><td class="toc-page">94</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">NEED FOR INTERIM DIRECTIONS</td><td class="toc-page">96</td></tr>
+<tr class="toc-level-1"><td class="toc-entry">ORDER:</td><td class="toc-page">103</td></tr>
+</table>
+</nav>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 1 of 105</span>
-<h4>"Intra-day Index Manipulation" Strategy – Analysis of trading on January</h4>
-<h4>17, 2024 as a sample........................................................................................ 12</h4>
-<h4>"Extended Marking The Close" Strategy ....................................................... 51</h4>
-<h4>CONTINUING VIOLATION & DISREGARD FOR REGULATORY CAUTION ........ 68</h4>
-<h4>ALLEGED VIOLATIONS of SEBI ACT AND PFUTP REGULATIONS ................... 87</h4>
-<h4>COMPUTATION OF ILLEGAL GAINS .................................................................... 94</h4>
-<h4>NEED FOR INTERIM DIRECTIONS ........................................................................ 96</h4>
-<h4>ORDER: ................................................................................................................. 103</h4>
+</pre>
 <h4>A.  BACKGROUND:</h4>
 <p>1.  Based  on  media  reports  titled  'Jane  Street-Millennium  Suit:  'Secret'  Strategy Concerns  India,  Hearing  Reveals'  and  'Ex-Jane  Street  trader  pillories  claims  he stole trade secrets', published during April 2024 wherein it was inter-alia mentioned that  Jane  Street  and  its  associated  entities  alleged  unauthorised  use  of  their proprietary trading strategies in Indian options markets,  SEBI initiated preliminary examination into trading activity of Jane Street and associated entities (collectively referred to as "Jane Street Group" or "JS group") to ascertain any market abuse.<br> The chronology of some of the subsequent events is given in the following Table.<br></p>
 <h4>Table 1</h4>
@@ -171,7 +205,7 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
     <tr>
       <td></td>
-      <td>far the largest risks in 'cash equivalent' terms in F&O particularly on &#10;expiry days.  &#10;  S&#10;EBI constituted a team of officials to further examine the issue in &#10;a more detailed and comprehensive manner.</td>
+      <td>S&#10;far the largest risks in 'cash equivalent' terms in F&O particularly on &#10;expiry days.  &#10;EBI constituted a team of officials to further examine the issue in &#10;a more detailed and comprehensive manner.</td>
     </tr>
     <tr>
       <td>February 04, &#10;2025</td>
@@ -194,22 +228,35 @@ In the matter of Index manipulation by Jane Street Group
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 2 of 105</span>
 <h4>B. ENTITIES INVOLVED IN THE MATTER</h4>
-<p>2.  Jane Street Group LLC is a global proprietary trading firm in the financial services industry.  Jane  Street employs  more  than 2,600  people  in five  offices  across  the United States, Europe, and Asia and trades in 45 countries.1  Jane Street Group LLC was established in the year 2000.   Services are provided in the U.S. by Jane Street Capital, LLC and Jane Street Execution Services, LLC, each of which is a SEC-registered  broker  dealer  and  member  of  Financial  Industry  Regulatory Authority, USA ("FINRA").  Regulated activities are undertaken in Europe by Jane Street Financial Limited, an investment firm authorized and regulated by the U.K. Financial Conduct Authority, and Jane Street Netherlands B.V., an investment firm authorized and regulated by the Netherlands Authority for the Financial Markets (Autoriteit  Financiële  Markten),  and  in  Hong  Kong  by  Jane  Street  Hong  Kong 1 See complaint filed by Jane Street Group LLC against Millenium Management LLC before the United States District Court Southern District of New York available at https://www.sewkis.com/wp- content/uploads/Jane-Street_amended-complaint.pdf<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 3 of 105</span>
- Limited,  a  regulated  entity  under  the  Hong  Kong  Securities  and  Futures Commission. Each of these entities is a wholly owned subsidiary of Jane Street Group, LLC.2<br></p>
-<p>3.  Upon examination of the audited financial statements of JSI Investments Private Limited (Entity No. 1 in this Order), and the related party disclosures contained therein, it was observed that Jane Street Europe Limited and Jane Street Group, LLC (supra) were disclosed as the holding company and ultimate holding company of  JSI  Investments  Private  Limited,  respectively.  As  per  the  Memorandum  of Association of JSI2 Investments Private Ltd. (Entity No. 2 in this Order), it is  wholly  owned  by  JSI  Investments  Private  Limited.  Additionally,  Jane  Street Singapore Pte. Limited (Entity No. 3 in this Order) was also described in the  aforesaid  financial  statements  as  a  fellow  subsidiary  of  JSI  Investments  Private Limited,  indicating  their  common  control  under  the  Jane  Street  Group  umbrella, along with other affiliated entities.   In a 'BrokerCheck Report' of Jane Street Capital LLC (also referred to in the previous paragraph), available on the website of FINRA based on filings by the said broker it discloses itself as a subsidiary of Jane Street Group LLC.  Importantly, it also discloses Jane Street Asia Trading Ltd. (Entity No. 4 in this Order) as being under common control with the LLC and that it is an indirectly wholly owned subsidiary of Jane Street Group LLC.3<br></p>
+<p>2.  Jane Street Group LLC is a global proprietary trading firm in the financial services industry.  Jane  Street employs  more  than 2,600  people  in five  offices  across  the United States, Europe, and Asia and trades in 45 countries.<sup id="fnref-3-1"><a href="#fn-3-1">1</a></sup>  Jane Street Group LLC was established in the year 2000.   Services are provided in the U.S. by Jane Street Capital, LLC and Jane Street Execution Services, LLC, each of which is a SEC-registered  broker  dealer  and  member  of  Financial  Industry  Regulatory Authority, USA ("FINRA").  Regulated activities are undertaken in Europe by Jane Street Financial Limited, an investment firm authorized and regulated by the U.K. Financial Conduct Authority, and Jane Street Netherlands B.V., an investment firm authorized and regulated by the Netherlands Authority for the Financial Markets (Autoriteit  Financiële  Markten),  and  in  Hong  Kong  by  Jane  Street  Hong  Kong<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 3 of 105</span>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-3-1" value="1">See complaint filed by Jane Street Group LLC against Millenium Management LLC before the United States District Court Southern District of New York available at https://www.sewkis.com/wp- content/uploads/Jane-Street_amended-complaint.pdf <a href="#fnref-3-1">↩</a></li>
+</ol>
+</section>
+ Limited,  a  regulated  entity  under  the  Hong  Kong  Securities  and  Futures Commission. Each of these entities is a wholly owned subsidiary of Jane Street Group, LLC.<sup id="fnref-4-2"><a href="#fn-4-2">2</a></sup><br></p>
+<p>3.  Upon examination of the audited financial statements of JSI Investments Private Limited (Entity No. 1 in this Order), and the related party disclosures contained therein, it was observed that Jane Street Europe Limited and Jane Street Group, LLC (supra) were disclosed as the holding company and ultimate holding company of  JSI  Investments  Private  Limited,  respectively.  As  per  the  Memorandum  of Association of JSI2 Investments Private Ltd. (Entity No. 2 in this Order), it is  wholly  owned  by  JSI  Investments  Private  Limited.  Additionally,  Jane  Street Singapore Pte. Limited (Entity No. 3 in this Order) was also described in the  aforesaid  financial  statements  as  a  fellow  subsidiary  of  JSI  Investments  Private Limited,  indicating  their  common  control  under  the  Jane  Street  Group  umbrella, along with other affiliated entities.   In a 'BrokerCheck Report' of Jane Street Capital LLC (also referred to in the previous paragraph), available on the website of FINRA based on filings by the said broker it discloses itself as a subsidiary of Jane Street Group LLC.  Importantly, it also discloses Jane Street Asia Trading Ltd. (Entity No. 4 in this Order) as being under common control with the LLC and that it is an indirectly wholly owned subsidiary of Jane Street Group LLC.<sup id="fnref-4-3"><a href="#fn-4-3">3</a></sup><br></p>
 <p>4.  In the submission filed by Jane Street Group on August 30th, 2024 in response to the preliminary enquiries made by SEBI, the Group made submissions on behalf of the Group's companies trading in the Indian market. These submissions were with reference to trades done by all three Entities to this Order.<br></p>
-<p>5.  The  Jane  Street  Group  LLC's  associate  entities  operating  in  India  were  initially identified  based  on  the  domain  (i.e.  janestreet.com  )  provided  at  the  time  of opening  of  trading  accounts.  This  domain  association  adds  to  the  aforesaid conclusion that all the Entities form part of the global operations of the Jane Street Group.<br> 2 https://www.janestreet.com/who-we-are/ 3 https://files.brokercheck.finra.org/firm/firm_103782.pdf<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 4 of 105</span>
+<p>5.  The  Jane  Street  Group  LLC's  associate  entities  operating  in  India  were  initially identified  based  on  the  domain  (i.e.  janestreet.com  )  provided  at  the  time  of opening  of  trading  accounts.  This  domain  association  adds  to  the  aforesaid conclusion that all the Entities form part of the global operations of the Jane Street Group.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 4 of 105</span>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-4-2" value="2">https://www.janestreet.com/who-we-are/ <a href="#fnref-4-2">↩</a></li>
+<li id="fn-4-3" value="3">https://files.brokercheck.finra.org/firm/firm_103782.pdf <a href="#fnref-4-3">↩</a></li>
+</ol>
+</section>
 </p>
 <p>6.  Considering the above, the activities and trades of the Entities have been viewed as group and not as individual entities, for the purpose of this Order.<br></p>
 <ul>
 <li>C.  EXPLAINER ON CASH AND F&O MARKETS AND THEIR INTERPLAY I.  Prices of derivatives and their underlying stocks are interrelated </li>
 </ul>
 <p>7.  Derivatives  are  instruments  whose  value  is  derived  from  underlying  reference securities.  There  is  a  strong  interrelationship  between  prices  of  derivative instruments and the prices of their underlying stocks or indices. Annexure 1 of this Order provides a basic primer around indices, and around Futures and Options on single stocks and indices such as BANKNIFTY.  The following illustrations explain how some of these interrelationships come about:<br></p>
+<blockquote>7.1. If the price of a stock futures or index futures contract were to be significantly higher than the underlying stock or index price, arbitrageurs can sell the futures at a high price, buy the stock or index components in cash markets at a low price, and lock into an assured profit on expiry of the futures contract. Similarly, if the price of a stock futures or index futures contract were to be significantly lower  than  the  underlying  stock  or  index  price,  an  opposite  side  arbitrage opportunity would arise. As a result of these arbitrage guardrails, the price of a stock futures or index futures contract generally moves in tandem with the price of the underlying stock or index.</blockquote>
+<blockquote>7.2. Stock prices and stock option prices are also bound by arbitrages.</blockquote>
+<blockquote>7.2.1.  The payoff from buying a call option and selling a put option on a stock or index simultaneously at the same strike price is equivalent to buying a forward  contract  on  that  stock  or  index  at  that  strike  price.  This  is  the principle of "put-call-parity" in options that connects the prices of options with  the  underlying  spot  and  forward  prices.  Deviations  from  this  parity would lead to arbitrage opportunities for market participants.</blockquote>
+<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 5 of 105</span>
 <ul>
-<li>7.1. If the price of a stock futures or index futures contract were to be significantly higher than the underlying stock or index price, arbitrageurs can sell the futures at a high price, buy the stock or index components in cash markets at a low price, and lock into an assured profit on expiry of the futures contract. Similarly, if the price of a stock futures or index futures contract were to be significantly lower  than  the  underlying  stock  or  index  price,  an  opposite  side  arbitrage opportunity would arise. As a result of these arbitrage guardrails, the price of a stock futures or index futures contract generally moves in tandem with the price of the underlying stock or index.<br></li>
-<li>7.2. Stock prices and stock option prices are also bound by arbitrages.<ul>
-<li>7.2.1.  The payoff from buying a call option and selling a put option on a stock or index simultaneously at the same strike price is equivalent to buying a forward  contract  on  that  stock  or  index  at  that  strike  price.  This  is  the principle of "put-call-parity" in options that connects the prices of options with  the  underlying  spot  and  forward  prices.  Deviations  from  this  parity would lead to arbitrage opportunities for market participants.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 5 of 105</span>
-</li>
 <li>7.2.2.  Similarly, if arbitrageurs could buy In-The-Money (ITM calls) of a stock or index such that strike price of the call option + premium of the option is less  than  the  current  market  price  of  the  stock  or  index,  they  could  buy such ITM calls, sell stocks in the cash market and lock into a profit.<br><ul>
 <li>7.2.2.1.  As an example, if a stock (or index) is at INR 100, and the cost of an ITM call option at INR 90 (i.e., the cost of acquiring the right to buy the stock or index at INR 90) is just INR 6, then a participant could purchase this option, immediately sell the stock (or index) at 100, and lock into an assured profit of INR 4 at maturity.<br></li>
 </ul>
@@ -223,11 +270,9 @@ In the matter of Index manipulation by Jane Street Group
 </ul>
 </li>
 </ul>
-</li>
-</ul>
 <p>8.  It is pertinent to note the difference in the level of liquidity and participation across cash markets and F&O. On weekly index options expiry day, the comparable cash equivalent traded volumes in index options markets is several times the combined cash equivalent volumes traded in the associated futures and cash markets.  For example, on 17 Jan 2024, an expiry day in BANKNIFTY index options where prima<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 6 of 105</span>
  facie  manipulative  activity  of  Jane  Street  Group  was  observed,  the  following  is noted:<br></p>
-<h4>Table 2</h4>
+<blockquote>Table 2</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -268,14 +313,11 @@ In the matter of Index manipulation by Jane Street Group
       <td>No. of unique entities that traded in the futures contracts &#10;of BANKNIFTY index</td>
       <td>26,593</td>
     </tr>
-    <tr>
-      <td>No. of unique entities that traded in the options contracts &#10;of BANKNIFTY index</td>
-      <td>16,15,011</td>
-    </tr>
   </tbody>
 </table>
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 7 of 105</span>
+<p>No. of unique entities that traded in the options contracts 16,15,011 of BANKNIFTY index</p>
 <p>10.  A  core  reason  for  this  phenomenon  is  likely  that  market  participants  enjoy enormous 'leverage' from options. As an example, to take delivery of a stock priced at INR 100 in the cash market, one needs to put up cash to the extent of INR 100.<br> To  buy  a  futures  contract  on  the  same  underlying  stock,  one  needs  to  put  up adequate margin, say of INR 20. To that extent, there is an effective leverage of five  times  available  to  the  participant,  in  taking  up  the  same  cash-equivalent exposure  via  futures  markets,  as  opposed  to  via  cash  markets.  Of  course,  the leverage also implies higher risk for the participant. In the options market, on the other hand, if one were to buy a call option at a strike price of INR 100 (At-The- Money or ATM strike) on two shares of the same underlying stock, with just one day to expiry and assuming 25% implied volatility, the option may only cost around INR 1. The underlying cash-equivalent economic exposure of this long-call ATM option position on two shares, at the time of trading, would be equivalent to being long  one  underlying  share  (the  'cash  equivalent'  or  'future  equivalent'  or  'delta equivalent'  risk).  This  position  has  been  put  up  with  an  outlay  of  just  INR  1, representing  a  100-times  leverage  over  taking  the  same  position  directly  in  the cash  market,  or  a  20-times  leverage  over  taking  the  same  position  via  futures markets.<br></p>
 <p>11. This leveraged payoff from buying options close to expiry, where one can take on enormous exposure in relation to the size of the capital outlay, with a known and limited downside (to the extent of option premium paid) but with the prospects of high gains if the prices were to move sharply and favourably, appears to attract traders who only trade in index options, and not in the underlying cash markets.<br></p>
 <ul>
@@ -288,9 +330,7 @@ In the matter of Index manipulation by Jane Street Group
 <h4>Step 1: Profit-Loss mapping across all segments</h4>
 <ul>
 <li>14.1. The aggregate profit/loss made by the Jane Street Group during the examination period i.e. from January 1, 2023 to March 31, 2025, across all product categories and segments of NSE are summarised in the following Table:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 9 of 105</span>
-</li>
-</ul>
-<h4>Table 4</h4>
+<blockquote>Table 4</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -365,11 +405,8 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<ul>
-<li>14.2. The  data  in  the  above  table  reveals  that  profits  from  Index  Options  alone accounted for over INR 43,289.33 Crore whereas losses in stock futures, index futures and cash cumulatively amounts to INR 7,687.21 crore.<br></li>
-</ul>
-<h4>Step 2: Disaggregated Analysis of Index Options Instruments</h4>
-<ul>
+ accounted for over INR 43,289.33 Crore whereas losses in stock futures, index futures and cash cumulatively amounts to INR 7,687.21 crore.<br><blockquote>14.2. The  data  in  the  above  table  reveals  that  profits  from  Index  Options  alone Step 2: Disaggregated Analysis of Index Options Instruments</blockquote>
+</li>
 <li>14.3. Within  the  "Index  Options"  category,  the  data  for  the  Examination  Period  was further  split  across  four  indices:  BANKNIFTY,  NIFTY,  FINNIFTY,  and MIDCPNIFTY.  It  was  found  that  BANKNIFTY  options  alone  contributed  INR 17,319.26 Cr, amounting to 40% of the total Index Options profits.<br></li>
 </ul>
 <h4>Step 3: Day-Wise profit calculation vis-à-vis BANKNIFTY options and further</h4>
@@ -377,13 +414,20 @@ In the matter of Index manipulation by Jane Street Group
 <ul>
 <li>14.4. To  identify  concentrated  profitability  periods,  a  daily  profit  computation  for BANKNIFTY  options  trades  was  conducted  for  the  examination  period.<br> Thereafter, all  the  trading  days  were  ranked by  profits  in BANKNIFTY  options<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 10 of 105</span>
  contracts.      From  this list,  the  top  30 most  profitable  days  were  shortlisted for analysis.<br></li>
-<li>14.5. From the top 30 profit-ranked days, 19 number of derivative expiry days (weekly or monthly) were specifically listed.4<br></li>
-<li>14.6. Out of the aforementioned 19 number of days, a granular intraday (at minute level)  analysis  of  trading  activity  was  carried  out  for  the  said  days5  and accordingly 17 days were shortlisted for detailed analysis. Additionally, one day from the preliminary review phase was also selected for in-depth examination.<br> Accordingly,  a  total  of  18  trading  days  during  the  Examination  Period  were analysed.<br></li>
+<li>14.5. From the top 30 profit-ranked days, 19 number of derivative expiry days (weekly or monthly) were specifically listed.<sup id="fnref-11-4"><a href="#fn-11-4">4</a></sup><br></li>
+<li>14.6. Out of the aforementioned 19 number of days, a granular intraday (at minute level)  analysis  of  trading  activity  was  carried  out  for  the  said  days<sup id="fnref-11-5"><a href="#fn-11-5">5</a></sup>  and accordingly 17 days were shortlisted for detailed analysis. Additionally, one day from the preliminary review phase was also selected for in-depth examination.<br> Accordingly,  a  total  of  18  trading  days  during  the  Examination  Period  were analysed.<br></li>
 </ul>
 <h4>Step 4: Assessing volume and/ or price manipulation in BANKNIFTY index and</h4>
 <h4>its constituents</h4>
 <ul>
-<li>14.7. The most profitable trading day January 17, 2024 (with profit to the tune of INR 734.93  crore)  was  selected  for  detailed  scrutiny.    In  this  context,  a  comprehensive  examination  of  all  trades  executed  by  the  Group  on  this  day across cash, futures, and options segments was undertaken to understand the nature, timing, and potential interlinkages of such activity.  The detailed analysis of  the  trades  of  this  day  revealed  the  existence  of  a  strategy  ("Intraday  Index Manipulation" Strategy) which appears to have been similarly deployed by the JS Group in 15 days out of 18 days covered in this Order.  A different strategy ("Extended Marking the Close" Strategy) was observed on the other 3 days.  The latter strategy was also seen to have been deployed on 3 other days post the examination period in NIFTY index options, during May 2025.<br> 4 It was observed that Jane Street Group's activity was heavily concentrated around expiry days, both in terms of GTV and options positioning. On such days, the index closing value has direct bearing on options  payoff,  thereby  creating  both  the  motive  and  the  opportunity  for  influencing  settlement outcomes.  This  filter  ensured  analytical  focus  on  those  days  where  the  potential  for  derivative manipulation was structurally the highest. 5  The  review  involved  minute-wise  data  parsing  and  graphical  visualization  of  multiple  variables  to identify potential instances of market manipulation or sentiment distortion. The graphs were then also analysed to assess whether the trading behaviour was manipulative in nature.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 11 of 105</span>
+<li>14.7. The most profitable trading day January 17, 2024 (with profit to the tune of INR 734.93  crore)  was  selected  for  detailed  scrutiny.    In  this  context,  a  comprehensive  examination  of  all  trades  executed  by  the  Group  on  this  day across cash, futures, and options segments was undertaken to understand the nature, timing, and potential interlinkages of such activity.  The detailed analysis of  the  trades  of  this  day  revealed  the  existence  of  a  strategy  ("Intraday  Index Manipulation" Strategy) which appears to have been similarly deployed by the JS Group in 15 days out of 18 days covered in this Order.  A different strategy ("Extended Marking the Close" Strategy) was observed on the other 3 days.  The latter strategy was also seen to have been deployed on 3 other days post the examination period in NIFTY index options, during May 2025.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 11 of 105</span>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-11-4" value="4">It was observed that Jane Street Group’s activity was heavily concentrated around expiry days, both in terms of GTV and options positioning. On such days, the index closing value has direct bearing on options payoff, thereby creating both the motive and the opportunity for influencing settlement outcomes. This filter ensured analytical focus on those days where the potential for derivative manipulation was structurally the highest. <a href="#fnref-11-4">↩</a></li>
+<li id="fn-11-5" value="5">The review involved minute-wise data parsing and graphical visualization of multiple variables to identify potential instances of market manipulation or sentiment distortion. The graphs were then also analysed to assess whether the trading behaviour was manipulative in nature. <a href="#fnref-11-5">↩</a></li>
+</ol>
+</section>
 </li>
 </ul>
 <h4>E.  MANIPULATIVE STRATEGIES</h4>
@@ -414,9 +458,7 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 </li>
-<li>15.2.  The JS Group's trading pattern on January 17, 2024 constituting "Intra- day Index Manipulation” is summarised below: </li>
-</ul>
-<h4>Table 6 - Tabular Flowchart – Intraday Strategy Executed by Jane Street Group</h4>
+<li>15.2.  The JS Group's trading pattern on January 17, 2024 constituting "Intra- day Index Manipulation" is summarised below:  <blockquote>Table 6 - Tabular Flowchart – Intraday Strategy Executed by Jane Street Group</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -458,18 +500,12 @@ In the matter of Index manipulation by Jane Street Group
 </table>
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 12 of 105</span>
-<p>The patches are now examined in detail below.</p>
-<ul>
-<li>(I)  Patch I: Aggressive cash and futures buying of BANKNIFTY components <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 13 of 105</span>
+<blockquote>The patches are now examined in detail below.</blockquote>
+ 11:46:59),  Jane  Street  Group  aggressively  accumulated  significant  long positions of INR 4,370.03 crores in BANKNIFTY constituents across both the cash and stock futures markets.  They were the single largest net buyer across BANKNIFTY components during this patch, by far.<br> <blockquote>(I)  Patch I: Aggressive cash and futures buying of BANKNIFTY components<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 13 of 105</span>
+ 15.3.  During  the  underlying  buying  patch  (Patch  I,  between  09:15:00  to</blockquote>
 </li>
-</ul>
-</li>
-<ul>
-<li>15.3.  During  the  underlying  buying  patch  (Patch  I,  between  09:15:00  to 11:46:59),  Jane  Street  Group  aggressively  accumulated  significant  long positions of INR 4,370.03 crores in BANKNIFTY constituents across both the cash and stock futures markets.  They were the single largest net buyer across BANKNIFTY components during this patch, by far.<br></li>
 <li>15.4.  JS  Group  purchases  in  the  BANKNIFTY  constituent  stocks  (cash market) during Patch I are detailed below:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 14 of 105</span>
-</li>
-</ul>
-<h4>Table 7</h4>
+<blockquote>Table 7</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -666,11 +702,16 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<p>It is pertinent to note that during this Patch I, JS only undertook purchase trades in these constituent stocks (cash markets).</p>
-<ul>
-<li>15.5.  JS Group purchases in the BANKNIFTY constituent stock futures during Patch I are detailed below: 6 All the data points (for respective scrips) fall between JS's buy trade start time and buy trade end time 7 Traded Value<br> Interim Order in the matter of Index manipulation by Jane Street Group  Page 15 of 105</li>
-</ul>
-<h4>Table 8</h4>
+<blockquote>It is pertinent to note that during this Patch I, JS only undertook purchase trades in these constituent stocks (cash markets).</blockquote>
+<blockquote>15.5.  JS Group purchases in the BANKNIFTY constituent stock futures during Patch I are detailed below:</blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-15-6" value="6">All the data points (for respective scrips) fall between JS’s buy trade start time and buy trade end time <a href="#fnref-15-6">↩</a></li>
+<li id="fn-15-7" value="7">Traded Value <a href="#fnref-15-7">↩</a></li>
+</ol>
+</section>
+<blockquote>Interim Order in the matter of Index manipulation by Jane Street Group  Page 15 of 105 Table 8</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -879,14 +920,11 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 16 of 105</p>
-<ul>
-<li>15.6.  Jane  Street  Group  aggressively  bought  shares  and  futures  of  all BANKNIFTY  constituents  (except  BANDHANBANK)  during  this  patch.  Their net Traded Value (TV) in the cash segment was INR 1,851.57 Cr and in the futures  segment  was  INR  2,518.46  Cr.  For  context,  the  next  highest participant's net TV in cash and stock futures segment was INR 1,042.93 Cr and INR 159.15 Cr respectively, during the general underlying buy patch (i.e. 09:15:00  to  11:46:59).      Further,  in  all  the  scrips  (except  HDFCBANK),  JS contributed  15–25%  of  the  entire  market's  traded  value  —  a  remarkably dominant share/ concentration. For perspective, the next highest participant's concentration in any of these scrips was much smaller (e.g. the next highest participant  concentration  in  KOTAKBANK  cash  segment  during  the aforementioned general buy patch was only 8.09%, as opposed to 23.21% for JS Group), underscoring the disproportionate footprint of JS Group's activity.<br></li>
+ BANKNIFTY  constituents  (except  BANDHANBANK)  during  this  patch.  Their net Traded Value (TV) in the cash segment was INR 1,851.57 Cr and in the futures  segment  was  INR  2,518.46  Cr.  For  context,  the  next  highest participant's net TV in cash and stock futures segment was INR 1,042.93 Cr and INR 159.15 Cr respectively, during the general underlying buy patch (i.e. 09:15:00  to  11:46:59).      Further,  in  all  the  scrips  (except  HDFCBANK),  JS contributed  15–25%  of  the  entire  market's  traded  value  —  a  remarkably dominant share/ concentration. For perspective, the next highest participant's concentration in any of these scrips was much smaller (e.g. the next highest participant  concentration  in  KOTAKBANK  cash  segment  during  the aforementioned general buy patch was only 8.09%, as opposed to 23.21% for JS Group), underscoring the disproportionate footprint of JS Group's activity.<br> <blockquote>Interim Order in the matter of Index manipulation by Jane Street Group  Page 16 of 105 15.6.  Jane  Street  Group  aggressively  bought  shares  and  futures  of  all</blockquote>
+</li>
 <li>15.7.   Clearly,  the  JS  Group  accounted  for  a  significant  portion  of  the  net buying in the 12 BANKNIFTY component stocks and their futures across all market participants during this Patch I. It was by far the single biggest net buyer of  these  stocks  put  together  during  this  patch.  This  burst  of  buying  clearly would have supported the prices of these securities. In addition, we examined Last Traded Price (LTP) based impact analysis — i.e., whether the orders and trades  were  placed  or  dealt  above  or  below  prevailing  market  prices  by  JS Group,  thereby  tending  to  push  the  price  up  or  down.  This  transition  from volume-based  analysis  to  price-impact  assessment  is  critical  in  further evaluating whether the activity was benign or aggressive. The result of the said analysis, capturing both order-level and trade-level LTP, is placed below.<br></li>
 <li>15.8.  LTP  analysis  of  JS  Group  purchases  in  the  BANKNIFTY  constituent stocks (cash market) during Patch I is detailed below:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 17 of 105</span>
-</li>
-</ul>
-<h4>Table 9 - Order level LTP-based analysis8</h4>
+<blockquote>Table 9 - Order level LTP-based analysis<sup id="fnref-18-8"><a href="#fn-18-8">8</a></sup></blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -1048,8 +1086,13 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
-<p>8 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.</p>
-<p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 18 of 105 Table 10 - Trade level LTP-based analysis</p>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-18-8" value="8">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. Interim Order in the matter of Index manipulation by Jane Street Group Page 18 of 105 <a href="#fnref-18-8">↩</a></li>
+</ol>
+</section>
+<blockquote>Table 10 - Trade level LTP-based analysis</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -1223,12 +1266,14 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price"</blockquote>
-<p>9 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 19 of 105</p>
-<ul>
-<li>15.9.  LTP analysis of JS Group purchases in the BANKNIFTY constituent stock futures during Patch I is detailed below:</li>
-</ul>
-<h4>Table 11 - Order level LTP-based analysis10</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-19-9" value="9">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. Interim Order in the matter of Index manipulation by Jane Street Group Page 19 of 105 <a href="#fnref-19-9">↩</a></li>
+</ol>
+</section>
+<blockquote>15.9.  LTP analysis of JS Group purchases in the BANKNIFTY constituent stock futures during Patch I is detailed below:</blockquote>
+<blockquote>Table 11 - Order level LTP-based analysis<sup id="fnref-20-10"><a href="#fn-20-10">10</a></sup></blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -1402,8 +1447,19 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
-<p>10 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.</p>
-<p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 20 of 105 Table 12 - Trade level LTP-based analysis</p>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-20-10" value="10">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. Interim Order in the matter of Index manipulation by Jane Street Group Page 20 of 105 <a href="#fnref-20-10">↩</a></li>
+</ol>
+</section>
+<blockquote>Table 12 - Trade level LTP-based analysis</blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-21-11" value="11">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip) for the impact created by Jane Street’s trades. Interim Order in the matter of Index manipulation by Jane Street Group Page 21 of 105 <a href="#fnref-21-11">↩</a></li>
+</ol>
+</section>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -1588,10 +1644,8 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<p>11 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip) for the impact created by Jane Street's trades.</p>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 21 of 105</p>
-<ul>
-<li>15.10.  The  above  data  reveals  that  during  Patch  I,  JS  group  placed  a disproportionately  high  number  of  buy  orders  at  or  above  the  LTP  in BANKNIFTY  constituent  stocks  (in  both  cash  as  well  as  futures  segment) thereby either aggressively attempting to push up or support the price rise in the stocks.<br></li>
+ disproportionately  high  number  of  buy  orders  at  or  above  the  LTP  in BANKNIFTY  constituent  stocks  (in  both  cash  as  well  as  futures  segment) thereby either aggressively attempting to push up or support the price rise in the stocks.<br> <blockquote>15.10.  The  above  data  reveals  that  during  Patch  I,  JS  group  placed  a</blockquote>
+</li>
 <li>15.11.  Further, for instance, in the case of ICICIBANK during Patch I, the stock opened  at  INR  994.20  and  closed  at  INR  987.75,  reflecting  a  net decline of INR 6.45 during the patch. However, a granular trade-level analysis revealed that Jane Street Group's trades alone accounted for a positive LTP impact of INR 1,652.85, implying that its trading activity was actively contributing to trying to  push  the  stock  price  upward.  Given  that  the  stock  nevertheless  declined during  the  day,  it  follows  that  the  LTP  impact  attributable  to  the  rest  of  the market was negative INR 1,659.30.<br></li>
 <li>15.12.  The actual execution of these buy orders at elevated prices contributed to  supporting  or  pushing  up  the  price  of  the  individual  stocks.  Given  that BANKNIFTY is a market-cap weighted index, this support or price elevation in its constituents directly resulted in the support or rise of the BANKNIFTY index.<br> Through  the  aforesaid  trades  in  constituents  of  BANKNIFTY  in  cash  market through Patch I, the price impact of JS entities on the index after adjusting for weights  of  the  constituents  was  +49,047.61,  whereas  that  by  all  the  other participants put together was -49,194.31. This is indicative of strong upward price push created by JS Group.<br></li>
 <li>15.13.  This  data-driven  decomposition  of  price  movement  prima  facie  shows that  Jane  Street  Group  was  exerting  considerable  upward  pressure  on  the price of key index constituents during Patch I.<br></li>
@@ -1602,7 +1656,20 @@ In the matter of Index manipulation by Jane Street Group
 <li>15.17.  As  will  be  shown  below  when  considering  the  trading  of  JS  Group  in index options during this period, JS Group utilized this spike up in the index, which  had  been  triggered  largely  by  their  own  aggressive  buying  in BANKNIFTY component stocks and futures, to sell BANKNIFTY calls and buy BANKNIFTY puts and therefore put on significant larger short side positions in BANKNIFTY.<br></li>
 </ul>
 <h4>BANKNIFTY  5 min OHLC</h4>
-<p>47400 47200 47000 46800 46600 46400 46200 46000 45800 45600 45400 45200</p>
+<pre>
+47400
+47200
+47000
+46800
+46600
+46400
+46200
+46000
+45800
+45600
+45400
+45200
+</pre>
 <p>0 0 : 5 1 : 9 0</p>
 <p>0 0 : 0 3 : 9 0</p>
 <p>0 0 : 5 4 : 9 0</p>
@@ -1644,11 +1711,11 @@ In the matter of Index manipulation by Jane Street Group
       <td></td>
       <td>ICICI Bank</td>
       <td></td>
-      <td>Axis Bank</td>
+      <td>Axis Bank &#10;SBI Bank &#10;INDUSIND Bank</td>
       <td></td>
-      <td>SBI Bank</td>
       <td></td>
-      <td>INDUSIND Bank</td>
+      <td></td>
+      <td></td>
       <td></td>
     </tr>
     <tr>
@@ -1808,14 +1875,11 @@ In the matter of Index manipulation by Jane Street Group
 <ul>
 <li>(II) Patch I: Building very large short BANKNIFTY positions via index options 15.19.  The  artificial  support  to  index  constituents  by  aggressive  and  large  buying  in  cash  and  futures  during  Patch  I  coincided  with  JS  Group simultaneously effectively selling BANKNIFTY via the index options segment.<br> Specifically, it  was observed that the Group took large short positions in  At- The-Money  (ATM)  BANKNIFTY  call  options  and  long  positions  in  ATM  put options during the same patch. Note that by supporting the BANKNIFTY index through large and aggressive cash and futures market purchases during the patch,  JS  Group  created  conditions  that  misled  BANKNIFTY  index  option participants  with  artificially  inflated  call  option  premiums  and  subdued  put option premiums, allowing JS Group to enter into these options trades at very favourable pricing.<br></li>
 </ul>
-</li>
 <ul>
 <li>15.20.  To  reiterate  and  as  discussed  earlier,  there  are  several  more participants,  including  small  retail  participants,  in  the  BANKNIFTY  index options  markets  than  in  the  underlying  cash  and  futures  markets.  The  vast majority  of  BANKNIFTY  options  participants  that  do  not  participate  in  the underlying cash or futures markets look to the index, determined by the cash market  levels,  to  price  and  take  a  view  on  index  options.  In  that  sense,  the aggressive and large intervention by the JS Group in Patch I lulled and induced the many participants in the BANKNIFTY index options to deal at prices that were  heavily  influenced  by  the  intervention  of  JS  Group  in  the  component stocks and futures.<br></li>
 <li>15.21.  To further understand the underlying intent and design of the Jane Street Group's  options  strategy  in  granular  detail,  it  is  particularly  instructive  to examine how the Group built its exposure in Bank Nifty options during the first 8 minutes of the trading day. Accordingly, trades in select Put and Call Option contracts during the patch from 09:15:00 to 09:22:59 – during the time when the  group  was  notably  aggressive  in  its  cash/  futures  purchases,  as  noted earlier - were analysed.<br></li>
 <li>15.22.  The opening and closing premiums of the selected Put and Call Option contracts during the identified patch, along with their respective closing prices at  the  end  of  the  trading  day  and  BANKNIFTY  Index  values,  are  tabulated below:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 25 of 105</span>
-</li>
-</ul>
-<h4>Table 14</h4>
+<blockquote>Table 14</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -2190,14 +2254,12 @@ In the matter of Index manipulation by Jane Street Group
 </table>
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 26 of 105</span>
-<ul>
-<li>15.23.  The  trading  pattern  of  JS  Group  in  both  BANKNIFTY  Call  and  Put options reflects a clear bearish sentiment in cash-equivalent terms. In the call options  segment,  JS  Group  net  cash-equivalent  short  exposure  on BANKNIFTY during these eight minutes increased by INR 3,661.16 Cr.<br></li>
+ options reflects a clear bearish sentiment in cash-equivalent terms. In the call options  segment,  JS  Group  net  cash-equivalent  short  exposure  on BANKNIFTY during these eight minutes increased by INR 3,661.16 Cr.<br> <blockquote>15.23.  The  trading  pattern  of  JS  Group  in  both  BANKNIFTY  Call  and  Put</blockquote>
+</li>
 <li>15.24.  Similarly,  in  the  BANKNIFTY  Put  options  segment  during  these  eight minutes, the resulting net delta exposure was even more bearish, amounting to negative INR 5,089.84 Cr.<br></li>
 <li>15.25.  In effect, in the top 6 BANKNIFTY component stocks and futures, in the first 8 minutes, JS Group had net bought INR 572 crores worth aggressively, witness  the  LTP  data  around  these  purchases  as  described  earlier.  At  the same time, across buying BANKNIFTY Puts and selling BANKNIFTY Calls at favourable Index levels engineered by their intervention in the cash and futures markets, JS Group had also managed to put up effective cash equivalent short BANKNIFTY exposure of INR 8,751 crores. In absolute terms, this was over 15  times  the  INR  572  crores  of  position  put  up  in  the  component  cash  and futures market in that time.<br></li>
 <li>15.26.  The relevant details have been tabulated below:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 27 of 105</span>
-</li>
-</ul>
-<h4>Table 15</h4>
+<blockquote>Table 15</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -3539,7 +3601,7 @@ In the matter of Index manipulation by Jane Street Group
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 29 of 105</span>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 30 of 105</span>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 31 of 105</span>
-<ul>
+</li>
 <li>15.27.  In the context of the full Patch I, the Group was seen buying BANKNIFTY Put options and selling BANKNIFTY Call options. During this patch, the delta position rose from the day's open of negative INR 7,311.19 Crores to negative INR  39,426.15  Crores  by  11:47  AM,  indicating  an  increase  in  bearish sentiment to the tune of INR 32,114.96 Crores. This was a substantial increase of 384% from the opening levels. Note that this net increase of cash-equivalent INR 32,114.96 crores in short positions in BANKNIFTY via index options, in absolute terms, was 7.3 times the INR 4,370.03 crores long position built by the group aggressively in the component cash/ futures markets<br></li>
 <li>15.28.  On further examining the trading behaviour of Jane Street Group on 17 January  2024,  it  is  observed  that  a  significant  number  of  their  BANKNIFTY option  derivative  trades  were  in  and  around  At-the-Money  ("ATM")  strike contracts. Note that trader interest and liquidity in ATM contracts tends to be highest, allowing the JS Group to accumulate large sized BANKNIFTY index options exposures in the manner that they did.<br></li>
 </ul>
@@ -3548,10 +3610,8 @@ In the matter of Index manipulation by Jane Street Group
 <ul>
 <li>15.29.  Once  the  BANKNIFTY  index  option  positions  were  in  place  through Patch  I,  the  JS  Group  began  systematically  squaring  off  and  dumping  its holdings  in  the  underlying  constituents  (through  cash  as  well  as  futures segment)  during  Patch  II  spread  across  the  rest  of  the  day,  i.e.  between 11:49:00 and 15:30:00. During this Patch II, BANKNIFTY Index futures were also separately sold by the Group.<br></li>
 <li>15.30.  The  nature  and  extent  of  selling  by  JS  Group  in  the  cash  and  futures market  of  BANKNIFTY  component  stocks,  and  in  BANKNIFTY  futures,  is captured in the tables that follow:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 32 of 105</span>
-</li>
-<li>15.31.  In the stock futures market:</li>
-</ul>
-<h4>Table 16</h4>
+<blockquote>15.31.  In the stock futures market:</blockquote>
+<blockquote>Table 16</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -3764,11 +3824,8 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 33 of 105</p>
-<ul>
-<li>15.32.  In the stock futures market:</li>
-</ul>
-<h4>Table 17</h4>
+<blockquote>Interim Order in the matter of Index manipulation by Jane Street Group  Page 33 of 105 15.32.  In the stock futures market:</blockquote>
+<blockquote>Table 17</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -3977,11 +4034,8 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 34 of 105</p>
-<ul>
-<li>15.33.    In the BANKNIFTY Index futures market:</li>
-</ul>
-<h4>Table 18</h4>
+<blockquote>Interim Order in the matter of Index manipulation by Jane Street Group  Page 34 of 105 15.33.    In the BANKNIFTY Index futures market:</blockquote>
+<blockquote>Table 18</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -4020,15 +4074,16 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<ul>
-<li>15.34.  As can be seen from In the stock futures market:</li>
-<li>15.35.  Table 16 to Table 18, JS Group sold substantial amount of shares and futures of all 12 BANKNIFTY constituents during this Patch II, i.e. between 11:49:00 to 15:30:00. Their TV in the cash segment was INR 1,858.78 Cr and in the futures segment INR 3,513.34 Cr. They were by far the single largest net seller across BANKNIFTY component stocks and futures during this patch. For context, the next highest participant's net TV in cash and stock futures segment was INR 626.63 Cr and INR 649.97 Cr respectively, during the general underlying sell patch (i.e. 11:49:00 to 15:30:00).<br></li>
+<blockquote>15.34.  As can be seen from In the stock futures market:</blockquote>
+ this Patch II, i.e. between 11:49:00 to 15:30:00. Their TV in the cash segment was INR 1,858.78 Cr and in the futures segment INR 3,513.34 Cr. They were by far the single largest net seller across BANKNIFTY component stocks and futures during this patch. For context, the next highest participant's net TV in cash and stock futures segment was INR 626.63 Cr and INR 649.97 Cr respectively, during the general underlying sell patch (i.e. 11:49:00 to 15:30:00).<br> <blockquote>15.35.  Table 16 to Table 18, JS Group sold substantial amount of shares and futures of all 12 BANKNIFTY constituents during</blockquote>
+</li>
 <li>15.36.  Further, in all the heavy-weight scrips (except HDFCBANK), JS contributed 15–25% of the entire market's traded value. For context, the next highest participant's concentration in any of these scrips was much lower. For example, in KOTAKBANK Interim Order in the matter of Index manipulation by Jane Street Group  Page 35 of 105 – cash segment, during the aforementioned general sell patch the next highest participant's concentration was only 12.22%, compared to 24.86% for JS Group.<br></li>
 </ul>
 <h4>LTP contribution during Selling phase of BANKNIFTY constituents in cash and futures segment</h4>
 <ul>
 <li>15.37.  In continuation of the concentration analysis undertaken in paragraphs above, a LTP-based analysis was also carried out to further examine the potential price impact of trades executed by JS. The said analysis (pertaining to all of cash, stock futures,  and  BANKNIFTY  Index  futures),  capturing  both  order-level  and  trade-level  dimensions,  is  placed  in  the  following paragraphs.<br></li>
-<li>15.38.  In the cash market: Interim Order in the matter of Index manipulation by Jane Street Group  Page 36 of 105 Table 19 - Order level LTP-based analysis12 <table style='white-space: pre-wrap;' border="1" class="dataframe">
+<li>15.38.  In the cash market:<blockquote>Interim Order in the matter of Index manipulation by Jane Street Group  Page 36 of 105 Table 19 - Order level LTP-based analysis<sup id="fnref-37-12"><a href="#fn-37-12">12</a></sup></blockquote>
+<table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
       <td>Scrip</td>
@@ -4189,9 +4244,13 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
- 12 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.<br> Interim Order in the matter of Index manipulation by Jane Street Group  Page 37 of 105</li>
-</ul>
-<h4>Table 20 - Trade level LTP-based analysis</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-37-12" value="12">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. Interim Order in the matter of Index manipulation by Jane Street Group Page 37 of 105 <a href="#fnref-37-12">↩</a></li>
+</ol>
+</section>
+<blockquote>Table 20 - Trade level LTP-based analysis</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -4379,12 +4438,14 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price"</blockquote>
-<p>13 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 38 of 105</p>
-<ul>
-<li>15.39.  In the stock futures market:</li>
-</ul>
-<h4>Table 21 - Order level LTP-based analysis14</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-38-13" value="13">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. Interim Order in the matter of Index manipulation by Jane Street Group Page 38 of 105 <a href="#fnref-38-13">↩</a></li>
+</ol>
+</section>
+</li>
+<li>15.39.  In the stock futures market:<blockquote>Table 21 - Order level LTP-based analysis<sup id="fnref-39-14"><a href="#fn-39-14">14</a></sup></blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -4572,8 +4633,13 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
-<p>14 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.</p>
-<p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 39 of 105 Table 22 - Trade level LTP-based analysis</p>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-39-14" value="14">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. Interim Order in the matter of Index manipulation by Jane Street Group Page 39 of 105 <a href="#fnref-39-14">↩</a></li>
+</ol>
+</section>
+<blockquote>Table 22 - Trade level LTP-based analysis</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -4774,8 +4840,14 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price"</blockquote>
-<ul>
-<li>15.40.  In the BANKNIFTY Index futures market: 15 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.<br> Interim Order in the matter of Index manipulation by Jane Street Group  Page 40 of 105<table style='white-space: pre-wrap;' border="1" class="dataframe">
+</li>
+<li>15.40.  In the BANKNIFTY Index futures market:<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-40-15" value="15">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. Interim Order in the matter of Index manipulation by Jane Street Group Page 40 of 105 <a href="#fnref-40-15">↩</a></li>
+</ol>
+</section>
+<table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
       <td>Scrip</td>
@@ -4807,9 +4879,14 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-</li>
-</ul>
-<h4>Table 24 - Trade level LTP-based analysis</h4>
+<blockquote>Table 24 - Trade level LTP-based analysis</blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-41-16" value="16">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. <a href="#fnref-41-16">↩</a></li>
+<li id="fn-41-17" value="17">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. Interim Order in the matter of Index manipulation by Jane Street Group Page 41 of 105 <a href="#fnref-41-17">↩</a></li>
+</ol>
+</section>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -4844,16 +4921,19 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<p>16 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. 17 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
- <p>Interim Order in the matter of Index manipulation by Jane Street Group  Page 41 of 105</p>
-<ul>
-<li>15.41.  As can be seen from Table 19 through Table 24 above, during the latter part of the trading day in Patch 2, JS Group placed a disproportionately high number of sell orders at or below the LTP in BANKNIFTY constituent stocks (in both cash as well as futures segments), where thousands of such orders were  placed.  Similar  orders  were  placed  for  BANKNIFTY  Index  futures  too.<br> The  actual  execution  of  these  sell  orders  at  sunken  prices  contributed incrementally to the downward price movement of the individual stocks.  The large negative LTP, relative to the market LTP, has the effect of pushing down the prices of the BANKNIFTY constituent stocks. Given that BANKNIFTY is a market-cap weighted index, the downward pressure on price in its constituents directly resulted in the deflation of the BANKNIFTY index. The price impact in terms  on  the  index  after  adjusting  for  weights  of  the  constituents  was  - 55,713.56 (i.e., on the downside) by JS Group entities, whereas that by all the other participants put together is +55,400.71 on the upside. This is indicative of strong downward price push created by JS entities.<br></li>
-<li>15.42.  As the BANKNIFTY index began to decline during the latter part of the trading session on January 17, 2024, there was a corresponding surge in the value  of  Put  options  and  a  depreciation  in  the  value  of  Call  options  -  a movement  that  perfectly  aligned  with  the  Jane  Street  Group's  options positioning.  Recall  that  the  Group  had  built  a  substantial  negative  cash- equivalent or delta exposure during the first half of the session, in Phase I.<br></li>
-<li>15.43.  Between 14:15:00 and 15:30:00, the MTM profit on expiry-day options positions saw a sharp and sustained rise. The MTM profit curve, when plotted minute-by-minute,  shows  an  steep  upward  incline,  particularly  as  the  index accelerated its fall. Jane Street Group capitalised on this setup by selling the Puts  purchased  earlier  and  Buying  back  the  Calls  sold  earlier,  effectively locking in substantial gains across both legs of the trade.<br> To illustrate:<br> The  expiry-day  delta  exposure  transitioned  from  negative  INR  7,311.19 Crore at around 09:30:00 to negative INR 46,620.79 Crore at peak around 13:53:00, and finally back to INR 24,884.63 Crore by close, indicating that<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 42 of 105</span>
- the positions were not only directionally structured but also unwound within the same session as BANKNIFTY declined over the course of Phase II.<br> The total profit on expiry-day contracts is estimated at INR 662.48 Cr, out of  which  INR  168.60  Crore  (approximately  25%  of  day's  profit)  was generated during the 14:15–15:30 window alone.<br> Note that in the intraday trading undertaken by JS Group in BANKNIFTY constituent  stocks  and  futures,  i.e.,  the  aggressive  and  large  buying  in Patch  I,  followed  by  the  aggressive  and  large  selling  in  Patch  II,  the  JS Group booked an intraday loss of INR 61.6 crores on the day. Given the aggressive  and  large  nature  of  trading  reversal,  this  is  not  especially  a surprising outcome. This in fact indicates that standalone, such intraday trading may not have any meaningful economic rationale. There is every indication  that  these  were  not  in  fact  standalone  trades,  but  trades  that were part of a deliberate strategy to manipulate indices to the advantage of the trading and positions of JS Group in BANKNIFTY Index Options.<br> Such precision in timing, where reversal of Patch I index constituent stock and  futures  purchases,  significant  LTP  impact  downwards,  significant profit in BANKNIFTY options that more than compensate for the intraday losses  in  bother  BANKMIFTY  constituents  and  segments,  and  position unwinding  in  BANKNIFTY  options  converge  with  maximization  of profitability, suggests a pre-mediated and carefully executed trade design.<br> The Group's actions in the underlying segments (cash, stock futures, and index  futures), which  had  a  tangible  LTP  impact,  contributed  to pushing down the BANKNIFTY index towards the close. This was then monetised through options positions that generated increasing returns as the market moved in the direction.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 43 of 105</span>
 </li>
+<li>15.41.  As can be seen from Table 19 through Table 24 above, during the latter part of the trading day in Patch 2, JS Group placed a disproportionately high number of sell orders at or below the LTP in BANKNIFTY constituent stocks (in both cash as well as futures segments), where thousands of such orders were  placed.  Similar  orders  were  placed  for  BANKNIFTY  Index  futures  too.<br> The  actual  execution  of  these  sell  orders  at  sunken  prices  contributed incrementally to the downward price movement of the individual stocks.  The large negative LTP, relative to the market LTP, has the effect of pushing down the prices of the BANKNIFTY constituent stocks. Given that BANKNIFTY is a market-cap weighted index, the downward pressure on price in its constituents directly resulted in the deflation of the BANKNIFTY index. The price impact in terms  on  the  index  after  adjusting  for  weights  of  the  constituents  was  - 55,713.56 (i.e., on the downside) by JS Group entities, whereas that by all the other participants put together is +55,400.71 on the upside. This is indicative of strong downward price push created by JS entities.<br></li>
+<li>15.42.  As the BANKNIFTY index began to decline during the latter part of the trading session on January 17, 2024, there was a corresponding surge in the value  of  Put  options  and  a  depreciation  in  the  value  of  Call  options  -  a movement  that  perfectly  aligned  with  the  Jane  Street  Group's  options positioning.  Recall  that  the  Group  had  built  a  substantial  negative  cash- equivalent or delta exposure during the first half of the session, in Phase I.</li>
+<li>15.43.  Between 14:15:00 and 15:30:00, the MTM profit on expiry-day options positions saw a sharp and sustained rise. The MTM profit curve, when plotted minute-by-minute,  shows  an  steep  upward  incline,  particularly  as  the  index accelerated its fall. Jane Street Group capitalised on this setup by selling the Puts  purchased  earlier  and  Buying  back  the  Calls  sold  earlier,  effectively locking in substantial gains across both legs of the trade.<br> To illustrate:<br><blockquote>The  expiry-day  delta  exposure  transitioned  from  negative  INR  7,311.19 Crore at around 09:30:00 to negative INR 46,620.79 Crore at peak around 13:53:00, and finally back to INR 24,884.63 Crore by close, indicating that<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 42 of 105</span>
+ the positions were not only directionally structured but also unwound within the same session as BANKNIFTY declined over the course of Phase II.</blockquote>
+<blockquote>The total profit on expiry-day contracts is estimated at INR 662.48 Cr, out of  which  INR  168.60  Crore  (approximately  25%  of  day's  profit)  was generated during the 14:15–15:30 window alone.</blockquote>
+ were part of a deliberate strategy to manipulate indices to the advantage of the trading and positions of JS Group in BANKNIFTY Index Options.<br> Such precision in timing, where reversal of Patch I index constituent stock and  futures  purchases,  significant  LTP  impact  downwards,  significant profit in BANKNIFTY options that more than compensate for the intraday losses  in  bother  BANKMIFTY  constituents  and  segments,  and  position unwinding  in  BANKNIFTY  options  converge  with  maximization  of profitability, suggests a pre-mediated and carefully executed trade design.<br> The Group's actions in the underlying segments (cash, stock futures, and index  futures), which  had  a  tangible  LTP  impact,  contributed  to pushing down the BANKNIFTY index towards the close. This was then monetised through options positions that generated increasing returns as the market moved in the direction.<br> <blockquote>Note that in the intraday trading undertaken by JS Group in BANKNIFTY constituent  stocks  and  futures,  i.e.,  the  aggressive  and  large  buying  in Patch  I,  followed  by  the  aggressive  and  large  selling  in  Patch  II,  the  JS Group booked an intraday loss of INR 61.6 crores on the day. Given the aggressive  and  large  nature  of  trading  reversal,  this  is  not  especially  a surprising outcome. This in fact indicates that standalone, such intraday trading may not have any meaningful economic rationale. There is every indication  that  these  were  not  in  fact  standalone  trades,  but  trades  that<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 43 of 105</span>
+</blockquote>
+<ul>
 <li>II.  Comparison with previous day and subsequent day</li>
-<li>15.44.  An essential parameter to assess whether a trading day reflects ordinary execution or anomalous activity is the GTV18 generated by Jane Street Group across the equity and derivative segments. A spike in GTV on a particular day, especially when accompanied by directional price movement and high-impact execution,  may  suggest  targeted,  non-routine  strategy  deployment,  often expiry-driven.<br></li>
+</ul>
+</li>
+<li>15.44.  An essential parameter to assess whether a trading day reflects ordinary execution or anomalous activity is the GTV<sup id="fnref-44-18"><a href="#fn-44-18">18</a></sup> generated by Jane Street Group across the equity and derivative segments. A spike in GTV on a particular day, especially when accompanied by directional price movement and high-impact execution,  may  suggest  targeted,  non-routine  strategy  deployment,  often expiry-driven.<br></li>
 <li>15.45.  Accordingly,  the  GTV  figures  for  Jane  Street  Group  were  compared across T–1 (previous trading day), T (event/expiry day), and T+1 (next trading day) for January 17, 2024.<br><table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -4914,7 +4994,13 @@ In the matter of Index manipulation by Jane Street Group
 <h4>Why is the "Intra Day Index manipulation strategy" as described above</h4>
 <h4>considered manipulative?</h4>
 <ul>
-<li>15.49.  As described above, on January 17, 2024, JS Group traded in an "Intra Day  Index  Manipulation  pattern".  Dealing  in  multiple  segments  across  cash equities,  stock  futures,  index  futures,  and  index  options  simultaneously  is certainly not by itself a breach of any regulation. However, what sets apart the 18 Gross Traded Value<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 44 of 105</span>
+<li>15.49.  As described above, on January 17, 2024, JS Group traded in an "Intra Day  Index  Manipulation  pattern".  Dealing  in  multiple  segments  across  cash equities,  stock  futures,  index  futures,  and  index  options  simultaneously  is certainly not by itself a breach of any regulation. However, what sets apart the<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 44 of 105</span>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-44-18" value="18">Gross Traded Value <a href="#fnref-44-18">↩</a></li>
+</ol>
+</section>
  trading  pattern  of  the  JS  Group  as  described  above  as  prima  facie  being manipulative,  is  the  intensity  and  sheer  scale  of  their  intervention  in  the underlying component stock and futures markets, the rapid reversal of these large  and  aggressive  trading  in  cash  and  futures  without  any  plausible economic rationale, other than the concurrent activity in and impact on their positions in the BANKNIFTY index options markets.<br><ul>
 <li>15.49.1.  In the morning (Patch I), JS Group were by the single largest and aggressive buyer in BANKNIFTY component stocks and futures markets, to the tune of INR 4,370.03 crores.<br></li>
 <li>15.49.2.  Simultaneously,  in  the  same  morning  Patch  I,  at  a  time  when market  participants  were  misled  by  the  artificial  support  provided  to BANKNIFTY index levels by JS Group's large and aggressive intervention in constituent stocks and futures, JS Group net sold a significantly higher cash  equivalent  of  INR  32,114.96  crores  via  BANKNIFTY  options,  by buying BANKNIFTY puts and selling BANKNIFTY calls in the much more liquid index options market.<br></li>
@@ -4923,20 +5009,20 @@ In the matter of Index manipulation by Jane Street Group
 </li>
 </ul>
 </li>
-<li>15.50.  In summary, the specific pattern of trading undertaken by the JS Group on January 17, 2024, exhibits the following characteristics that single it out to be of manipulative intent:<br><ul>
-<li>15.50.1.  In  Patch  I,  JS  Group  is  seen  buying  BANKNIFTY  component stocks  and  futures  aggressively,  and  in  large  sizes,  to  move  up BANKNIFTY  index.  In  Patch  II  through  the  rest  of  the  day,  it  is  seen reversing and aggressively selling all of its large purchased positions (and more),  thereby  pushing  down  BANKNIFTY  Index.  Unsurprisingly,  given the  sheer  volumes  involved  as  a  percentage  of  total  market  trading volumes, it booked a significant trading loss of INR 61.6 crores in the cash and  futures  segment  in  the  process.  There  is  no  economic  rationale possible to justify such trading activity on a standalone basis; in fact, given the  sheer sizes,  manner of  trading  and  transaction  costs  involved,  such activities would invariably tend to end with net trading losses.<br></li>
-<li>15.50.2.  Note that the intraday reversal of positions in the cash market was conducted  by  JS  Group  in  its  India  entities  viz.  JSI  Investments  Private Limited. Note further that SEBI (Foreign Portfolio Investors) Regulations, 2019 do not allow FPIs to undertake intraday trades, instead, all of their trades must be settled.<br></li>
+<li>15.50.  In summary, the specific pattern of trading undertaken by the JS Group on January 17, 2024, exhibits the following characteristics that single it out to be of manipulative intent:<br><blockquote>15.50.1.  In  Patch  I,  JS  Group  is  seen  buying  BANKNIFTY  component stocks  and  futures  aggressively,  and  in  large  sizes,  to  move  up BANKNIFTY  index.  In  Patch  II  through  the  rest  of  the  day,  it  is  seen reversing and aggressively selling all of its large purchased positions (and more),  thereby  pushing  down  BANKNIFTY  Index.  Unsurprisingly,  given the  sheer  volumes  involved  as  a  percentage  of  total  market  trading volumes, it booked a significant trading loss of INR 61.6 crores in the cash and  futures  segment  in  the  process.  There  is  no  economic  rationale possible to justify such trading activity on a standalone basis; in fact, given the  sheer sizes,  manner of  trading  and  transaction  costs  involved,  such activities would invariably tend to end with net trading losses.</blockquote>
+<blockquote>15.50.2.  Note that the intraday reversal of positions in the cash market was conducted  by  JS  Group  in  its  India  entities  viz.  JSI  Investments  Private Limited. Note further that SEBI (Foreign Portfolio Investors) Regulations, 2019 do not allow FPIs to undertake intraday trades, instead, all of their trades must be settled.</blockquote>
+<ul>
 <li>15.50.3.  By preponderance of probability, the sharp buying in BANKNIFTY component shares and futures in Patch I was designed to artificially push up BANKNIFTY Index, and thereby to push up the prices of BANKNIFTY calls and push down the prices of BANKNIFTY puts. JS Group certainly exploited this to the hilt, and they simultaneously purchased BANKNIFTY puts and sold BANKNIFTY calls in size, at very advantageous prices.<br></li>
 <li>15.50.4.  Note  that  JS  Group  was,  by  preponderance  of  probability,  fully aware  that  they  would  reverse  all  of  the  significant  purchases  of BANKNIFTY  stocks  and  futures  of  the  morning  by  the  end  of  the  day.<br> There were aware, therefore, that the stock and BANKNIFTY prices were being held artificially up for a short period of time by their own aggressive actions in the underlying cash and futures markets. They were also aware that BANKNIFTY was almost certainly likely to fall again by the end of the day,  given  their  intent  to  aggressively  sell  back  all  of  their  morning<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 46 of 105</span>
  purchases (and more). As has been described above, the many entities that trade solely in the BANKNIFTY index options markets and look to the current BANKNIFTY level to price their options, were unaware of all this, and were hence enticed to deal at a time that the BANKNIFTY itself was being artificially and temporarily propped up.<br></li>
 <li>15.50.5.  Finally,  the  significant  and  aggressive  dumping  of  BANKNIFTY component stocks and futures in Patch II (in sharp reversal of the heavy and aggressive pumping purchases done in the morning) was immensely profitable for the extremely large BANKNIFTY option positions being run by the JS Group, and to the detriment of all those that had traded in the morning against JS Group at artificial prices. This was a classic case of 'marking-the-close', where an entity with huge options exposures that are expiring shortly, is moving the underlying market aggressively in its favour.<br></li>
 </ul>
 </li>
-<li>15.51.  In light of the above, by preponderance of probability, the "intraday index manipulation strategy" is indicative of the following fraudulent and manipulative behaviour:<br><ul>
-<li>15.51.1.  JS Group was exploiting its size and sheer volume to move the underlying BANKNIFTY index level, so as to benefit from its much larger actions or positions in the BANKNIFTY index options segment<br></li>
-<li>15.51.2.  By  moving  the  BANKNIFTY  index  with  large  and  aggressive buying  followed  then  by  large  and  aggressive  selling,  JS  group  was creating  a  false  or  misleading  appearance  of  market  activity.  In  the bargain, it was enticing unsuspecting entities trading in BANKNIFTY index options to trade at interim levels that were artificial and temporary.<br></li>
-<li>15.51.3.  JS Group was undertaking these large (by percentage GTV) and aggressive  (by  LTP)  trades  in  the  underlying  BANKNIFTY  component stocks  and  futures,  not  for  investment  or  for  any  other  standalone economic rationale. In fact, given the sheer size and aggressive nature of the intervention in cash and futures markets and the immediate reversal the same day, the standalone trades in the cash and futures were more likely to end up showing a large net loss. By preponderance of probability, these  trades  were  undertaken  only  to  distort  BANKNIFTY  index  option<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 47 of 105</span>
- prices in the interim and entice market participants in BANKNIFTY index options  to  trade  at  such  distorted  levels,  while  JS  Group  would  take advantage of this and run much larger opposite side positions in the index options market.<br></li>
+<li>15.51.  In light of the above, by preponderance of probability, the "intraday index manipulation strategy" is indicative of the following fraudulent and manipulative behaviour:<br><blockquote>15.51.1.  JS Group was exploiting its size and sheer volume to move the underlying BANKNIFTY index level, so as to benefit from its much larger actions or positions in the BANKNIFTY index options segment</blockquote>
+<blockquote>15.51.2.  By  moving  the  BANKNIFTY  index  with  large  and  aggressive buying  followed  then  by  large  and  aggressive  selling,  JS  group  was creating  a  false  or  misleading  appearance  of  market  activity.  In  the bargain, it was enticing unsuspecting entities trading in BANKNIFTY index options to trade at interim levels that were artificial and temporary.</blockquote>
+ prices in the interim and entice market participants in BANKNIFTY index options  to  trade  at  such  distorted  levels,  while  JS  Group  would  take advantage of this and run much larger opposite side positions in the index options market.<br> <blockquote>15.51.3.  JS Group was undertaking these large (by percentage GTV) and aggressive  (by  LTP)  trades  in  the  underlying  BANKNIFTY  component stocks  and  futures,  not  for  investment  or  for  any  other  standalone economic rationale. In fact, given the sheer size and aggressive nature of the intervention in cash and futures markets and the immediate reversal the same day, the standalone trades in the cash and futures were more likely to end up showing a large net loss. By preponderance of probability, these  trades  were  undertaken  only  to  distort  BANKNIFTY  index  option<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 47 of 105</span>
+</blockquote>
+<ul>
 <li>15.51.4.  JS, vide its letter to SEBI dated August 30, 2024, has suggested that these trades were to "remove unwanted delta" or to "manage overall delta".  These  bland  statements  do  not  take  away  from  any  of  the arguments made above. By preponderance of probability, and given the arguments  and  data  presented  above,  JS  Group  was  undertaking  an intentional,  well-planned,  and  sinister  scheme  and  artifice  to  manipulate cash & futures markets and hence manipulate the BANKNIFTY index level, to entice small investors to trade at unfavourable and misleading prices, and to the advantage of the JS Group.<br></li>
 </ul>
 </li>
@@ -4947,8 +5033,8 @@ In the matter of Index manipulation by Jane Street Group
 </li>
 <li>15.53.  The graph above can be accessed through the QR code given below:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 48 of 105</span>
 <img src="manifest/sebi5/images/Image226/full/max/0/default.png" width="366" height="366" loading="lazy">
-</li>
-<li>15.54.  The graphical representation captures the following:<table style='white-space: pre-wrap;' border="1" class="dataframe">
+<blockquote>15.54.  The graphical representation captures the following:</blockquote>
+<table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
       <td>Label &#10;(Bottom to &#10;Top)</td>
@@ -5020,10 +5106,10 @@ In the matter of Index manipulation by Jane Street Group
 </table>
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 49 of 105</span>
+<blockquote>15.55.  Besides January 17, 2024, this "intraday index manipulation" pattern of trading  in  BANKNIFTY  shares/  futures/  options  was  observed  on  14  other days.  The  details  of  the  other  14  days,  in  terms  of  an  overall  graphical representation  of  the  JS  Group  activity,  and  tables  detailing  the  quantum  of their  intervention  in  cash  and  futures  markets  during  different  patches (including as a percentage of Gross Traded Volume), the level of aggression of their intervention (as evidenced by order and trade LTP), and their trading activity  and  cash-equivalent  positions  in  the  index  options  segment  are presented in Annexure 2.</blockquote>
+<blockquote>15.56.  The  day-wise  profits  for  the  15  days  wherein  the  aforesaid  "Intraday Index manipulation" strategy was employed by JS Group has been recorded in Table 44 of this Order. The total profit made by the JS Group in BANKNIFTY<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 50 of 105</span>
+ index options across the 15 days was INR 3,914 crores. Across these 15 days, in intraday trading in BANKNIFTY constituent stocks and futures, the JS Group incurred a loss of INR 199.7 crores.</blockquote>
 </li>
-<li>15.55.  Besides January 17, 2024, this "intraday index manipulation" pattern of trading  in  BANKNIFTY  shares/  futures/  options  was  observed  on  14  other days.  The  details  of  the  other  14  days,  in  terms  of  an  overall  graphical representation  of  the  JS  Group  activity,  and  tables  detailing  the  quantum  of their  intervention  in  cash  and  futures  markets  during  different  patches (including as a percentage of Gross Traded Volume), the level of aggression of their intervention (as evidenced by order and trade LTP), and their trading activity  and  cash-equivalent  positions  in  the  index  options  segment  are presented in Annexure 2.<br></li>
-<li>15.56.  The  day-wise  profits  for  the  15  days  wherein  the  aforesaid  "Intraday Index manipulation" strategy was employed by JS Group has been recorded in Table 44 of this Order. The total profit made by the JS Group in BANKNIFTY<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 50 of 105</span>
- index options across the 15 days was INR 3,914 crores. Across these 15 days, in intraday trading in BANKNIFTY constituent stocks and futures, the JS Group incurred a loss of INR 199.7 crores.<br></li>
 </ul>
 <p>16.  "Extended Marking The Close" Strategy</p>
 <ul>
@@ -5061,8 +5147,8 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
+ the  earlier  "Intraday  Index  manipulation  pattern"  was  observed  on  July  10, 2024  and  two  other  days,  all  of  which  also  happened  to  be  a  BANKNIFTY expiry  day.  Unlike  the January  17, 2024 pattern,  which  involved  two  distinct and  opposite  side  trading  patches  in  underlying  BANKNIFTY  stocks  and futures, the trading activity on July 10, 2024 in BANKNIFTY constituent stocks and futures was concentrated almost entirely in the final phase of the trading session.  This  showed  all  characteristics  of  an  extended  "marking-the-close" strategy. This deviation prompted a closer examination of the said day and a further review of other dates with similar trading patterns.<br> <blockquote>16.2.  During the course of the extended examination, a different pattern from</blockquote>
 </li>
-<li>16.2.  During the course of the extended examination, a different pattern from the  earlier  "Intraday  Index  manipulation  pattern"  was  observed  on  July  10, 2024  and  two  other  days,  all  of  which  also  happened  to  be  a  BANKNIFTY expiry  day.  Unlike  the January  17, 2024 pattern,  which  involved  two  distinct and  opposite  side  trading  patches  in  underlying  BANKNIFTY  stocks  and futures, the trading activity on July 10, 2024 in BANKNIFTY constituent stocks and futures was concentrated almost entirely in the final phase of the trading session.  This  showed  all  characteristics  of  an  extended  "marking-the-close" strategy. This deviation prompted a closer examination of the said day and a further review of other dates with similar trading patterns.<br></li>
 <li>16.3.  'Extended  marking  the  close'  refers  to  a  manipulative  trading  practice where  an  entity  aggressively  places  large  buy  or  sell  orders  in  the  final moments of a trading session, with the specific intent of influencing the closing price  of  a  security  or  index  to  its  advantage.  This  practice  is  particularly concerning on derivative expiry days, as the closing price directly affects the<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 51 of 105</span>
  settlement  value  of  index-based  contracts,  thereby  impacting  payoffs  for  all market participants. Typically, extended marking the close involves aggressive and large buying (or selling) of securities just before market close to push the price up (or down), to ensure the reference stock or the index sets at a level more favourable for even larger derivative positions that are being settled on that day.<br></li>
 <li>16.4.  Subsequent analysis revealed that JS Group engaged in sharply timed buy-side or sell-side activity in futures and stock segments during the closing window, when they held pre-existing large positions in weekly expiring index options.<br></li>
@@ -5437,9 +5523,7 @@ In the matter of Index manipulation by Jane Street Group
 </table>
 <ul>
 <li>16.11.  JS Group activities in the BANKNIFTY index futures market:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 54 of 105</span>
-</li>
-</ul>
-<h4>Table 29</h4>
+<blockquote>Table 29</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -5480,7 +5564,7 @@ In the matter of Index manipulation by Jane Street Group
 </table>
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 55 of 105</span>
-<ul>
+</li>
 <li>16.12.  An  examination  of  the  Traded  Volume  (TV)  data  for  July  10,  2024, reveals that Jane Street Group exhibited highly concentrated trading behaviour during the final leg of the trading session, in the BANKNIFTY constituent stocks –  directly  via  both  the  cash  and  stock  futures  segments  and  indirectly  via BANKNIFTY  Index  Futures.  Specifically,  during  the  impugned  patch,  the Group sold INR 163.33 Cr worth of shares in the cash segment, INR 1,900.57 Cr in single stock futures of Bank Nifty constituents, and INR 735.86 Cr in Bank Nifty index futures. Prima facie, as will be shown below, this cumulative INR 2,800 crore of large and aggressive intervention in BANKNIFTY related stocks and futures were with an intent to engineer a soft close in BANKNIFTY index on this expiry day, so as to benefit the much larger INR 44,153.87 crores of effective bearish cash-equivalent positions that JS Group was holding in the BANKNIFTY index options market at close.<br></li>
 <li>16.13.  During the first five hours of the trading day (09:15 to 14:30), the Group's activity  remained  relatively  muted  in  constituent  stocks,  with  modest participation  rates  and  no  disproportionate  footprint  in  any  specific  stock.<br> However,  starting  around  14:30  and  intensifying  sharply  post  15:00,  the Group's  activity  spiked  dramatically.  This  was  visible  especially  in  the  stock futures segment – where the Group's traded volume in all constituent stocks in the  last  60  minutes  accounted  for  more  than  35%  of  the  market-wide  total traded  value.  Note  that  the  Volume  Weighted  Average  Price  in  the  last  30 minutes of trading (between 15:00 and 15:30) is used to compute settlement prices.<br></li>
 <li>16.14.  The concentration in TV during the final 60 minutes, especially relative to the Group's own activity earlier in the day and to the total market volume strongly suggests a time-bound strategic execution plan. The disproportionate footprint  in  this narrow  window  of  trading  implies  that  these  trades  were  not incidental or part of a normal liquidity-providing role, but rather carefully timed and scaled to exert impact on the price discovery process at a crucial closing time.<br></li>
@@ -5489,9 +5573,7 @@ In the matter of Index manipulation by Jane Street Group
 <li>16.16.  Such spike in market share, limited to a very specific time frame near market  close,  raises  red  flags  when  viewed  in  the  context  of  derivative settlement  mechanics,  as  the  BANKNIFTY  expiry  is  based  on  the  last  30 minutes' volume weighted average price (the closing price) of its constituents.<br> The high GTV concentration at close, in scrips that determine the index, implies that the Jane Street Group may have attempted to steer the index closing value through targeted constituent-level trades.<br></li>
 <li>16.17.  The  LTP  analysis  (pertaining  to  cash,  stock  futures  and  BANKNIFTY Index futures), capturing both order-level and trade-level dimensions, is placed in the following paragraphs for detailed reference.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 57 of 105</span>
 </li>
-<li>16.18.  In the cash market:</li>
-</ul>
-<h4>Table 30 - Order level LTP-based analysis19</h4>
+<li>16.18.  In the cash market:<blockquote>Table 30 - Order level LTP-based analysis<sup id="fnref-58-19"><a href="#fn-58-19">19</a></sup></blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -5614,9 +5696,14 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
-<p>19 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.</p>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 58 of 105</span>
-<h4>Table 31 - Trade level LTP-based analysis</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-58-19" value="19">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. <a href="#fnref-58-19">↩</a></li>
+</ol>
+</section>
+<blockquote>Table 31 - Trade level LTP-based analysis</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -5748,12 +5835,15 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price.</blockquote>
-<p>20 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 59 of 105</span>
-<ul>
-<li>16.19.  In the stock futures market:</li>
-</ul>
-<h4>Table 32 - Order level LTP-based analysis21</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-59-20" value="20">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. <a href="#fnref-59-20">↩</a></li>
+</ol>
+</section>
+</li>
+<li>16.19.  In the stock futures market:<blockquote>Table 32 - Order level LTP-based analysis<sup id="fnref-60-21"><a href="#fn-60-21">21</a></sup></blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -5927,9 +6017,14 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
-<p>21 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.</p>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 60 of 105</span>
-<h4>Table 33 - Trade level LTP-based analysis</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-60-21" value="21">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. <a href="#fnref-60-21">↩</a></li>
+</ol>
+</section>
+<blockquote>Table 33 - Trade level LTP-based analysis</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -6115,13 +6210,16 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 <blockquote>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price"</blockquote>
-<p>During this sell patch, the price impact in terms on the index after adjusting for weights of the constituents has been – 1,108.92 on the downside by JS entities and by all the other participants put together it was 1,182.71 on the upside, viz. indicative of strong downward price push created by JS entities.</p>
-<p>22 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
+<blockquote>During this sell patch, the price impact in terms on the index after adjusting for weights of the constituents has been – 1,108.92 on the downside by JS entities and by all the other participants put together it was 1,182.71 on the upside, viz. indicative of strong downward price push created by JS entities.</blockquote>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 61 of 105</span>
-<ul>
-<li>16.20.  In the BANKNIFTY Index futures market:</li>
-</ul>
-<h4>Table 34- Order level LTP-based analysis23</h4>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-61-22" value="22">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. <a href="#fnref-61-22">↩</a></li>
+</ol>
+</section>
+<blockquote>16.20.  In the BANKNIFTY Index futures market:</blockquote>
+<blockquote>Table 34- Order level LTP-based analysis<sup id="fnref-62-23"><a href="#fn-62-23">23</a></sup></blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -6154,7 +6252,14 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<h4>Table 35 - Trade level LTP-based analysis</h4>
+<blockquote>Table 35 - Trade level LTP-based analysis</blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-62-23" value="23">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. <a href="#fnref-62-23">↩</a></li>
+<li id="fn-62-24" value="24">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. <a href="#fnref-62-24">↩</a></li>
+</ol>
+</section>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -6189,36 +6294,37 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<p>23 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. 24 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
+
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 62 of 105</span>
-<ul>
-<li>16.21.  In this case, data indicates a clear pattern of aggressive selling below LTP by Jane Street Group across multiple heavy-weight stocks (in both cash and stock futures segment) in the BANKNIFTY index during the last 60 minutes of the session, notably from 14:30:00 onwards.<br> In  stocks  like  ICICIBANK,  HDFCBANK,  SBIN,  and  AXISBANK,  which  carry substantial weight in the index, Jane Street was seen:<br> •  Executing  a  disproportionately  high  number  of  marketable  sell  orders, often at prices lower than the last traded price, and<br> •  Repeating  this  pattern  across  both  the  cash  and  futures  segments, thereby magnifying the price impact.<br> For instance, (with respect to the aforementioned time segment i.e. 14:30:00 to 15:30:00):<br> In  HDFCBANK  (cash  segment),  Jane  Street  Group  had  executed approximately  92%  of  its  total  trades  at  prices  below  or  at  LTP,  with  a cumulative negative LTP impact of INR 45.05.<br> In HDFCBANK futures, Jane Street Group had executed approximately 93% of its total trades at prices below or at LTP, with a cumulative negative LTP impact of INR 237.05.<br></li>
-<li>16.22.  While significant focus has been placed on Jane Street Group's trading in  BANKNIFTY  constituent  stocks  (cash  and  stock  futures),  a  parallel  and equally important leg of the strategy was its execution in BANKNIFTY index futures. These trades, particularly during the final 60 minutes of trading on July 10, 2024, were executed well below the prevailing LTP and contributed directly to  pushing  down  the  index,  thereby  lowering  the  expiry  settlement  price,  to favour their options position.<br></li>
-<li>16.23.  BANKNIFTY index futures are a highly liquid instrument, and trades in them  can  exert  sentiment-driven  influence  on  the  index,  especially  when executed in large volumes near expiry. Moreover, futures prices tend to lead<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 63 of 105</span>
- or  reinforce  movements  in  the  underlying  index.  Therefore,  deploying  index futures  aggressively  on  the  sell  side  becomes  an  effective  tool  to  amplify pressure on the benchmark level, especially when used in tandem with selling in constituent stocks.<br></li>
+</li>
+<li>16.21.  In this case, data indicates a clear pattern of aggressive selling below LTP by Jane Street Group across multiple heavy-weight stocks (in both cash and stock futures segment) in the BANKNIFTY index during the last 60 minutes of the session, notably from 14:30:00 onwards.<br> In  stocks  like  ICICIBANK,  HDFCBANK,  SBIN,  and  AXISBANK,  which  carry substantial weight in the index, Jane Street was seen:<br><blockquote>•  Executing  a  disproportionately  high  number  of  marketable  sell  orders, often at prices lower than the last traded price, and</blockquote>
+<blockquote>•  Repeating  this  pattern  across  both  the  cash  and  futures  segments, thereby magnifying the price impact.</blockquote>
+ For instance, (with respect to the aforementioned time segment i.e. 14:30:00 to 15:30:00):<br><blockquote>In  HDFCBANK  (cash  segment),  Jane  Street  Group  had  executed approximately  92%  of  its  total  trades  at  prices  below  or  at  LTP,  with  a cumulative negative LTP impact of INR 45.05.</blockquote>
+<blockquote>In HDFCBANK futures, Jane Street Group had executed approximately 93% of its total trades at prices below or at LTP, with a cumulative negative LTP impact of INR 237.05.</blockquote>
+<blockquote>16.22.  While significant focus has been placed on Jane Street Group's trading in  BANKNIFTY  constituent  stocks  (cash  and  stock  futures),  a  parallel  and equally important leg of the strategy was its execution in BANKNIFTY index futures. These trades, particularly during the final 60 minutes of trading on July 10, 2024, were executed well below the prevailing LTP and contributed directly to  pushing  down  the  index,  thereby  lowering  the  expiry  settlement  price,  to favour their options position.</blockquote>
+ or  reinforce  movements  in  the  underlying  index.  Therefore,  deploying  index futures  aggressively  on  the  sell  side  becomes  an  effective  tool  to  amplify pressure on the benchmark level, especially when used in tandem with selling in constituent stocks.<br> <blockquote>16.23.  BANKNIFTY index futures are a highly liquid instrument, and trades in them  can  exert  sentiment-driven  influence  on  the  index,  especially  when executed in large volumes near expiry. Moreover, futures prices tend to lead<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 63 of 105</span>
+</blockquote>
+</li>
 <li>16.24.  Given the interrelationships, the combined effect of all these trades led to  a  sharp  dip  in  the  BANKNIFTY  index,  thereby  pulling  down  its  closing settlement  value  —  the  precise  reference  point  used  for  the  expiry  of BANKNIFTY options.<br></li>
 <li>16.25.  Importantly, this LTP-impacting behaviour was not visible earlier in the day, where the Group's trades were either marginal or non-influential in terms of LTP. The sudden emergence of directional, high-intensity sell-side activity in  the  final  minutes  to  settlement  points  to  a  deliberate  strategy  intended  to manipulate the closing price of the index, rather than to meet genuine liquidity or hedging objectives.<br></li>
 <li>16.26.  While the LTP analysis captures how Jane Street Group impacted prices in the underlying segment, it is equally important to understand why i.e., what positions  they  were  trying  to  benefit.  This  necessitates  examining  the  Jane Street  Group's  options  activity,  specifically  the  rise  of  its  delta  exposure  in BANKNIFTY options.<br></li>
 <li>16.27.  Data  suggests  that  Jane  Street  Group  maintained  a  relatively  neutral delta position throughout most of the trading session, with no strong directional bias in either Calls or Puts. However, as it began to aggressively sell in the cash  and  futures  segments  of  BANKNIFTY  constituents,  a  corresponding build-up in negative delta was observed, indicating a bearish stance through either long Put or short Call positions.<br></li>
 <li>16.28.  Graphical  analysis  of  trading  and  delta  build-up  for  July  10,  2024  is placed below:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 64 of 105</span>
 <img src="manifest/sebi5/images/Image253/full/max/0/default.png" width="601" height="223" loading="lazy">
+<p class="figure-text">= TUM as
+aah eee
+ill Sead — etummonepentinl - bopetoiinad teed .</p>
+<blockquote>16.29.  The graph above can be accessed through QR code given below:</blockquote>
+<img src="manifest/sebi5/images/Image254/full/max/0/default.png" width="366" height="366" loading="lazy">
+ two-phase structure:<br><blockquote>16.30.  On July 10, 2024, Jane Street Group's delta profile exhibited a distinct Phase  1:  Passive/Neutral  Delta  Throughout  the  Day  (09:15  to ~14:45)<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 65 of 105</span>
+ For most of  the  trading  session,  the  Group's  delta exposure  remained largely  neutral,  suggesting  a  non-directional  or  low-risk  stance  in BANKNIFTY options.</blockquote>
+<blockquote>Phase 2: Sharp Build-Up in Negative Delta in Final 45–60 Minutes Starting around 2:45 PM, coinciding precisely with the period when Jane Street  Group  began  executing  aggressive  sell  orders  in  BANKNIFTY index  futures  and  constituent  stocks,  a  sharp  transition  in  delta  was observed.</blockquote>
+<blockquote>The  Group  accumulated  significant  negative  delta  exposure, predominantly through: •  Buying Put options (which carry negative delta), and •  Selling Call options (which also result in net negative delta).</blockquote>
+<blockquote>This  directional  bet  aligns  seamlessly  with  Jane  Street  Group's simultaneous  activity  in  the  underlying  segment,  where  trades  were placed  at  or  below  LTP  in  heavy-weight  BANKNIFTY  constituents, thereby reinforcing the bearish outlook.</blockquote>
+ 14:30 to INR 44,153.87 Cr by market close. This INR 16,928.64 Cr shift in net delta  took  place  within  an  hour,  sharply  contrasting  with  the  stability  seen earlier in the day. The timing of this delta shift was not coincidental. It perfectly overlapped with:<br><blockquote>16.31.  The  net  negative  delta  exposure  increased  from  INR  27,225.22  Cr  at •  The initiation of aggressive sell-side trades in stocks and futures to the tune of INR 2,800 crores across segments, •  A sharp decline in the BANKNIFTY index, and •  The  lead-up  to  expiry-time  index  settlement,  which  directly determines options settlement and payoff.</blockquote>
+ aggressive selling of INR 2,800 crores worth of BANKNIFTY constituent and related stocks and futures, to engineer a soft closing of BANKNIFTY on that expiry day, thereby helping them enjoy a benefit on the INR 44,153.87 crores of effective cash-equivalent short positions that JS Group held in BANKNIFTY index options expiring the same day.<br> <blockquote>16.32.  In  summary,  prima facie,  JS  Group undertook  premeditated  large and<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 66 of 105</span>
+</blockquote>
 </li>
-<li>16.29.  The graph above can be accessed through QR code given below:<img src="manifest/sebi5/images/Image254/full/max/0/default.png" width="366" height="366" loading="lazy">
-</li>
-<li>16.30.  On July 10, 2024, Jane Street Group's delta profile exhibited a distinct two-phase structure:<br></li>
-</ul>
-<h4>Phase  1:  Passive/Neutral  Delta  Throughout  the  Day  (09:15  to</h4>
-<h4>~14:45)</h4>
-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 65 of 105</span>
-<p>For most of  the  trading  session,  the  Group's  delta exposure  remained largely  neutral,  suggesting  a  non-directional  or  low-risk  stance  in BANKNIFTY options.</p>
-<h4>Phase 2: Sharp Build-Up in Negative Delta in Final 45–60 Minutes</h4>
-<p>Starting around 2:45 PM, coinciding precisely with the period when Jane Street  Group  began  executing  aggressive  sell  orders  in  BANKNIFTY index  futures  and  constituent  stocks,  a  sharp  transition  in  delta  was observed.</p>
-<p>The  Group  accumulated  significant  negative  delta  exposure, predominantly through: •  Buying Put options (which carry negative delta), and •  Selling Call options (which also result in net negative delta).</p>
-<p>This  directional  bet  aligns  seamlessly  with  Jane  Street  Group's simultaneous  activity  in  the  underlying  segment,  where  trades  were placed  at  or  below  LTP  in  heavy-weight  BANKNIFTY  constituents, thereby reinforcing the bearish outlook.</p>
-<ul>
-<li>16.31.  The  net  negative  delta  exposure  increased  from  INR  27,225.22  Cr  at 14:30 to INR 44,153.87 Cr by market close. This INR 16,928.64 Cr shift in net delta  took  place  within  an  hour,  sharply  contrasting  with  the  stability  seen earlier in the day. The timing of this delta shift was not coincidental. It perfectly overlapped with:<br> •  The initiation of aggressive sell-side trades in stocks and futures to the tune of INR 2,800 crores across segments, •  A sharp decline in the BANKNIFTY index, and •  The  lead-up  to  expiry-time  index  settlement,  which  directly determines options settlement and payoff.<br></li>
-<li>16.32.  In  summary,  prima facie,  JS  Group undertook  premeditated  large and aggressive selling of INR 2,800 crores worth of BANKNIFTY constituent and related stocks and futures, to engineer a soft closing of BANKNIFTY on that expiry day, thereby helping them enjoy a benefit on the INR 44,153.87 crores<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 66 of 105</span>
- of effective cash-equivalent short positions that JS Group held in BANKNIFTY index options expiring the same day.<br></li>
 <li>16.33.  On July 10, 2024, the Group's GTV witnessed a spike similar to that of January 17, 2024, with total traded value being approximately 4 times that of the previous and 1.5 times that of the next day<br><table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -6251,7 +6357,7 @@ In the matter of Index manipulation by Jane Street Group
       <td>103.20</td>
       <td>1,589.81</td>
       <td>-</td>
-      <td>1,693.01</td>
+      <td></td>
     </tr>
     <tr>
       <td>T</td>
@@ -6267,7 +6373,7 @@ In the matter of Index manipulation by Jane Street Group
       <td>150.15</td>
       <td>3,901.53</td>
       <td>-</td>
-      <td>4,051.68</td>
+      <td></td>
     </tr>
   </tbody>
 </table>
@@ -6280,18 +6386,11 @@ In the matter of Index manipulation by Jane Street Group
 <h4>F.  CONTINUING VIOLATION & DISREGARD FOR REGULATORY CAUTION</h4>
 <p>17. Recent instance of extended marking-the-close (as observed on May 15, 2025 - being weekly expiry of NIFTY option contracts) </p>
 <ul>
-<li>17.1.  As  indicated  earlier,  as  advised  by  SEBI,  on  February  6,  2025,  the National  Stock  Exchange  ("NSE")  issued  a  cautionary  letter  to  Jane  Street Singapore Pte Limited and its related entity, Jane Street Group Investments Pvt  Ltd.  The  letter  noted  that  the  Group  had  been  consistently  engaging  in trading patterns that raised serious concerns over market integrity, particularly around the expiry of index derivatives.<br> Relevant excerpts from the communication are reproduced below:<br> Investments Pvt Ltd, were running abnormally high delta positions in the index derivatives segment and correspondingly small net sentimental OI. Such large directional OI (delta) can cause risk to market stability and raises concern for market  integrity  especially  around  expiry  of  contracts  wherein  your  related entity has traded in cash market to favour large open positions in options.<br> period,  to  artificially  influence  the  price  of  the  index.  It  also  creates  an information  asymmetry  for  other  investors  /  traders  in  those  constituents  or derivatives  contracts  on  index,  who  are  not  aware  about  such  artifice  and repeated  occurrences  of  such  instances  cannot  be  considered  as coincidence.<br> <blockquote>"It was observed that you along with your related entity, Jane Street GroupI Such trading  activity,  prima-facie,  raises concerns  for  market integrity on account of large delta positions in index derivatives, combined with concurrent  act  of  taking  and  then  reducing  positions  in  the  top constituents of the index through cash market / derivatives over a short<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 68 of 105</span>
-</blockquote>
-</li>
-</ul>
-<h4>The  above  trading  activity  prima  facie  appears  to  be  fraudulent  and</h4>
-<h4>manipulative  in  terms  of  dealing  in  top  constituents  of  index  in  cash</h4>
-<h4>market / futures segment and taking relatively large size contra position</h4>
-<h4>in options expiring on that day on the same index. In this connection, it is</h4>
-<p>advised  to  exercise  caution  and  refrain  from  taking  large  open  positions (delta). It is further advised to refrain from aforementioned trading pattern and unwind such positions in a non-disruptive manner and report on a daily basis</p>
-<blockquote>to us till further notice."</blockquote>
- <p>(emphasis supplied)</p>
-<ul>
+<li>17.1.  As  indicated  earlier,  as  advised  by  SEBI,  on  February  6,  2025,  the National  Stock  Exchange  ("NSE")  issued  a  cautionary  letter  to  Jane  Street Singapore Pte Limited and its related entity, Jane Street Group Investments Pvt  Ltd.  The  letter  noted  that  the  Group  had  been  consistently  engaging  in trading patterns that raised serious concerns over market integrity, particularly around the expiry of index derivatives.<br> Relevant excerpts from the communication are reproduced below:<br><blockquote>"It was observed that you along with your related entity, Jane Street GroupI Investments Pvt Ltd, were running abnormally high delta positions in the index derivatives segment and correspondingly small net sentimental OI. Such large directional OI (delta) can cause risk to market stability and raises concern for market  integrity  especially  around  expiry  of  contracts  wherein  your  related entity has traded in cash market to favour large open positions in options.</blockquote>
+<blockquote>Such trading  activity,  prima-facie,  raises concerns  for  market integrity on account of large delta positions in index derivatives, combined with concurrent  act  of  taking  and  then  reducing  positions  in  the  top constituents of the index through cash market / derivatives over a short period,  to  artificially  influence  the  price  of  the  index.  It  also  creates  an<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 68 of 105</span>
+ information  asymmetry  for  other  investors  /  traders  in  those  constituents  or derivatives  contracts  on  index,  who  are  not  aware  about  such  artifice  and repeated  occurrences  of  such  instances  cannot  be  considered  as coincidence.</blockquote>
+<blockquote>The  above  trading  activity  prima  facie  appears  to  be  fraudulent  and manipulative  in  terms  of  dealing  in  top  constituents  of  index  in  cash market / futures segment and taking relatively large size contra position in options expiring on that day on the same index. In this connection, it is advised  to  exercise  caution  and  refrain  from  taking  large  open  positions (delta). It is further advised to refrain from aforementioned trading pattern and unwind such positions in a non-disruptive manner and report on a daily basis to us till further notice."</blockquote>
+ (emphasis supplied)</li>
 <li>17.2.  Despite the said letter, JS group has been seen to be running very large net cash-equivalent positions in Index Options. Disturbingly, on days such as on May 15, 2025 (an expiry day for NIFTY weekly options), JS group was seen not only running very large effective cash-equivalent long positions via NIFTY index options, it was also seen to be intervening heavily in NIFTY futures and NIFTY constituent stock futures at close to expiry.<br></li>
 <li>17.3.  The timing, scale, and construction of Jane Street Group's positions and the  trading  on  May  15,  2025,  suggest  that  it  continued  deploying  a  weekly expiry-centric extended marking-the-close strategy even after all the regulatory red flags that had been shown prominently to them.<br></li>
 <li>17.4.  While  the  trading  activity  of  Jane  Street  Group  on  May  15,  2025,  an expiry day for weekly NIFTY index options, bears a structural resemblance to the strategy observed on July 10, 2024, there is a directional distinction. While July  10  involved  a  bearish  "extended  marking  the  close"  strategy  (and  the trading activity of JS Group pushed the index pushed downward at close), the pattern  on  May  15  suggests  a  bullish  variant,  where  Jane  Street  Group<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 69 of 105</span>
@@ -6336,9 +6435,7 @@ In the matter of Index manipulation by Jane Street Group
 <ul>
 <li>17.5.  During the patch 13:26:00 to 15:30:00, Jane Street Group significantly bought positions in NIFTY constituent stocks in stock futures segment. Further, significant buy activity was also observed in NIFTY Index futures. The relevant data has been captured in succeeding paragraphs.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 70 of 105</span>
 </li>
-<li>17.6.  In the stock futures market:</li>
-</ul>
-<h4>Table 38</h4>
+<li>17.6.  In the stock futures market:<blockquote>Table 38</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -7213,11 +7310,9 @@ In the matter of Index manipulation by Jane Street Group
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 71 of 105</span>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 72 of 105</span>
-<ul>
-<li>17.7.  In the NIFTY Index futures market:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 73 of 105</span>
 </li>
-</ul>
-<h4>Table 39</h4>
+<li>17.7.  In the NIFTY Index futures market:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 73 of 105</span>
+<blockquote>Table 39</blockquote>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -7258,17 +7353,23 @@ In the matter of Index manipulation by Jane Street Group
 </table>
 
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 74 of 105</span>
-<ul>
-<li>17.8.  An analysis of the Traded Value of Jane Street Group on May 15, 2025, reveals  a  pattern  of  highly  concentrated  activity  during  the  final  hours  of trading, particularly in the futures segment of NIFTY constituent stocks. This pattern closely resembles a bullish expiry-day strategy, wherein the participant aggressively  builds  directional  exposure  in  the  latter  half  of  the  session  to influence the index value at settlement.<br></li>
-<li>17.9.  Between  13:26:00  and  15:30:00,  the  Group's  stock  futures  trades surged to a total of INR 4,910.96 Cr, representing a disproportionately large share of the market-wide traded value in several key NIFTY stocks.<br> Key data points from this patch include:<br> •  HDFCBANK  (Futures):  INR  410.27  Cr,  constituting  22.69%  of  market- wide traded value<br> •  ICICIBANK (Futures): INR 415.21 Cr (21.65%) •  RELIANCE (Futures): INR 461.80 Cr (21.93%) •  INFY (Futures): INR 246.10 Cr (22.02%) •  BHARTIARTL (Futures): INR 197.64 Cr (23.09%)<br></li>
-<li>17.10.  This spike in directional trading volume during the expiry-critical patch not  only  reflects  an abnormal deviation from typical  intraday  volume  curves, but  also  raises  strong  suspicion  that  the  activity  was  designed  to  exert influence  on  index  settlement,  especially  given  its  temporal  alignment  with Jane Street's even larger derivative positions in expiring NIFTY options.<br></li>
-<li>17.11.  While  the  aforementioned  data  reveals  where  and  when  Jane  Street concentrated its trading efforts, it is equally important to evaluate how these trades impacted market prices. Specifically, the placement of trades at, above, or below prevailing Last Traded Prices (LTP) determines whether the activity had a price-driving effect, thereby altering the index level itself.<br></li>
-<li>17.12.  Following  the  identification  of  high-volume,  expiry-window  trading activity  by  Jane  Street  Group  across  NIFTY  constituents,  it  becomes imperative to assess the price impact of such trades. For this purpose, an LTP-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 75 of 105</span>
- based  analysis  was  undertaken  to  evaluate  whether  Jane  Street's  trades exerted  a  directional  influence  on  market  prices,  particularly  in  the  expiry- determining window.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 76 of 105</span>
 </li>
-<li>17.13.  In the NIFTY constituent stock futures market:</li>
-</ul>
-<h4>Table 40- Order level LTP-based analysis25</h4>
+<li>17.8.  An analysis of the Traded Value of Jane Street Group on May 15, 2025, reveals  a  pattern  of  highly  concentrated  activity  during  the  final  hours  of trading, particularly in the futures segment of NIFTY constituent stocks. This pattern closely resembles a bullish expiry-day strategy, wherein the participant aggressively  builds  directional  exposure  in  the  latter  half  of  the  session  to influence the index value at settlement.<br></li>
+<li>17.9.  Between  13:26:00  and  15:30:00,  the  Group's  stock  futures  trades surged to a total of INR 4,910.96 Cr, representing a disproportionately large share of the market-wide traded value in several key NIFTY stocks.<br> Key data points from this patch include:<br><blockquote>•  HDFCBANK  (Futures):  INR  410.27  Cr,  constituting  22.69%  of  market- wide traded value</blockquote>
+<blockquote>•  ICICIBANK (Futures): INR 415.21 Cr (21.65%) •  RELIANCE (Futures): INR 461.80 Cr (21.93%) •  INFY (Futures): INR 246.10 Cr (22.02%) •  BHARTIARTL (Futures): INR 197.64 Cr (23.09%)</blockquote>
+<blockquote>17.10.  This spike in directional trading volume during the expiry-critical patch not  only  reflects  an abnormal deviation from typical  intraday  volume  curves, but  also  raises  strong  suspicion  that  the  activity  was  designed  to  exert influence  on  index  settlement,  especially  given  its  temporal  alignment  with Jane Street's even larger derivative positions in expiring NIFTY options.</blockquote>
+<blockquote>17.11.  While  the  aforementioned  data  reveals  where  and  when  Jane  Street concentrated its trading efforts, it is equally important to evaluate how these trades impacted market prices. Specifically, the placement of trades at, above, or below prevailing Last Traded Prices (LTP) determines whether the activity had a price-driving effect, thereby altering the index level itself.</blockquote>
+ based  analysis  was  undertaken  to  evaluate  whether  Jane  Street's  trades exerted  a  directional  influence  on  market  prices,  particularly  in  the  expiry- determining window.<br> <blockquote>17.12.  Following  the  identification  of  high-volume,  expiry-window  trading activity  by  Jane  Street  Group  across  NIFTY  constituents,  it  becomes imperative to assess the price impact of such trades. For this purpose, an LTP-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 75 of 105</span>
+<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 76 of 105</span>
+</blockquote>
+</li>
+<li>17.13.  In the NIFTY constituent stock futures market:<blockquote>Table 40- Order level LTP-based analysis<sup id="fnref-77-25"><a href="#fn-77-25">25</a></sup></blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-77-25" value="25">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. <a href="#fnref-77-25">↩</a></li>
+</ol>
+</section>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -7536,26 +7637,6 @@ In the matter of Index manipulation by Jane Street Group
       <td>-</td>
       <td>-48.50</td>
       <td>39.90</td>
-    </tr>
-  </tbody>
-</table>
-<p>25 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data.</p>
-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 77 of 105</span>
-<table style='white-space: pre-wrap;' border="1" class="dataframe">
-  <tbody>
-    <tr>
-      <td>Scrip</td>
-      <td>Expiry</td>
-      <td>Buy &#10;order &#10;start &#10;time</td>
-      <td>Buy &#10;order &#10;end &#10;time</td>
-      <td>No. of &#10;buy &#10;orders &#10;entered</td>
-      <td>No. of &#10;buy &#10;orders &#10;above &#10;LTP</td>
-      <td>No. of &#10;buy &#10;orders &#10;at LTP</td>
-      <td>No. of &#10;buy &#10;orders &#10;below &#10;LTP</td>
-      <td>Order price &#10;based LTP &#10;impact for &#10;orders &#10;placed &#10;above LTP* &#10; &#10;(in INR) &#10; &#10;(A)</td>
-      <td>Order &#10;price &#10;based LTP &#10;impact for &#10;orders &#10;placed at &#10;LTP* &#10; &#10;(in INR) &#10; &#10;(B)</td>
-      <td>Order price &#10;based LTP &#10;impact for &#10;orders &#10;placed &#10;below LTP* &#10; &#10;(in INR) &#10; &#10;(C)</td>
-      <td>Order price &#10;based net &#10;LTP impact* &#10; &#10;(in INR) &#10; &#10;(A)+(B)+(C)</td>
     </tr>
     <tr>
       <td>HDFCLIFE</td>
@@ -8008,10 +8089,17 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 
+<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 77 of 105</span>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 78 of 105</span>
 <blockquote>*The figures are an aggregation of the difference between the "Order Limit Price" and the "Last Traded Price" at the time of order entry/ modification.</blockquote>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 79 of 105</span>
-<h4>Table 41- Trade level LTP-based analysis</h4>
+<blockquote>Table 41- Trade level LTP-based analysis</blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-80-26" value="26">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. <a href="#fnref-80-26">↩</a></li>
+</ol>
+</section>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -8358,27 +8446,6 @@ In the matter of Index manipulation by Jane Street Group
       <td>-14.50</td>
       <td>35.30</td>
       <td>-34.6</td>
-    </tr>
-  </tbody>
-</table>
-<p>26 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 80 of 105</span>
-<table style='white-space: pre-wrap;' border="1" class="dataframe">
-  <tbody>
-    <tr>
-      <td>Scrip</td>
-      <td>Expiry</td>
-      <td>Buy &#10;trade &#10;start &#10;time</td>
-      <td>Buy &#10;trade &#10;end time</td>
-      <td>No. of buy &#10;trades &#10;executed</td>
-      <td>No. of &#10;buy &#10;trades &#10;above &#10;LTP</td>
-      <td>No. of &#10;buy &#10;trades &#10;at LTP</td>
-      <td>No. of &#10;buy &#10;trades &#10;below &#10;LTP</td>
-      <td>Trade price &#10;based LTP &#10;impact for &#10;trades &#10;executed &#10;above LTP* &#10; &#10;(in INR) &#10; &#10;(A)</td>
-      <td>Trade price &#10;based LTP &#10;impact for &#10;trades &#10;executed at &#10;LTP* &#10; &#10;(in INR) &#10; &#10;(B)</td>
-      <td>Trade price &#10;based LTP &#10;impact for &#10;trades &#10;executed &#10;below LTP* &#10; &#10;(in INR) &#10; &#10;(C)</td>
-      <td>Trade price &#10;based net &#10;LTP impact* &#10; &#10;(in INR) &#10; &#10;(A)+(B)+(C)</td>
-      <td>Trade price &#10;based net &#10;LTP impact &#10;created by &#10;rest of the &#10;market &#10;participants26</td>
     </tr>
     <tr>
       <td>ICICIBANK</td>
@@ -8803,13 +8870,19 @@ In the matter of Index manipulation by Jane Street Group
   </tbody>
 </table>
 
+<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 80 of 105</span>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 81 of 105</span>
-<p>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price"</p>
-<ul>
-<li>17.14.  In the NIFTY Index futures market:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 82 of 105</span>
+<blockquote>*The figures are an aggregation of the difference between the "Trade Price" and the "Last Traded Price"</blockquote>
 </li>
-</ul>
-<h4>Table 42 - Order level LTP-based analysis27</h4>
+<li>17.14.  In the NIFTY Index futures market:<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 82 of 105</span>
+<blockquote>Table 42 - Order level LTP-based analysis<sup id="fnref-83-27"><a href="#fn-83-27">27</a></sup></blockquote>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-83-27" value="27">For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. <a href="#fnref-83-27">↩</a></li>
+<li id="fn-83-28" value="28">The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street’s trades. <a href="#fnref-83-28">↩</a></li>
+</ol>
+</section>
 <table style='white-space: pre-wrap;' border="1" class="dataframe">
   <tbody>
     <tr>
@@ -8870,9 +8943,9 @@ In the matter of Index manipulation by Jane Street Group
     </tr>
   </tbody>
 </table>
-<p>27 For this table, only orders that resulted in trades during the patch have been considered. Further, calendar spread orders have not been considered in aforementioned data. 28 The LTP impact attributable to the rest of the market was computed by adjusting the total price movement (vis-à-vis the respective scrip), for the impact created by Jane Street's trades.</p>
+
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 83 of 105</span>
-<ul>
+</li>
 <li>17.15.  As  can  be  seen  from  Table  40  to  Table  43,  in  several  key  NIFTY constituents  (futures  segment),  Jane  Street's  trades  were  disproportionately skewed towards at or above LTP, consistent with an attempt to create upward price pressure.<br></li>
 <li>17.16.  This  reveals  a  consistent  behavioural  pattern  -  Jane  Street  was  not trading neutrally, but was placing trades in a manner that propped up the prices of index stocks during the final 2 hours of trading.<br></li>
 <li>17.17.  This pattern was not limited to constituent stock future alone. The Group was also observed to be actively trading in NIFTY index futures, particularly in the final hour of trading. Trading in index futures plays a strategic role in such expiry-day activity. Since index futures closely track the index and are highly liquid,  they  serve  as  an  effective  tool  to  amplify  market  sentiment,  mirror  or reinforce  spot  movement,  and  influence  short-term  index  direction.<br> Additionally,  the  settlement  value  of  NIFTY  options  is  ultimately  tied  to  the closing index value, which itself is influenced by underlying constituent prices and index-linked futures sentiment.<br></li>
@@ -8882,54 +8955,50 @@ In the matter of Index manipulation by Jane Street Group
 <li>17.21.  By  analysing  how  Jane  Street's  delta  exposure  evolved  intraday, particularly  in  relation  to  its  expiry  positions,  we  can  assess  whether  its underlying  trades  were  coordinated  to  push  the  market  in  a  direction  that favoured  its  options  payoff.  A  rising  delta  indicates  a  bullish  exposure  (long<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 84 of 105</span>
  Calls  or  short  Puts),  while  a  declining  or  negative  delta  suggests  a  bearish stance (long Puts or short Calls).<br></li>
 <li>17.22.  Graphical  analysis  of  trading  and  delta  build-up  for  May  15,  2025  is placed below:<br><img src="manifest/sebi5/images/Image278/full/max/0/default.png" width="601" height="224" loading="lazy">
+<blockquote>17.23.  The graph above can be accessed through the QR code given below:</blockquote>
+<img src="manifest/sebi5/images/Image279/full/max/0/default.png" width="342" height="342" loading="lazy">
+<p class="figure-text">gle ly
+aah oa ees
+Pas Eee
+aueidatukeg</p>
+ phase structure in Jane Street's exposure pattern:<br><blockquote>17.24.  The analysis of delta movement on May 15, 2025, reveals a clear two-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 85 of 105</span>
+ Phase 1: Passive Delta Through Most of the Day (09:15 to 13:00) During  the  majority  of  the  trading  session,  the  Group's  net  delta  position remained relatively low and passive, suggesting limited directional bias.</blockquote>
+<blockquote>Phase 2: Aggressive Delta Build-Up in Bullish Direction (13:00 to 14:00) Beginning  around  13:00,  Jane  Street  started  to  rapidly  accumulate  bullish delta exposure, aligned with its aggressive buying in index futures and stock futures.</blockquote>
+<blockquote>The net NIFTY delta exposure moved from a negative level to a significantly positive value by close, supported by:</blockquote>
+<blockquote>•  Long NIFTY Calls, and •  Short Puts.</blockquote>
+<blockquote>Specifically, total NIFTY delta shifted from negative INR 17,125.75 Cr at open of trading session to positive INR 38,297.01 Cr at close, implying a directional swing of over INR 55,422.76 Cr.</blockquote>
+<blockquote>For contracts expiring on May 15 itself, delta increased by INR 49,568.52 Cr intraday, with the steepest climb occurring during the last hour of trading.</blockquote>
+ the Group's futures-led buying pressure in NIFTY constituents. By creating a scenario  where  the  index  rose  into  the  close,  and  holding  a  long-cash equivalent  position  in  short-dated  options,  Jane  Street  stood  to  gain substantially from the uplift in the index's expiry value.<br> <blockquote>17.25.  This behaviour is particularly critical because it coincided precisely with</blockquote>
 </li>
-<li>17.23.  The graph above can be accessed through the QR code given below:<img src="manifest/sebi5/images/Image279/full/max/0/default.png" width="342" height="342" loading="lazy">
-</li>
-<li>17.24.  The analysis of delta movement on May 15, 2025, reveals a clear two- phase structure in Jane Street's exposure pattern:<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 85 of 105</span>
+<li>17.26.  The temporal alignment between:<blockquote>•  The sharp delta build-up in favour of a bullish market outcome, •  The buying concentration in all constituent futures and index futures, and •  The profit spike in the final leg of trading and at expiry,</blockquote>
+<blockquote>all point to a deliberately structured strategy. This was not passive hedging or opportunistic  positioning.  Rather,  it  appears  to  have  been  a  planned  trade<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 86 of 105</span>
+ design, wherein the underlying was influenced to suit the derivative exposure, reversing the natural price discovery flow.</blockquote>
+<blockquote>17.27.  Accordingly,  the  delta  profile  of  May  15  reinforces  the  broader finding that  Jane  Street's  expiry-day  conduct  of  aggressive  and  large  purchases  in NIFTY  underlying  stocks  and  index  futures  was  intend  to  manipulate  index levels  higher  at  and  around  expiry,  to  maximise  the  profits  from  their  much higher positions held in NIFTY index options.</blockquote>
+<blockquote>17.28.  The  same  pattern  of  'extended  marking  the  close'  characterised  by concentrated end-of-day activity in stock futures, and index futures segments, coupled  with  aligned  options  positioning—was  observed  on  2  other  NIFTY options  expiry  days.  The  details  of  the  other  2  days,  in  terms  of  an  overall graphical  representation  of  the  JS  Group  activity,  and  tables  detailing  the quantum of their intervention in futures markets during relevant patches around index expiry (including as a percentage of Gross Traded Volume), the level of aggression of their intervention (as evidenced by order and trade LTP), and their  trading  activity  and  cash-equivalent  positions  in  the  index  options segment are presented in Annexure 3.</blockquote>
+<blockquote>17.29.  The  day-wise  profits  for  the  3  days  wherein  the  aforesaid  "Extended Marking the Close" strategy was employed by JS Group in May 2025 has been recorded in Table 44 of this Order. The total profit made by the JS Group in NIFTY index options across the 3 days was INR 370 crores.</blockquote>
+<blockquote>G.  ALLEGED VIOLATIONS of SEBI ACT AND PFUTP REGULATIONS</blockquote>
 </li>
 </ul>
-<h4>Phase 1: Passive Delta Through Most of the Day (09:15 to 13:00)</h4>
-<p>During  the  majority  of  the  trading  session,  the  Group's  net  delta  position remained relatively low and passive, suggesting limited directional bias.</p>
-<h4>Phase 2: Aggressive Delta Build-Up in Bullish Direction (13:00 to 14:00)</h4>
-<p>Beginning  around  13:00,  Jane  Street  started  to  rapidly  accumulate  bullish delta exposure, aligned with its aggressive buying in index futures and stock futures.</p>
-<p>The net NIFTY delta exposure moved from a negative level to a significantly positive value by close, supported by:</p>
-<p>•  Long NIFTY Calls, and •  Short Puts.</p>
-<p>Specifically, total NIFTY delta shifted from negative INR 17,125.75 Cr at open of trading session to positive INR 38,297.01 Cr at close, implying a directional swing of over INR 55,422.76 Cr.</p>
-<p>For contracts expiring on May 15 itself, delta increased by INR 49,568.52 Cr intraday, with the steepest climb occurring during the last hour of trading.</p>
-<ul>
-<li>17.25.  This behaviour is particularly critical because it coincided precisely with the Group's futures-led buying pressure in NIFTY constituents. By creating a scenario  where  the  index  rose  into  the  close,  and  holding  a  long-cash equivalent  position  in  short-dated  options,  Jane  Street  stood  to  gain substantially from the uplift in the index's expiry value.<br></li>
-<li>17.26.  The temporal alignment between: •  The sharp delta build-up in favour of a bullish market outcome, •  The buying concentration in all constituent futures and index futures, and •  The profit spike in the final leg of trading and at expiry,<br> all point to a deliberately structured strategy. This was not passive hedging or opportunistic  positioning.  Rather,  it  appears  to  have  been  a  planned  trade<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 86 of 105</span>
- design, wherein the underlying was influenced to suit the derivative exposure, reversing the natural price discovery flow.<br></li>
-<li>17.27.  Accordingly,  the  delta  profile  of  May  15  reinforces  the  broader finding that  Jane  Street's  expiry-day  conduct  of  aggressive  and  large  purchases  in NIFTY  underlying  stocks  and  index  futures  was  intend  to  manipulate  index levels  higher  at  and  around  expiry,  to  maximise  the  profits  from  their  much higher positions held in NIFTY index options.<br></li>
-<li>17.28.  The  same  pattern  of  'extended  marking  the  close'  characterised  by concentrated end-of-day activity in stock futures, and index futures segments, coupled  with  aligned  options  positioning—was  observed  on  2  other  NIFTY options  expiry  days.  The  details  of  the  other  2  days,  in  terms  of  an  overall graphical  representation  of  the  JS  Group  activity,  and  tables  detailing  the quantum of their intervention in futures markets during relevant patches around index expiry (including as a percentage of Gross Traded Volume), the level of aggression of their intervention (as evidenced by order and trade LTP), and their  trading  activity  and  cash-equivalent  positions  in  the  index  options segment are presented in Annexure 3.<br></li>
-<li>17.29.  The  day-wise  profits  for  the  3  days  wherein  the  aforesaid  "Extended Marking the Close" strategy was employed by JS Group in May 2025 has been recorded in Table 44 of this Order. The total profit made by the JS Group in NIFTY index options across the 3 days was INR 370 crores.<br></li>
-</ul>
-<h4>G.  ALLEGED VIOLATIONS of SEBI ACT AND PFUTP REGULATIONS</h4>
 <p>18. Prima facie, the aforesaid trading patterns employed by the JS Group fall foul of regulation  4(2)(a)  and 4(2)(e)  of  the  PFUTP Regulations  and  the  schemes  as  a whole are prima facie a fraudulent device prohibited by section 12A of the SEBI Act and regulations 3(a)-(d) and 4(1) of the PFUTP Regulations.   The text of the said provisions is reproduced below:<br></p>
-<h4>SEBI Act:</h4>
-<h4>Prohibition  of  manipulative  and  deceptive  devices,  insider  trading  and  substantial</h4>
-<h4>acquisition of securities or control</h4>
-<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 87 of 105</span>
-<p>Section 12A. No person shall directly or indirectly—</p>
-<ul>
-<li>(a) use or employ, in connection with the issue, purchase or sale of any securities listed or proposed to be listed on a recognized stock exchange, any manipulative or deceptive device or contrivance in contravention of the provisions of this Act or the rules or the regulations made thereunder;<br> (b)employ any device, scheme or artifice to defraud in connection with issue or dealing in securities which are listed or proposed to be listed on a recognised stock exchange;<br> (c)engage in  any  act,  practice, course of  business which  operates  or would  operate as fraud or deceit  upon  any  person,  in  connection  with  the  issue,  dealing  in  securities  which  are  listed  or proposed to be listed on a recognised stock exchange, in contravention of the provisions of this Act or the rules or the regulations made thereunder.<br> ….<br></li>
-</ul>
-<h4>PFUTP Regulations:</h4>
-<h4>Prohibition of certain dealings in securities</h4>
-<p>Regulation 3. No person shall directly or indirectly—</p>
-<ul>
-<li>(a)  buy, sell or otherwise deal in securities in a fraudulent manner;</li>
-<li>(b)  use or employ, in connection with issue, purchase or sale of any security listed or proposed to be listed in a recognized stock exchange, any manipulative or deceptive device or contrivance in contravention of the provisions of the Act or the rules or the regulations made thereunder;<br></li>
-<li>(c)  employ  any  device,  scheme  or  artifice  to  defraud  in  connection  with  dealing  in  or  issue  of securities which are listed or proposed to be listed on a recognized stock exchange;<br></li>
-<li>(d)  engage in any act, practice, course of business which operates or would operate as fraud or deceit upon any person in connection with any dealing in or issue of securities which are listed or proposed to be listed on a recognized stock exchange in contravention of the provisions of the Act or the rules and the regulations made thereunder.<br></li>
-</ul>
-<h4>Prohibition of manipulative, fraudulent and unfair trade practices</h4>
-<p>Regulation 4 (1) Without prejudice to the provisions of regulation 3, no person shall indulge in a fraudulent or an unfair trade practice in securities markets.</p>
-<p>Regulation  4  (2)  Dealing  in  securities  shall  be  deemed  to  be  a  fraudulent  or  an  unfair  trade practice if it involves any of the following–</p>
-<p>... (a) knowingly indulging in an act which creates false or misleading appearance of trading in the securities market;</p>
-<ul>
-<li>(e) any act or omission amounting to manipulation of the price of a security including, influencing or manipulating the reference price or bench mark price of any securities;<br></li>
-</ul>
+<blockquote>SEBI Act:</blockquote>
+<blockquote>Prohibition  of  manipulative  and  deceptive  devices,  insider  trading  and  substantial acquisition of securities or control<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 87 of 105</span>
+ Section 12A. No person shall directly or indirectly—</blockquote>
+<blockquote>(a) use or employ, in connection with the issue, purchase or sale of any securities listed or proposed to be listed on a recognized stock exchange, any manipulative or deceptive device or contrivance in contravention of the provisions of this Act or the rules or the regulations made thereunder;</blockquote>
+<blockquote>(b)employ any device, scheme or artifice to defraud in connection with issue or dealing in securities which are listed or proposed to be listed on a recognised stock exchange;</blockquote>
+<blockquote>(c)engage in  any  act,  practice, course of  business which  operates  or would  operate as fraud or deceit  upon  any  person,  in  connection  with  the  issue,  dealing  in  securities  which  are  listed  or proposed to be listed on a recognised stock exchange, in contravention of the provisions of this Act or the rules or the regulations made thereunder.</blockquote>
+<blockquote>….</blockquote>
+<blockquote>PFUTP Regulations:</blockquote>
+<blockquote>Prohibition of certain dealings in securities</blockquote>
+<blockquote>Regulation 3. No person shall directly or indirectly—</blockquote>
+<blockquote>(a)  buy, sell or otherwise deal in securities in a fraudulent manner;</blockquote>
+<blockquote>(b)  use or employ, in connection with issue, purchase or sale of any security listed or proposed to be listed in a recognized stock exchange, any manipulative or deceptive device or contrivance in contravention of the provisions of the Act or the rules or the regulations made thereunder;</blockquote>
+<blockquote>(c)  employ  any  device,  scheme  or  artifice  to  defraud  in  connection  with  dealing  in  or  issue  of securities which are listed or proposed to be listed on a recognized stock exchange;</blockquote>
+<blockquote>(d)  engage in any act, practice, course of business which operates or would operate as fraud or deceit upon any person in connection with any dealing in or issue of securities which are listed or proposed to be listed on a recognized stock exchange in contravention of the provisions of the Act or the rules and the regulations made thereunder.</blockquote>
+<blockquote>Prohibition of manipulative, fraudulent and unfair trade practices</blockquote>
+<blockquote>Regulation 4 (1) Without prejudice to the provisions of regulation 3, no person shall indulge in a fraudulent or an unfair trade practice in securities markets.</blockquote>
+<blockquote>Regulation  4  (2)  Dealing  in  securities  shall  be  deemed  to  be  a  fraudulent  or  an  unfair  trade practice if it involves any of the following–</blockquote>
+<blockquote>... (a) knowingly indulging in an act which creates false or misleading appearance of trading in the securities market;</blockquote>
+<blockquote>(e) any act or omission amounting to manipulation of the price of a security including, influencing or manipulating the reference price or bench mark price of any securities;</blockquote>
 <p>19. Regulation 4(2)(a) deems any act to be manipulative or fraudulent if it creates false or misleading appearance of trading in the securities market.  Regulation 4(2)(e) deems any act to be fraudulent or manipulative if it amounts to manipulation of the price of a security or manipulates the benchmark price of any securities.  Indices reflect  the  price  of  a  basket  of  securities,  and  price  changes  in  the  underlying securities concomitantly move the benchmark as well.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 88 of 105</span>
 </p>
 <p>20. On  15  BANKNIFTY  index  option  expiry  days  identified  with  'Intra-day  Index Manipulation Strategy' in this Order, in the first patch of the day, as has been clearly demonstrated by data and analysis, JS Group first aggressively bought significant quantities  of  BANKNIFTY  underlying  constituent  stocks  and  futures,  temporarily pushing  up  or  lending  considerable  support  to  the  BANKNIFTY  index.  In  the second patch of the day, as has again been demonstrated by data and analysis, JS Group was seen to practically and effectively reverse all of this buying activity from  the  first  patch,  by  aggressively  selling  large  quantities  of  BANKNIFTY underlying constituent stocks and futures.<br></p>
@@ -8946,18 +9015,19 @@ In the matter of Index manipulation by Jane Street Group
 <p>29. Note also that Regulation 20(4) of the FPI Regulations prohibits FPIs from netting of trades in the cash market which essentially means that they cannot sell shares<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 91 of 105</span>
  before they are credited to their demat accounts or perform simultaneous buy and sell trades within the same day. The said regulation reads as follows:<br></p>
 <blockquote>"(4) In respect of investments in the secondary market, the following additional conditions shall apply–</blockquote>
-<p>(a)A foreign portfolio investor shall transact in the securities in India only on the basis of taking and giving delivery of securities purchased or sold;</p>
-<p>(b)Nothing contained in clause (a) shall apply to–</p>
-<p>(i)any transactions in derivatives on a recognized stock exchange;</p>
-<p>(ii)short selling transactions in accordance with the framework specified by the Board;</p>
-<p>…."</p>
+<blockquote>(a)A foreign portfolio investor shall transact in the securities in India only on the basis of taking and giving delivery of securities purchased or sold;</blockquote>
+<blockquote>(b)Nothing contained in clause (a) shall apply to–</blockquote>
+<blockquote>(i)any transactions in derivatives on a recognized stock exchange;</blockquote>
+<blockquote>(ii)short selling transactions in accordance with the framework specified by the Board;</blockquote>
+<blockquote>…."</blockquote>
 <p>30. JSI  Investments  Private  Limited,  the  JS  Group  entity  incorporated  in  India, executed intra-day trades in the cash segment during the examination period.  The two FPIs forming part of the JS Group took large positions in futures and options segment.    The intraday cash market transactions undertaken by the Indian entity consistently  ended  with  large  losses.    It  appears  that  the  incorporation  of  the aforesaid  company  in  India  enabled  the  JS  Group  to  get  around  the  regulatory prohibition  against  cash  market  transactions  which  solely  applied  to  FPIs,  and thereby  execute  the  manipulative  scheme  without  specifically  flouting  the  FPI Regulations.<br></p>
 <p>31. Note further  that  during  the  entire examination period  across all  their  trades,  JS Group made a total profit of INR 36,502.12 crores across all segments. Within this, it is notable that the JS Group made profits of INR 43,289.33 crores in index and stock options, while they net lost INR 7,208 crores in stock futures, lost INR 191 crores in index futures, and lost INR 288 crores in trading in cash equities segment.<br> The trading of the JS Group in BANKNIFTY and other indices on other days (i.e.<br> other than the 18 days within the examination period and the recent instances of alleged manipulation on 3 days) during the examination period and beyond remain to be investigated.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 92 of 105</span>
 </p>
-<p>32. Incurring losses in cash and futures market in a deliberate and systematic manner is itself unusual and indicative of fraud. The Hon'ble Supreme Court in the matter of  SEBI  vs.  Rakhi  Trading  Pvt.  Ltd.  and  other  connected  appeals  decided  on February 8, 2018 held the following:<br> Judgement pronounced by Justice Kurian Joseph<br></p>
+<p>32. Incurring losses in cash and futures market in a deliberate and systematic manner is itself unusual and indicative of fraud. The Hon'ble Supreme Court in the matter of  SEBI  vs.  Rakhi  Trading  Pvt.  Ltd.  and  other  connected  appeals  decided  on February 8, 2018 held the following:<br></p>
+<blockquote>Judgement pronounced by Justice Kurian Joseph</blockquote>
 <blockquote>"35. Having regard to the fact that the dealings in the stock exchange are governed by the principles of fair play and transparency, one does not have to labour much on the meaning  of  unfair  trade  practices  in  securities.  Contextually  and  in  simple  words,  it means  a  practice  which  does  not  conform  to  the  fair  and  transparent  principles  of trades in the stock market. In the instant case, one party booked gains and the other party booked a loss. Nobody intentionally trades for loss. An intentional trading for loss per se, is not a genuine dealing in securities. The platform of the stock exchange has been used for a non-genuine trade. Trading is always with the aim to make profits. But if  one  party  consistently  makes  loss  and  that  too  in  preplanned  and  rapid  reverse trades, it is not genuine; it is an unfair trade practice. Securities market, as the 1956 Act provides in the preamble, does not permit 'undesirable transactions in securities'.</blockquote>
 <blockquote>… Orchestrated trades are a misuse of the market mechanism. It is playing the market and it affects the market integrity."</blockquote>
- <p>(emphasis supplied)</p>
+ <blockquote>(emphasis supplied)</blockquote>
 <p>33. In  the  instant  case,  the  series  of  trades  executed  by  Jane  Street  Group demonstrate  a  pattern  which,  when  viewed  in  its  totality,  indicates a  prima  facie intent to take unfair and undue advantage of the market structure and sentiments prevailing at the time.<br></p>
 <p>34. In the Rakhi Trading case (supra), the Hon'ble Supreme Court has inter alia held as follows:<br></p>
 <blockquote>"35. … Market manipulation is a deliberate attempt to interfere with the free and fair operation of the market and create artificial, false or misleading appearances with respect to the price, market, product, security and currency." "36.  … If the factum of manipulation is established, it will necessarily follow that the investors in the market have been induced to buy or sell and that no further proof in this regard is required."</blockquote>
@@ -9151,23 +9221,28 @@ In the matter of Index manipulation by Jane Street Group
 <h4>Irreparable Injury</h4>
 <h4>Integrity of the Market:</h4>
 <p>44. Several  decisions  of  the  Hon'ble  Supreme  Court,  High  Courts  and  SAT  have emphasized the need to maintain the integrity of the securities market.   Some of the decisions with observations of the Hon'ble Supreme Court in this context and their extracts are reproduced below:<br></p>
-<ul>
-<li>(i) Subrata Roy Sahara vs. Union of India (UOI) and Ors. (06.05.2014 - SC)<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 96 of 105</span>
- Preservation  of  market  integrity  is  extremely  important for  economic  growth  of  this country and for national interest. Maintaining investors' confidence requires market integrity and control of market abuse. Market abuse is a serious financial crime which undermines the very financial structure of this country…<br></li>
-<li>(ii) N. Narayanan vs. Adjudicating Officer, SEBI (26.04.2013 - SC) Prevention  of market  abuse  and  preservation  of market  integrity  is the  hallmark  of Securities Law... Securities market is based on free and open access to information, the integrity of the market is predicated on the quality and the manner on which it is made available to market… Message should go that our country will not tolerate "market abuse" and that we are governed by the "rule of law". Fraud, deceit, artificiality, SEBI should ensure, have no place in the securities market of this country and "market security" is our motto.</li>
-<li>(iii) Securities and Exchange Board of India vs. Kishore R. Ajmera (23.02.2016 - SC) The  SEBI  Act  and  the  Regulations  framed  thereunder  are  intended  to  protect  the interests of investors in the Securities Market which has seen substantial growth in tune  with  the  parallel  developments  in  the  economy.  Investors'  confidence  in  the Capital/  Securities  Market  is  a  reflection  of  the  effectiveness  of  the  regulatory mechanism in force. All such measures are intended to pre-empt manipulative trading and  check  all  kinds  of  impermissible  conduct  in  order  to  boost  the  investors' confidence in the Capital market. The primary purpose of the statutory enactments is to  provide  an  environment  conductive to  increased  participation  and investment  in the securities market which is vital to the growth and development of the economy.</li>
-</ul>
-<p>45. The  prima  facie  finding  is  that  that  BANKNIFTY  index-  a  major  index  of  the securities market comprising 12 stocks of India's major banks has prima facie been manipulated in a complex and illegal manner aided by the JS Group's immense trading, financial and technological prowess.  Thus there has been an egregious distortion  of  integrity  and  fairness  in  the  securities  market.      Past  instances  of securities  market  violations  have  mostly  involved  individual  stocks  or  segments.<br> However, this is an unusual case where prima facie, multiple liquid stocks with high retail participation have together been manipulated to facilitate the manipulation of the index options market, resulting in massive profits for the manipulators, at the cost of other participants and retail traders.<br></p>
+<blockquote>(i) Subrata Roy Sahara vs. Union of India (UOI) and Ors. (06.05.2014 - SC)<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 96 of 105</span>
+ Preservation  of  market  integrity  is  extremely  important for  economic  growth  of  this country and for national interest. Maintaining investors' confidence requires market integrity and control of market abuse. Market abuse is a serious financial crime which undermines the very financial structure of this country…</blockquote>
+<blockquote>(ii) N. Narayanan vs. Adjudicating Officer, SEBI (26.04.2013 - SC) Prevention  of market  abuse  and  preservation  of market  integrity  is the  hallmark  of Securities Law... Securities market is based on free and open access to information, the integrity of the market is predicated on the quality and the manner on which it is made available to market… Message should go that our country will not tolerate "market abuse" and that we are governed by the "rule of law". Fraud, deceit, artificiality, SEBI should ensure, have no place in the securities market of this country and "market security" is our motto.</blockquote>
+<blockquote>(iii) Securities and Exchange Board of India vs. Kishore R. Ajmera (23.02.2016 - SC) The  SEBI  Act  and  the  Regulations  framed  thereunder  are  intended  to  protect  the interests of investors in the Securities Market which has seen substantial growth in tune  with  the  parallel  developments  in  the  economy.  Investors'  confidence  in  the Capital/  Securities  Market  is  a  reflection  of  the  effectiveness  of  the  regulatory mechanism in force. All such measures are intended to pre-empt manipulative trading and  check  all  kinds  of  impermissible  conduct  in  order  to  boost  the  investors' confidence in the Capital market. The primary purpose of the statutory enactments is to  provide  an  environment  conductive to  increased  participation  and investment  in the securities market which is vital to the growth and development of the economy.</blockquote>
+<blockquote>45. The  prima  facie  finding  is  that  that  BANKNIFTY  index-  a  major  index  of  the securities market comprising 12 stocks of India's major banks has prima facie been manipulated in a complex and illegal manner aided by the JS Group's immense trading, financial and technological prowess.  Thus there has been an egregious distortion  of  integrity  and  fairness  in  the  securities  market.      Past  instances  of securities  market  violations  have  mostly  involved  individual  stocks  or  segments.</blockquote>
+<p>However, this is an unusual case where prima facie, multiple liquid stocks with high retail participation have together been manipulated to facilitate the manipulation of the index options market, resulting in massive profits for the manipulators, at the cost of other participants and retail traders.</p>
 <p>46. The findings of an earlier research report by SEBI which inter alia states that 93% of  retail  investors  made  losses  when  trading  in  the  options  market  now  gains additional context.  Such losses when juxtaposed with the abnormally high profits made by JS Group entities as a result of the prima facie manipulation of the cash, futures and options markets, is reflective of the deep damage that the group has inflicted through their illegal activities.   Making profits while dealing in securities by<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 97 of 105</span>
  itself is certainly not objectionable.  Genuine trading strategies such as arbitraging or hedging or directional positioning are well accepted and cannot be found fault with.      What  is,  however,  unacceptable  and  illegal,  is  the  use  of  egregious manipulative practices to create opportunities to manipulate markets, influence and manipulate indices, and artificially profiteer from such moves with their large trading and risk positions in index options markets.<br></p>
 <h4>Nature of entities, fund transfers and possibility of diversion of illegal gains:</h4>
-<p>47. Out of the 4 entities involved in this case, 2 entities – i.e. Jane Street Singapore Pte  Ltd.  And  Jane  Street  Asia  Trading  Ltd.  are  registered  FPIs,  incorporated  in Singapore and Hong Kong respectively.  One entity, i.e. JSI Investments Private Limited is incorporated in India in December 2020 and located in Mumbai. It was wholly owned by Jane Street Europe Limited, a company incorporated in United Kingdom. JSI2 Investments Private Limited was incorporated in India in September 2024  and  located  in  Mumbai.  It  was  wholly  owned  by  JSI  Investments  Private Limited.  Note that the email sent by Jane Street to SEBI dated August 30, 2024, and the letter from Jane Street to NSE dated February 21, 2025, both indicate that all  Jane Street  Group entities  dealing  in  Indian markets act  collectively,  and  are overseen by senior personnel based overseas.<br></p>
+<blockquote>47. Out of the 4 entities involved in this case, 2 entities – i.e. Jane Street Singapore Pte  Ltd.  And  Jane  Street  Asia  Trading  Ltd.  are  registered  FPIs,  incorporated  in Singapore and Hong Kong respectively.  One entity, i.e. JSI Investments Private Limited is incorporated in India in December 2020 and located in Mumbai. It was wholly owned by Jane Street Europe Limited, a company incorporated in United Kingdom. JSI2 Investments Private Limited was incorporated in India in September 2024  and  located  in  Mumbai.  It  was  wholly  owned  by  JSI  Investments  Private Limited.  Note that the email sent by Jane Street to SEBI dated August 30, 2024, and the letter from Jane Street to NSE dated February 21, 2025, both indicate that all  Jane Street  Group entities  dealing  in  Indian markets act  collectively,  and  are overseen by senior personnel based overseas.</blockquote>
 <p>48. FPIs are permitted by law to deploy funds within specified limits and divest their holdings without any restrictions around repatriation. In the case of the JS Group entities, their core activity does not involve medium-term or long-term 'investments' as is generally understood.  In fact, the average month end equity holdings of the FPIs in the JS Group, including from amongst the Entities, between January 2025 and May 2025 was INR 311 crores, which is a fraction of the quantum of enormous bursts of short-term equity-related risk that the JS Group is demonstrated to have taken on expiry days in index options. During the same period, the JS Group FPIs were  instead  holding  on  average  INR  15,325  crores  of  India  Government Securities, which served as necessary and essential cash-equivalent liquid margin for them to trade in F&O markets to the enormous extent that they did. In short, the small  holdings  in  equity  and  the  large  holdings  in  cash-equivalent  government<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 98 of 105</span>
  bonds  indicates that  their  business  is  to make  profits from  significant  short-term High Frequency Trading (HFT) in the securities market. Nothing prevents these JS Group  FPIs  from  liquidating  these  liquid  assets  and  repatriating  them  from  the country.<br></p>
 <p>49. In  addition,  as  has  been  argued  before,  during  the  examination  period,  the  JS Group was seen to have profited heavily from their trading and positions in Index and Stock options, while they lost some money in their dealings in stock and index futures,  and  in  cash  equities.  As  has  also  been  demonstrated  in  this  order,  JS Group appears to be most active on expiry days of index options. In short, unlike many FPIs that are investors primarily investing in the cash markets, JS Group is a  short  term  trading  entity,  concentrating  largely  on  index  options  trading  rather than in equity investments.<br></p>
-<p>50. For perspective, it would be useful to note as per data published in SEBI's Analysis of Profits & Losses in the Equity Derivatives Segment (FY22-FY24)29 that out of 11,219 FPIs registered with SEBI as on March 31, 2024, only 2.50% of the FPIs are engaged in algorithmic trading. JS Group is part of this short term algorithmic trading community.<br></p>
+<p>50. For perspective, it would be useful to note as per data published in SEBI's Analysis of Profits & Losses in the Equity Derivatives Segment (FY22-FY24)<sup id="fnref-99-29"><a href="#fn-99-29">29</a></sup> that out of 11,219 FPIs registered with SEBI as on March 31, 2024, only 2.50% of the FPIs are engaged in algorithmic trading. JS Group is part of this short term algorithmic trading community.<br></p>
 <p>51. As  noted  earlier  in  this  Order,  it  appears  that  the  incorporation  of  the  JSI Investments  Private  Limited  in  India  enabled  the  JS  Group  to  work  around  the regulatory prohibition in FPI Regulations against FPIs undertaking intraday cash market  transactions,  and  thereby  execute  the  manipulative  scheme  without specifically flouting the FPI Regulations.<br></p>
-<p>52. Much  of  the  enormous  amount  of  trading  and  position  taking  in  F&O  by  the  JS Group have been undertaken by the FPIs in the JS group, and much of the profits arising from the prima facie manipulative schemes as identified in the 21 instances elaborated  in  this  Order  have  also  been  booked  by  them.  JS  Group  is  a  large multinational entity, controlled by managers residing outside of India. In fact, during the  examination  period,  the  net  profits  booked  in  the  FPIs  in  the  JS  Group 29 https://www.sebi.gov.in/reports-and-statistics/research/sep-2024/study-analysis-of-profits-and- losses-in-the-equity-derivatives-segment-fy22-fy24-_86905.html<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 99 of 105</span>
+<p>52. Much  of  the  enormous  amount  of  trading  and  position  taking  in  F&O  by  the  JS Group have been undertaken by the FPIs in the JS group, and much of the profits arising from the prima facie manipulative schemes as identified in the 21 instances elaborated  in  this  Order  have  also  been  booked  by  them.  JS  Group  is  a  large multinational entity, controlled by managers residing outside of India. In fact, during the  examination  period,  the  net  profits  booked  in  the  FPIs  in  the  JS  Group<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 99 of 105</span>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-99-29" value="29">https://www.sebi.gov.in/reports-and-statistics/research/sep-2024/study-analysis-of-profits-and- losses-in-the-equity-derivatives-segment-fy22-fy24-_86905.html <a href="#fnref-99-29">↩</a></li>
+</ol>
+</section>
  amounted to INR 32,681 crores. The magnitude of this profit is significantly higher than the average quantum of assets held by these FPIs in India as of the month ends  between  January  and  May,  2025,  indicating  that  these  profits  have  been repatriated. The activities of the Indian entity JSI Investments Private Ltd has been shown to be – and are admitted to be, by the JS Group – to be an integral part of the whole of the JS Group activity.  This Order has made the case that prima facie, the demonstrably large and aggressive intraday activities undertaken by the Indian entity  in  index  constituent  stocks  have  no  economic  rationale  other  than  to manipulate the underlying indices, to benefit the significantly larger index options positions created or carried by the JS Group FPI entities. At least to the extent of this  coordination  across  JS  Group,  the  activities  of  the  Indian  entities  are  also clearly being overseen by the JS group as a whole.  As noted earlier, FPIs are free to repatriate their profits and exit Indian markets at their discretion.<br></p>
 <p>53. In this overall context, there is justifiable concern surrounding the enforceability of any  orders  of  disgorgement  of  illegal  gains,  that  may  be  passed  subsequent  to completion of investigation.  Given the strong prima facie case made in this order, the sheer quantum of prima facie illegal gains identified in this Order, the continuing nature  of  the  prima  facie  violations  identified  in  this  Order,  the  continuing  and ongoing  nature  of  the  investigation,  and  the  possibility  and  risk  of  sale  of assets/repatriation/diversion that would defeat or inexorably delay the enforcement process, is high enough to warrant interim impounding and debarment directions.<br></p>
 <h4>Urgency:</h4>
@@ -9175,7 +9250,7 @@ In the matter of Index manipulation by Jane Street Group
 </p>
 <p>55. However, as recently as May 2025, as has been clearly demonstrated in this order, JS  Group  again  resorted  to  undertaking  prima  facie  manipulative  'extended marking the close' trading patterns of large and aggressive intervention in index and  constituent  markets  towards  the  expiry  day  closing,  so  as  to  influence  and manipulate the index to their illegal advantage.  The impugned trades in May 2025 are a cynical violation of the caution letter issued to the JS Group on February 06, 2025, and of their own declarations made to NSE in the same month.<br></p>
 <p>56. Such  egregious  behaviour,  in  clear  disregard/  defiance  of  the  explicit  advisory issued to them by NSE in February 2025, amply demonstrates that unlike the vast majority of Foreign Portfolio Investors and other market participants, JS Group is not a good faith actor that can be, or deserves to be, trusted. The integrity of the market, and the faith of millions of small investors and traders, can no longer be held  hostage  to  the  machinations  of  such  an  untrustworthy  actor.  Investor protection forms the core of SEBI's regulatory mandate. In the face of such a strong prima facie case that allowing the JS Group to continue as before may severely compromise  investor  protection  on  an  extraordinary  scale,  SEBI  has  a  duty  to directly intervene.<br></p>
-<p>57.  SEBI's power to pass interim orders has been recognized by numerous decisions of the Hon'ble Supreme Court, High Courts and SAT. SEBI's power to issue ex- parte interim directions was upheld in the case of Ramrakh Bora vs. SEBI 1998 (18) SCL 543 (Bom HC) and subsequently reaffirmed in the case of SEBI vs. Alka Synthetics Ltd. And Ors. 1999 (1) CLJ 396 (Guj HC). In the case of C G Power&  Industrial  Solutions  Ltd.  (SAT  Appeal  413/2019),  Hon’ble  SAT  vide  its  order  dated October 01, 2019 noted that had SEBI failed to exercise its interim powers of impounding it would have defeated the purposes for which such powers were assigned  to  SEBI  under  the  SEBI  Act,  1992.  The  relevant  extract  from  the  said order is given below:<br></p>
+<p>57.  SEBI's power to pass interim orders has been recognized by numerous decisions of the Hon'ble Supreme Court, High Courts and SAT. SEBI's power to issue ex- parte interim directions was upheld in the case of Ramrakh Bora vs. SEBI 1998 (18) SCL 543 (Bom HC) and subsequently reaffirmed in the case of SEBI vs. Alka Synthetics Ltd. And Ors. 1999 (1) CLJ 396 (Guj HC). In the case of C G Power&  Industrial  Solutions  Ltd.  (SAT  Appeal  413/2019),  Hon'ble  SAT  vide  its  order  dated October 01, 2019 noted that had SEBI failed to exercise its interim powers of impounding it would have defeated the purposes for which such powers were assigned  to  SEBI  under  the  SEBI  Act,  1992.  The  relevant  extract  from  the  said order is given below:<br></p>
 <blockquote>"It was thus extremely necessary that an action on urgent basis was required to  stop  further  defalcation/ diversion/  siphoning  of  the funds  of  the  Company and  to  protect  the  interest  of  the  investors and  its  shareholders  and  to  instill confidence in the securities market. Such measures if not taken while the iron<span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 101 of 105</span>
  was hot would defeat the regulatory measures that has been provided to SEBI under the SEBI Act."</blockquote>
 <p>58. Failing  to  take  immediate  action  pending  further  investigation,  will  cause irreparable damage by – (a) severely denting confidence in the securities market, (b) allowing the possibility of continued manipulation at the cost of lakhs of traders  and investors and (c) rendering post investigation remedial measures, irrelevant.<br></p>
@@ -9188,10 +9263,9 @@ In the matter of Index manipulation by Jane Street Group
 </li>
 </ul>
 <p>61. I am also convinced that interim cease and desist directions are warranted in the facts of this case.  Also, until the completion of the investigation and the related proceedings,  it  is  imperative  that  exchanges  should  monitor  any  future  dealings and positions of JS Group closely on an ongoing basis, to ensure that they do not, either  directly  or  indirectly,  indulge  in  any  kind  of  manipulative  activity.  This  is crucial to preserve the overall faith in the ecosystem and to protect investors.<br> J.  ORDER: 62. In view of the above, pending detailed investigation, in order to protect the interests of investors and the integrity of the securities market, I, in exercise of the powers conferred upon me under sections 11(1), 11(4), 11B(1) and 11D read with section 19 of the SEBI Act hereby issue by way of this interim ex-parte order, the following directions, which shall be in force until further orders:-<br></p>
+<blockquote>62.1.  The  total  amount  of  unlawful  gains  earned  by  the  JS  Group  from  the alleged  violations  as  provided  in  Table  44  i.e.  ₹4,843,57,70,168/-  (Four Thousand  Eight  Hundred  Forty  Three  Crore  Fifty  Seven  Lakh  Seventy Thousand  One  Hundred and Sixty  Eight  Rupees  only),  shall  be  impounded, jointly  and  severally.    Entities  are  directed  to  open  escrow  account  in  a Scheduled  Commercial  Bank  in  India  to  deposit  jointly  and  severally  the aforesaid amount of unlawful gains with a lien marked in favour of SEBI and the amount kept therein shall not be released without permission from SEBI. 62.2.  Entities  are  restrained  from  accessing  the  securities  market  and  are further prohibited from buying, selling or otherwise dealing in securities, directly or indirectly.</blockquote>
+<blockquote>62.3.  Banks, where Entities are holding bank accounts, are directed to ensure that no debits  are made, without permission of SEBI, in respect of the bank accounts  held  individually  or  jointly  by  Entities,  except  for  the  purpose  of complying with this Order.  However, credits, if any, into the accounts may be allowed. Further, debits in the bank accounts may also be allowed for amounts available in the account in excess of the amount to be impounded.</blockquote>
 <ul>
-<li>62.1.  The  total  amount  of  unlawful  gains  earned  by  the  JS  Group  from  the alleged  violations  as  provided  in  Table  44  i.e.  ₹4,843,57,70,168/-  (Four Thousand  Eight  Hundred  Forty  Three  Crore  Fifty  Seven  Lakh  Seventy Thousand  One  Hundred and Sixty  Eight  Rupees  only),  shall  be  impounded, jointly  and  severally.    Entities  are  directed  to  open  escrow  account  in  a Scheduled  Commercial  Bank  in  India  to  deposit  jointly  and  severally  the aforesaid amount of unlawful gains with a lien marked in favour of SEBI and the amount kept therein shall not be released without permission from SEBI.</li>
-<li>62.2.  Entities  are  restrained  from  accessing  the  securities  market  and  are further prohibited from buying, selling or otherwise dealing in securities, directly or indirectly.<br></li>
-<li>62.3.  Banks, where Entities are holding bank accounts, are directed to ensure that no debits  are made, without permission of SEBI, in respect of the bank accounts  held  individually  or  jointly  by  Entities,  except  for  the  purpose  of complying with this Order.  However, credits, if any, into the accounts may be allowed. Further, debits in the bank accounts may also be allowed for amounts available in the account in excess of the amount to be impounded.<br></li>
 <li>62.4.  Custodians of Entities Nos. 3 and 4 are directed to ensure that no debits are made in respect of assets of said entities under their custody, without the permission of SEBI.<br><span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 103 of 105</span>
 </li>
 <li>62.5.  Depositories are directed to ensure that no debit shall be made, without permission  of  SEBI,  in  respect  of  the  demat  accounts  held  by  Entities.<br> However, credits, if any, into the accounts may be allowed.<br></li>
@@ -9210,8 +9284,10 @@ In the matter of Index manipulation by Jane Street Group
 <p>65. The above directions shall take effect immediately and shall be in force until further orders.<br></p>
 <p>66. A copy of this Order shall also be served upon the Entities, all recognised Stock Exchanges,  Depositories,  Banks  and  Registrar  and  Share  Transfer  Agents  for necessary compliance with the directions in this Order.<br></p>
 <h4>ANANTH NARAYAN G.</h4>
-<h4>DATE: JULY 3, 2025  WHOLE TIME MEMBER</h4>
-<h4>PLACE: MUMBAI  SECURITIES AND EXCHANGE BOARD OF INDIA</h4>
+<pre>
+DATE: JULY 3, 2025  WHOLE TIME MEMBER
+PLACE: MUMBAI  SECURITIES AND EXCHANGE BOARD OF INDIA
+</pre>
 <h4>Encl: Annexures 1 to 4 are provided at here.</h4>
 <span class="footer-text">Interim Order in the matter of Index manipulation by Jane Street Group  Page 105 of 105</span>
 

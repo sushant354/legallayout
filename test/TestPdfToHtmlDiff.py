@@ -38,7 +38,6 @@ def process_case(job):
     result = {'pdf_name': job['pdf_name'], 'success': False,
               'filename': None, 'error': None}
 
-    main = None
     try:
         main = Main(
             pdfPath=pdf_path_for_main,
@@ -92,10 +91,6 @@ def process_case(job):
         return result
 
     finally:
-        if main is not None:
-            main.clear_cache_pdf()
-            main.clear_xml_cache()
-            main.clear_ocr_engines()
         if renamed_copy and renamed_copy.exists():
             renamed_copy.unlink()
 
@@ -106,8 +101,6 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     Compares generated HTML against expected baseline files or detects changes.
     """
 
-    # Set by __main__ (before setUpClass runs) to restrict which CSV(s) get loaded,
-    # e.g. ["test_judgment_cases.csv"]. None/empty means "load every registered CSV".
     selected_csvs = None
 
     @classmethod
@@ -143,8 +136,6 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                       f"{', '.join(cls.csv_registry)}) - skipping")
                 continue
             csv_path, pdfs_dir = cls.csv_registry[name]
-            # Read test cases from this CSV file; output always goes to the shared
-            # actual_html/expected_html/diff_results dirs regardless of which CSV(s) ran.
             cls._load_test_cases_from_csv(csv_path, pdfs_dir)
 
     def setUp(self):
@@ -356,9 +347,10 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         return str(server_root.resolve())
 
     @classmethod
-    def _load_test_cases_from_csv(cls):
+    def _load_test_cases_from_csv(cls, csv_file, pdfs_dir):
         selected = cls.get_selected_cases()
         skipped = []
+        added_before = len(cls.test_cases)
 
         try:
             with open(csv_file, 'r', encoding='utf-8') as f:
@@ -443,12 +435,13 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         except Exception as e:
             print(f"Error reading CSV file {csv_file}: {e}")
 
+        added = cls.test_cases[added_before:]
         if selected:
-            print(f"Selected {len(cls.test_cases)} of {len(cls.test_cases) + len(skipped)} "
-                  f"case(s) in {cls.csv_file.name}: "
-                  f"{', '.join(tc['pdf_name'] for tc in cls.test_cases) or 'none'}")
+            print(f"Selected {len(added)} of {len(added) + len(skipped)} "
+                  f"case(s) in {csv_file.name}: "
+                  f"{', '.join(tc['pdf_name'] for tc in added) or 'none'}")
 
-            if not cls.test_cases and skipped:
+            if not added and skipped:
                 print(f"Available cases are: {', '.join(skipped)}")
 
     def _process_pdf(self, test_case, pdf_type=None, is_amendment=False, has_sidenotes = False,
@@ -666,6 +659,9 @@ if __name__ == "__main__":
              "regardless of which CSV(s) are selected."
     )
     args, remaining = parser.parse_known_args()
+
+    if args.csv_files:
+        TestPdfToHtmlDiff.selected_csvs = args.csv_files
 
     if args.workers:
         # picked up by TestPdfToHtmlDiff.get_worker_count()

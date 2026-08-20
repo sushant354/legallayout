@@ -1531,6 +1531,8 @@ class Main:
             # page.line_based_header_footer_detection()
 
         self.logger.info("Starting adaptive header/footer detection...")
+        self.adaptive_headers = []
+        self.adaptive_footers = []
         if not self.is_scanned_copy:
             self.adaptive_header_footer_detection(pages, self.pdf_type)
 
@@ -2315,7 +2317,7 @@ class Main:
 
     def process_scanned_copy(self, pdf_type, base_name_of_file, start_page,
                              end_page):
-        if pdf_type == 'egazette':
+        if pdf_type in {'egazette', 'acts', 'sebi_circulars'}:
             pages = ChromeLensParserTool(self.pdf_path)\
                                 .build_xml(start_page, end_page)
         else:
