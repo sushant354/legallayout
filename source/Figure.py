@@ -8,6 +8,99 @@ from typing import Tuple
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTImage
 from pdfminer.image import ImageWriter
+from pdfminer import pdftypes, utils as pdfminer_utils
+from pdfminer.pdfexceptions import PDFValueError
+
+
+def apply_png_predictor(pred, colors, columns, bitspercomponent, data):
+    """PNG predictor reversal, with the scanline stride rounded up.
+
+    pdfminer floors it (colors * columns * bitspercomponent // 8), so a
+    sub-byte image - a 1-bit image mask, which is how a scanned stamp or
+    signature is usually stored - whose width is not a multiple of 8 drops the
+    last, partial byte of every row. From the second scanline on it then reads
+    a byte of pixel data where the row's filter type should be and the whole
+    image is lost to "Unsupported predictor value: 255". The PNG spec's stride
+    is ceil(width * colors * bpc / 8), which is the only thing this differs in;
+    bpp rounds up the same way and never falls below 1, so Sub/Average/Paeth
+    look a whole pixel back as they must.
+    """
+    nbytes = (colors * columns * bitspercomponent + 7) // 8
+    bpp = max(1, (colors * bitspercomponent + 7) // 8)
+
+    buf = bytearray()
+    line_above = bytearray(nbytes)
+
+    for i in range(0, len(data), nbytes + 1):
+        filter_type = data[i]
+        line = data[i + 1: i + 1 + nbytes]
+        raw = bytearray()
+
+        if filter_type == 0:
+            raw += line
+
+        elif filter_type == 1:
+            for j, x in enumerate(line):
+                left = raw[j - bpp] if j >= bpp else 0
+                raw.append((x + left) & 0xFF)
+
+        elif filter_type == 2:
+            for j, x in enumerate(line):
+                raw.append((x + line_above[j]) & 0xFF)
+
+        elif filter_type == 3:
+            for j, x in enumerate(line):
+                left = raw[j - bpp] if j >= bpp else 0
+                raw.append((x + (left + line_above[j]) // 2) & 0xFF)
+
+        elif filter_type == 4:
+            for j, x in enumerate(line):
+                left = raw[j - bpp] if j >= bpp else 0
+                upleft = line_above[j - bpp] if j >= bpp else 0
+                paeth = pdfminer_utils.paeth_predictor(
+                    left, line_above[j], upleft
+                )
+                raw.append((x + paeth) & 0xFF)
+
+        else:
+            raise PDFValueError(f"Unsupported predictor value: {filter_type}")
+
+        buf += raw
+        # a truncated final row must not leave line_above short of nbytes
+        line_above = raw + bytearray(nbytes - len(raw))
+
+    return bytes(buf)
+
+
+def patch_png_predictor():
+    """Install apply_png_predictor() over pdfminer's, if pdfminer needs it.
+
+    pdftypes binds the name at import, so that is the copy the decoder
+    actually calls. The probe is four rows of a 13-pixel-wide 1-bit image: a
+    stride that floors reads them as 1 byte a row instead of 2 and either
+    raises or returns the wrong number of bytes, so a pdfminer that ever fixes
+    this keeps its own - very likely faster - implementation.
+    """
+    probe = b"\x00\xaa\xf8" * 4
+
+    try:
+        decoded = pdftypes.apply_png_predictor(15, 1, 13, 1, probe)
+        if len(decoded) == 8:
+            return False
+    except Exception:
+        pass
+
+    pdftypes.apply_png_predictor = apply_png_predictor
+    pdfminer_utils.apply_png_predictor = apply_png_predictor
+
+    logging.getLogger(__name__).debug(
+        "patched pdfminer's apply_png_predictor (floored scanline stride)"
+    )
+
+    return True
+
+
+patch_png_predictor()
 
 class StableImageWriter(ImageWriter):
     def _create_unique_image_name(self, image, ext):
