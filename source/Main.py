@@ -340,6 +340,9 @@ class Main:
         self.pending_continuation = None
         # Legacy (non unicode) indic font handling, see convert_indic_fonts()
         self.font_conv = self.get_font_conv()
+        # the keys of the converters that read a glyph with no ToUnicode entry
+        # as the character of its cid, see get_indic_char_text()
+        self.cid_fallback_font_keys = self.get_cid_fallback_font_keys()
         # mappings given by the caller come first, so that a font can be pointed at
         # a converter its name does not name, or at a different one than it does
         self.font_conv_map_res = self.get_font_conv_map_res(font_conv_map)
@@ -542,6 +545,29 @@ class Main:
 
         return font_res
 
+    # --- func to get the converter keys whose glyphs are read as chr(cid) ---
+    def get_cid_fallback_font_keys(self):
+        """CID_FALLBACK_FONT_KEYS, widened to every key of the same converter.
+
+        indic2unicode lists one converter under several keys - the bare font
+        name and the spellings a pdf carries it under ('tunga', 'Tunga',
+        'Tunga-Bold') - and which of them a font name is matched by is a matter
+        of how the pdf happens to name it, so the fallback has to follow the
+        converter object rather than the one spelling of it named above.
+        """
+        if self.font_conv is None:
+            return set(CID_FALLBACK_FONT_KEYS)
+
+        converters = self.font_conv.converters
+        fallback_convs = [
+            converters[key] for key in CID_FALLBACK_FONT_KEYS if key in converters
+        ]
+
+        return {
+            key for key, converter in converters.items()
+            if any(converter is fallback for fallback in fallback_convs)
+        }
+
     # --- func to get the regexps that match a pdf font to a legacy indic font ---
     def get_indic_font_res(self):
         if self.font_conv is None:
@@ -549,7 +575,17 @@ class Main:
 
         font_res = []
 
-        for font_key in self.font_conv.converters:
+        # the first regexp that matches wins, so the keys are tried longest
+        # first: a converter keyed by a whole pdf font name has to beat the
+        # family key that is a prefix of it. Nudi is the case that needs this -
+        # 'Nudi01k,Bold' draws the kannada digits and 'nudi' the roman ones, and
+        # '.*nudi.*' matches both names, so with the keys taken in the order
+        # indic2unicode happens to list them the masthead of a Karnataka gazette
+        # comes out as 'ಸಂಪುಟ 149' instead of 'ಸಂಪುಟ ೧೪೯'. Where a shorter key
+        # wins today it is because the longer ones cannot match that name at
+        # all (Tunga/Tunga-Bold, both the same converter object anyway), so
+        # nothing else moves
+        for font_key in sorted(self.font_conv.converters, key=len, reverse=True):
             patterns = [re.escape(font_key)]
             # a font whose pdf name is not its converter's name (Kruti Dev)
             patterns.extend(INDIC_FONT_NAME_ALIASES.get(font_key, []))
@@ -1096,8 +1132,7 @@ class Main:
             set_text(char, converted[start:end])
 
     # --- func to read a glyph the pdf's ToUnicode map has no string for ---
-    @staticmethod
-    def get_indic_char_text(text, font_key):
+    def get_indic_char_text(self, text, font_key):
         """The text of one glyph, as this font's converter expects to read it.
 
         pdfminer writes a glyph its map has no entry for as '(cid:315)'. A
@@ -1108,7 +1143,7 @@ class Main:
         exactly as it is, which also keeps it visible in the output as the
         glyph that could not be recovered.
         """
-        if not text or font_key not in CID_FALLBACK_FONT_KEYS:
+        if not text or font_key not in self.cid_fallback_font_keys:
             return text or ''
 
         match = CID_PLACEHOLDER_RE.match(text)

@@ -59,7 +59,8 @@ def process_case(job):
             provider_id=job['provider_id'],
             provider_name=job['provider_name'],
             attribution=job['attribution'],
-            font_conv_map=job['font_conv']
+            font_conv_map=job['font_conv'],
+            font_detect=job['font_detect']
         )
 
         # Parse PDF
@@ -196,8 +197,16 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         self._generate_test_report(results)
 
     @staticmethod
-    def _parse_bool(value):
-        return value.strip().lower() in ['true', 'yes', '1']
+    def _parse_bool(value, default=False):
+        value = value.strip().lower()
+
+        # a blank cell is the column's default, which is not always False:
+        # font detection is on in the pipeline itself, so a row only ever
+        # names it to turn it off
+        if not value:
+            return default
+
+        return value in ['true', 'yes', '1']
 
     @staticmethod
     def get_selected_cases():
@@ -250,7 +259,9 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'suffix': test_case['actual_html'].suffix,
             'ocr_language': params.get('ocr_language') or 'eng',
             'ocr_engine': params.get('ocr_engine') or 'tesseract',
-            'min_img_pixels': params.get('min_img_pixels') or 0
+            'min_img_pixels': params.get('min_img_pixels') or 0,
+            # on unless a row turns it off, which is the pipeline's own default
+            'font_detect': params.get('font_detect', True)
         }
 
         for key in ('pdf_type', 'char_margin', 'word_margin', 'line_margin',
@@ -390,6 +401,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     provider_name = row.get('provider_name', '').strip() or None
                     attribution = row.get('attribution', '').strip() or None
                     font_conv = row.get('font_conv', '').strip() or None
+                    font_detect = cls._parse_bool(row.get('font_detect', ''),
+                                                  default=True)
 
                     base_name = pdf_path.stem
                     if scanned_copy:
@@ -429,6 +442,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'provider_name': provider_name,
                         'attribution': attribution,
                         'font_conv': font_conv,
+                        'font_detect': font_detect,
                         'expected_html': cls.expected_output_dir / f"{base_name}.{expected_file}",
                         'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
@@ -452,7 +466,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      ocr_engine = 'tesseract',
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None,
-                     font_conv = None):
+                     font_conv = None, font_detect = True):
         """Process a single PDF file and generate HTML output, in this process."""
         job = self._build_job(test_case, {
             'pdf_type': pdf_type, 'is_amendment': is_amendment,
@@ -467,7 +481,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'server_root': server_root, 'public_base_url': public_base_url,
             'rights': rights, 'provider_id': provider_id,
             'provider_name': provider_name, 'attribution': attribution,
-            'font_conv': font_conv
+            'font_conv': font_conv, 'font_detect': font_detect
         })
 
         return self._apply_case_result(test_case, process_case(job))

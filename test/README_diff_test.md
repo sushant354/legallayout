@@ -42,6 +42,13 @@ regulations.pdf,sebi,false,3,
 - **is_amendment**: Set to `true` if PDF contains amendments, `false` otherwise (optional)
 - **start_page**: Starting page number for processing (optional)
 - **end_page**: Ending page number for processing (optional)
+- **font_detect**: Whether the font classifier (`machinelearning/`, i.e. *not*
+  `-nfd`) is allowed to place the fonts that neither their name nor a
+  `font_conv` mapping places (optional). **Blank means true**, unlike every
+  other boolean column here, because detection is on in the pipeline itself: a
+  row only writes `false` to turn it off, which a case whose fonts are all
+  placed by name wants (`Kannada-Nudi.pdf`), while `union_hindi.pdf` depends on
+  detection and leaves it blank
 - **server_root**: Web server document root for IIIF manifest URLs, i.e. `-sr`
   (optional). **Keep it relative**: it is resolved against the repository, not
   the current directory, so `.` means the repo is the server root and the
