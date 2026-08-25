@@ -33,7 +33,18 @@
     display: block;
     margin-left: 20%;
   }
-  p {
+
+  .footnotes {
+    display: block;
+    font-size: 0.9em;
+    border-top: 1px solid #999;
+    margin-top: 1em;
+  }
+
+  sup a {
+    text-decoration: none;
+  }
+  p, pre {
     white-space: pre-wrap;
   }
 
@@ -71,6 +82,27 @@
     display: block;
     max-width: 100%;
     height: auto;
+  }
+  
+  nav.toc .toc-title {
+    font-weight: bold;
+  }
+
+  nav.toc .toc-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  nav.toc .toc-table td {
+    border: none;
+    padding: 0.15em 0.4em;
+    white-space: pre-wrap;
+  }
+
+  nav.toc .toc-page {
+    text-align: right;
+    color: #555;
+    white-space: nowrap;
   }
 </style>
 </head>
