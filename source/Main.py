@@ -90,6 +90,38 @@ INDIC_FONT_NAME_ALIASES = {
     'krutidev': [r'kruti[\s_-]*dev', r'vivek', r'dev[\s_-]*lys'],
 }
 
+# --- what pdfminer writes for a glyph its font's ToUnicode map has no entry
+# --- for: the literal string '(cid:315)', the cid being the glyph's id in the
+# --- font. The whole of a glyph's <text> element has to be the placeholder for
+# --- it to be one, and not text of the document that reads like one
+CID_PLACEHOLDER_RE = re.compile(r'^\(cid:(\d+)\)$')
+
+# --- and the converters that read such a glyph as chr(cid), which is what an
+# --- extractor that falls back on the cid rather than dropping the glyph (e.g.
+# --- pymupdf) hands out. Tunga draws a consonant and the matra i or o of it as
+# --- one glyph and the maps of these pdfs leave nine of those ligatures out,
+# --- which is 209 glyphs in test/test_pdfs/kannada-tunga.pdf - one in the
+# --- middle of every other word, each breaking the syllable the converter
+# --- reads around it - so fonts/kannada/tunga.py carries a LIG_ token for each
+# --- of them at exactly that character, the cids of a Tunga pdf being the
+# --- glyph ids of Tunga itself.
+# ---
+# --- No other converter is in here, and this is not a list waiting to be
+# --- widened: chr(cid) is a reading of a glyph only where the font's cids are
+# --- the codepoints a converter has tokens at. In an ordinary subset font the
+# --- cid is an arbitrary glyph id, so chr(cid) is a control character carrying
+# --- nothing - and handing one to a converter is worse than leaving the
+# --- placeholder alone, since the converter drops the character it cannot read
+# --- and the placeholder was at least visible in the output as the glyph that
+# --- could not be recovered. Measured: on test/test_judgment_pdfs/judgment59.pdf
+# --- (Nirmala UI, cids 3/18/24/27) doing this to every converter turned
+# --- 'माग(cid:18), मुकनराि' into 'माग, मुकनराि', quietly losing the reph. Which
+# --- side a font falls on is the same asymmetry the font detection is tuned
+# --- around - a glyph left as it is loses an improvement, a glyph read wrongly
+# --- destroys text - so a converter earns its place here by having tokens at
+# --- these characters, not by being likely to
+CID_FALLBACK_FONT_KEYS = {'tunga'}
+
 # --- the model machinelearning/training.py writes, which says what a font is
 # --- drawing from the text extracted from it, see detect_unknown_fonts()
 FONT_MODEL_PATH = PROJECT_ROOT / 'model' / 'eng_hin_fonts.pkl'
@@ -1036,7 +1068,9 @@ class Main:
         if not run or not font_key:
             return
 
-        original = ''.join(get_text(char) or '' for char in run)
+        original = ''.join(
+            self.get_indic_char_text(get_text(char), font_key) for char in run
+        )
 
         if not original.strip():
             return
@@ -1060,6 +1094,35 @@ class Main:
             end = ((idx + 1) * length) // no_of_chars
 
             set_text(char, converted[start:end])
+
+    # --- func to read a glyph the pdf's ToUnicode map has no string for ---
+    @staticmethod
+    def get_indic_char_text(text, font_key):
+        """The text of one glyph, as this font's converter expects to read it.
+
+        pdfminer writes a glyph its map has no entry for as '(cid:315)'. A
+        converter written against the cid fallback (see CID_FALLBACK_FONT_KEYS)
+        reads that glyph as the character of its cid, so the placeholder is
+        turned back into that character for it. For every other converter the
+        cid says nothing about what the glyph draws and the placeholder is left
+        exactly as it is, which also keeps it visible in the output as the
+        glyph that could not be recovered.
+        """
+        if not text or font_key not in CID_FALLBACK_FONT_KEYS:
+            return text or ''
+
+        match = CID_PLACEHOLDER_RE.match(text)
+
+        if match is None:
+            return text
+
+        try:
+            return chr(int(match.group(1)))
+        except ValueError:
+            # a cid past the last codepoint, which no font has and nothing can
+            # be read out of - left as it is rather than dropped, so it stays
+            # visible in the output as the unconverted glyph it is
+            return text
 
     @contextmanager
     def camelot_font_conversion(self):
