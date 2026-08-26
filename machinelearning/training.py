@@ -1,14 +1,16 @@
 """Cross validate and train the font classifier with Orange3.
 
-    python -m machinelearning.training -d training_data -m model/eng_hin_fonts.pkl
+    python -m machinelearning.training -c training_data/samples.csv \\
+        -m model/eng_hin_fonts.pkl
 
-Reads the samples.csv corpus FontSurvey's -td/--training-dir wrote, builds
+Reads the corpus csv FontSurvey's -tc/--training-csv wrote, builds
 the top 10,000 phrase features (see features.py), runs a stratified k fold cross
 validation over every requested learner, and trains the chosen one on the
 whole corpus and pickles it together with its vocabulary so predict.py can
 classify the text of a font whose name says nothing about its encoding.
 """
 
+import os
 import time
 import pickle
 import codecs
@@ -27,6 +29,11 @@ from machinelearning import features
 
 
 logger = logging.getLogger('fontml.training')
+
+# where FontSurvey writes the corpus when -tc names no file of its own; the
+# two defaults are kept the same so the pair of commands works with neither
+# option given (source/FontSurvey.py TrainingWriter.DEFAULT_CORPUS)
+DEFAULT_CORPUS = os.path.join('training_data', 'samples.csv')
 
 # name -> a learner that can be trained on a large sparse count matrix
 LEARNERS = {
@@ -153,11 +160,11 @@ def get_arg_parser():
     parser = argparse.ArgumentParser(\
         description = 'Cross validate and train an Orange3 model that tells '
                       'which decoder a font needs from the text drawn in it.')
-    parser.add_argument('-d', '--data-dir', dest = 'data_dir', \
-                        action = 'store', default = 'training_data', \
-                        help = 'directory holding the samples.csv corpus '
-                               'written by FontSurvey -td (default '
-                               'training_data)')
+    parser.add_argument('-c', '--corpus', dest = 'corpus', \
+                        action = 'store', default = DEFAULT_CORPUS, \
+                        metavar = 'CSV', \
+                        help = f'the corpus csv written by FontSurvey -tc, a '
+                               f'row per sample (default {DEFAULT_CORPUS})')
     parser.add_argument('-m', '--model-file', dest = 'model_file', \
                         action = 'store', default = None, \
                         help = 'pickle the trained model and its vocabulary '
@@ -240,7 +247,7 @@ if __name__ == '__main__':
         learners = get_learners(names)
         final    = get_learners([args.final_learner or names[0]])[0]
         table, vocab = features.build_dataset(\
-            args.data_dir, top_k = args.top_k, min_n = args.min_n, \
+            args.corpus, top_k = args.top_k, min_n = args.min_n, \
             max_n = args.max_n, max_per_class = args.max_per_class, \
             min_samples = args.min_samples, lowercase = args.lowercase)
     except ValueError as e:
@@ -266,7 +273,7 @@ if __name__ == '__main__':
             'max_n':     args.max_n,
             'lowercase': args.lowercase,
             'learner':   final.name,
-            'data_dir':  args.data_dir,
+            'corpus':    args.corpus,
         })
     else:
         logger.info('no -m/--model-file given, nothing was saved')

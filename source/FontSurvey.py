@@ -12,16 +12,16 @@ sample alone.
 It also doubles as the corpus builder for the font classifier in
 machinelearning/: -tf/--training-font names a class of fonts needing a
 decoder by regexp and every run of text drawn in a font matching it becomes a
-row of samples.csv in -td/--training-dir - label, font, pdf, text, one sample
-per row; -nf/--not-required-font names the fonts needing no decoder, which
-make up the not_required class. Carrying the font and pdf alongside the text
-is what says where a sample came from when a class looks polluted. Text drawn
-in a font matched by neither is dropped. The
-runs of one font are stitched together in drawing order until a sample is
+row of the corpus csv named by -tc/--training-csv - label, font, pdf, text,
+one sample per row; -nf/--not-required-font names the fonts needing no
+decoder, which make up the not_required class. Carrying the font and pdf
+alongside the text is what says where a sample came from when a class looks
+polluted. Text drawn in a font matched by neither is dropped. The runs of one
+font are stitched together in drawing order until a sample is
 -tw/--training-words long, one line of a pdf being far too little evidence
 to classify an encoding from.
 
-    python -m source.FontSurvey -i pdfs/ -r -td training_data \\
+    python -m source.FontSurvey -i pdfs/ -r -tc training_data/samples.csv \\
         -tf nirmala='nirmala\\s*ui' -tf krutidev='kruti\\s*dev' \\
         -nf 'times|arial|calibri'
 """
@@ -62,7 +62,7 @@ def get_words(text):
 
 
 class TrainingWriter:
-    """Writes the text drawn in each font as a labelled row of samples.csv.
+    """Writes the text drawn in each font as a labelled row of the corpus csv.
 
     Every class is named by a regexp matched against the font name the same
     way -fc/--font-conv matches its font names - anywhere in the name, case
@@ -79,8 +79,9 @@ class TrainingWriter:
     classifier the exact opposite of the truth. The dropped fonts are
     reported so the regexps can be widened to cover them.
 
-    The whole corpus is one file, samples.csv, with a row per sample:
-    label, font, pdf, text. It is the single source machinelearning/ trains
+    The whole corpus is the one csv named by -tc/--training-csv, with a row
+    per sample: label, font, pdf, text. It is the single source
+    machinelearning/ trains
     from, and carrying the font and pdf on every row is what lets a suspect
     sample be traced back to the font and the document that produced it - the
     class alone cannot say which of the fonts a regexp matched drew it.
@@ -96,8 +97,9 @@ class TrainingWriter:
     """
 
     NOT_REQUIRED = 'not_required'
-    # the corpus itself: every sample, with the font and pdf it came from
-    CORPUS_NAME  = 'samples.csv'
+    # the corpus itself: every sample, with the font and pdf it came from.
+    # a caller that names no file gets this one
+    DEFAULT_CORPUS = os.path.join('training_data', 'samples.csv')
     CORPUS_FIELDS= ['label', 'font', 'pdf', 'text']
     # the label is a class name read back by machinelearning/features.py, so
     # keep it to something plain
@@ -106,8 +108,8 @@ class TrainingWriter:
     # while still cutting a page of one font into several samples
     MIN_WORDS    = 50
 
-    def __init__(self, outdir, label_res, min_words = MIN_WORDS):
-        self.outdir    = Path(outdir)
+    def __init__(self, path, label_res, min_words = MIN_WORDS):
+        self.path      = Path(path)
         self.label_res = label_res
         self.min_words = min_words
         self.corpus    = None
@@ -126,7 +128,10 @@ class TrainingWriter:
         # fonts no regexp claimed, and how much text was dropped with them
         self.dropped   = {}
         self.logger    = logging.getLogger('fontsurvey.training')
-        self.outdir.mkdir(parents = True, exist_ok = True)
+        # the corpus is named as a file, so it is the directory holding it
+        # that is made - '.' when the name has no directory part of its own,
+        # which mkdir is happy to be told already exists
+        self.path.parent.mkdir(parents = True, exist_ok = True)
 
     def __enter__(self):
         return self
@@ -145,8 +150,7 @@ class TrainingWriter:
     def get_writer(self):
         """The corpus csv, opened and given its header on first use."""
         if self.writer is None:
-            path = self.outdir.joinpath(self.CORPUS_NAME)
-            self.corpus = codecs.open(str(path), 'w', encoding = 'utf8', \
+            self.corpus = codecs.open(str(self.path), 'w', encoding = 'utf8', \
                                       errors = 'replace')
             self.writer = csv.writer(self.corpus, lineterminator = '\n')
             self.writer.writerow(self.CORPUS_FIELDS)
@@ -224,8 +228,7 @@ class TrainingWriter:
         return lines
 
     def get_report(self):
-        corpus = self.outdir.joinpath(self.CORPUS_NAME)
-        lines  = ['', '=' * 78, f'training corpus in {corpus}', '=' * 78]
+        lines = ['', '=' * 78, f'training corpus in {self.path}', '=' * 78]
         for label in self.counts:
             fonts = sorted(self.fonts.get(label, ()))
             shown = ', '.join(fonts[:10])
@@ -690,12 +693,13 @@ def get_arg_parser():
                                f'1 writes every run as its own sample, which '
                                f'is usually far too little text to classify '
                                f'an encoding from')
-    parser.add_argument('-td', '--training-dir', dest = 'training_dir', \
-                        action = 'store', default = None, \
-                        help = 'directory to write the training corpus '
-                               f'({TrainingWriter.CORPUS_NAME}: label, font, '
-                               'pdf, text per sample) into (default '
-                               'training_data when --training-font is given)')
+    parser.add_argument('-tc', '--training-csv', dest = 'training_csv', \
+                        action = 'store', default = None, metavar = 'CSV', \
+                        help = 'csv file to write the training corpus (label, '
+                               'font, pdf, text per sample) to, the file '
+                               'machinelearning/training.py -c reads (default '
+                               f'{TrainingWriter.DEFAULT_CORPUS} when '
+                               '--training-font is given)')
     parser.add_argument('-o', '--output-file', dest = 'output_file', \
                         action = 'store', default = None, \
                         help = 'write the report here instead of stdout')
@@ -728,8 +732,8 @@ if __name__ == '__main__':
     except ValueError as e:
         raise SystemExit(f'error: {e}')
 
-    if args.training_dir and not label_res:
-        raise SystemExit('error: --training-dir needs at least one '
+    if args.training_csv and not label_res:
+        raise SystemExit('error: --training-csv needs at least one '
                          '--training-font to say which fonts need decoding')
     if args.training_fonts and not args.not_required_fonts:
         raise SystemExit('error: --training-font needs at least one '
@@ -743,7 +747,8 @@ if __name__ == '__main__':
     if args.training_words < 1:
         raise SystemExit('error: --training-words must be at least 1')
 
-    training = TrainingWriter(args.training_dir or 'training_data', label_res, \
+    training = TrainingWriter(args.training_csv or \
+                                  TrainingWriter.DEFAULT_CORPUS, label_res, \
                               min_words = args.training_words) \
                    if label_res else None
     survey   = FontSurvey(max_words = args.max_words, training = training)

@@ -8,7 +8,7 @@ kruti-dev as `jk"Vªh; jkt/kkuh`, a real unicode font as actual words. That is
 learnable, and this is the pipeline that learns it.
 
     corpus            features             model
-    FontSurvey -td -> 1..5 word phrases -> Orange3 classifier
+    FontSurvey -tc -> 1..5 word phrases -> Orange3 classifier
     samples.csv       top 10,000
 
 ## 1. Build the corpus
@@ -24,7 +24,7 @@ regexps, matched (anywhere, case insensitively) against the font name:
   families a few at a time.
 
 ```bash
-python -m source.FontSurvey -i pdfs/ -r -td training_data \
+python -m source.FontSurvey -i pdfs/ -r -tc training_data/samples.csv \
     -tf nirmala='nirmala\s*ui' \
     -tf arialuni='arial\s*unicode' \
     -tf krutidev='kruti\s*dev' \
@@ -34,7 +34,7 @@ python -m source.FontSurvey -i pdfs/ -r -td training_data \
     -nf 'liberation|dejavu|nimbus|century|tahoma'
 ```
 
-The whole corpus is one file, `training_data/samples.csv`, a row per sample:
+The whole corpus is the one csv `-tc/--training-csv` names, a row per sample:
 
 ```
 label,font,pdf,text
@@ -116,13 +116,13 @@ could not have labelled either, and why it was dropped rather than guessed at.
 ## 2. Cross validate and train
 
 ```bash
-python -m machinelearning.training -d training_data -m model/eng_hin_fonts.pkl \
-    -k 10 -mc 20000 -vf vocab.json
+python -m machinelearning.training -c training_data/samples.csv \
+    -m model/eng_hin_fonts.pkl -k 10 -mc 20000 -vf vocab.json
 ```
 
-`features.py` reads `samples.csv` (a directory of per-class `<label>.txt`
-files, the layout FontSurvey wrote before the csv, is still read when there
-is no `samples.csv` in it), counts every 1 to 5 word phrase in the corpus,
+`-c/--corpus` is the csv `FontSurvey -tc` wrote; both options default to
+`training_data/samples.csv`, so the pair of commands lines up with neither
+given. `features.py` reads it, counts every 1 to 5 word phrase in the corpus,
 keeps the
 `-tk/--top-k` most frequent (10,000 by default) as the feature set, and
 builds a sparse Orange `Table` of per-sample phrase counts with the class
