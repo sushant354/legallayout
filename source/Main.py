@@ -250,8 +250,8 @@ class Main:
                  table_extract, public_base_url=None, server_root=None,
                  rights=None, provider_id=None, provider_name=None, 
                  attribution=None, figure_text=False, font_conv_map=None,
-                 ocr_engine="tesseract", font_model=None,
-                 font_detect=True): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 ocr_engine_image_text="tesseract", font_model=None,
+                 font_detect=True, ocr_engine_pdf_parser=None): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
             raise ValueError(
@@ -289,13 +289,43 @@ class Main:
                 f"[!] provider_id ('{provider_id}') doesn't look like a URI - ignoring it."
             )
             provider_id = None
-        if ocr_engine == "paddleocr" and ocr_language not in TESSERACT_TO_PADDLE_LANG:
-            self.logger.warning(
-                f"[!] ocr_language ('{ocr_language}') has no paddleocr equivalent. "
-                f"Languages supported for ocr_engine='paddleocr': "
-                f"{', '.join(sorted(TESSERACT_TO_PADDLE_LANG))}. Falling back to 'eng'."
+        invalid_langs = [l for l in ocr_language.split('+') if l not in TESSERACT_LANGUAGES]
+        if invalid_langs:
+            raise ValueError(
+                f"ocr_language ('{ocr_language}') contains unknown language code(s) "
+                f"{invalid_langs}. Each '+'-separated code must be one of: "
+                f"{', '.join(TESSERACT_LANGUAGES)}."
             )
-            ocr_language = "eng"
+        ocr_language_image_text = ocr_language
+        if ocr_engine_image_text == "paddleocr" and ocr_language not in TESSERACT_TO_PADDLE_LANG:
+            supported = [l for l in ocr_language.split('+') if l in TESSERACT_TO_PADDLE_LANG]
+            non_english_supported = [l for l in supported if l != "eng"]
+            if non_english_supported:
+                self.logger.warning(
+                    f"[!] paddleocr doesn't support the multi-language code "
+                    f"'{ocr_language}'; using '{non_english_supported[0]}', the "
+                    f"first paddleocr-supported non-English language in it."
+                )
+                ocr_language_image_text = non_english_supported[0]
+            elif supported:
+                self.logger.warning(
+                    f"[!] paddleocr doesn't support the multi-language code "
+                    f"'{ocr_language}'; using '{supported[0]}', the only "
+                    f"paddleocr-supported language in it."
+                )
+                ocr_language_image_text = supported[0]
+            else:
+                self.logger.warning(
+                    f"[!] ocr_language ('{ocr_language}') has no paddleocr equivalent. "
+                    f"Languages supported for ocr_engine_image_text='paddleocr': "
+                    f"{', '.join(sorted(TESSERACT_TO_PADDLE_LANG))}. Falling back to 'eng'."
+                )
+                ocr_language_image_text = "eng"
+        if ocr_engine_pdf_parser is not None and ocr_engine_pdf_parser not in OCR_PDF_PARSERS_AVAILABLE:
+            raise ValueError(
+                f"ocr_engine_pdf_parser ('{ocr_engine_pdf_parser}') must be one of "
+                f"{OCR_PDF_PARSERS_AVAILABLE} or None."
+            )
 
         self.pdf_path = pdfPath
         self.output_dir = output_dir
@@ -324,7 +354,9 @@ class Main:
         self.html_builder = None
         self.min_img_pixels = min_img_pixels
         self.ocr_language = ocr_language
-        self.ocr_engine = ocr_engine
+        self.ocr_language_image_text = ocr_language_image_text
+        self.ocr_engine_image_text = ocr_engine_image_text
+        self.ocr_engine_pdf_parser = ocr_engine_pdf_parser
         self.is_scanned_copy = is_scanned_copy
         self.table_extract = table_extract
         self.figure_text = figure_text
@@ -1627,12 +1659,13 @@ class Main:
             page = Page(pg, self.pdf_path, base_name_of_file, output_dir,
                         self.pdf_type, self.has_side_notes, self.is_amendment_pdf,
                         self.fontmapper, self.unique_images, self.min_img_pixels,
-                        self.ocr_language,
-                        self.is_scanned_copy, self.figure_text, self.ocr_engine)
+                        self.ocr_language_image_text,
+                        self.is_scanned_copy, self.figure_text, self.ocr_engine_image_text)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes()#pg)
             page.get_figures()#pg)
+            page.reconcile_figure_names()
             page.label_table_tbs()
 
             # page.line_based_header_footer_detection()
@@ -2422,9 +2455,17 @@ class Main:
         else:
             self.html_builder = self.get_htmlBuilder(self.pdf_type)
 
+    def get_scanned_copy_parser_engine(self, pdf_type):
+        if self.ocr_engine_pdf_parser is not None:
+            return self.ocr_engine_pdf_parser
+        if pdf_type in {'egazette', 'acts', 'sebi_circulars'}:
+            return "chromelens"
+        return "tesseract"
+
     def process_scanned_copy(self, pdf_type, base_name_of_file, start_page,
                              end_page):
-        if pdf_type in {'egazette', 'acts', 'sebi_circulars'}:
+        parser_engine = self.get_scanned_copy_parser_engine(pdf_type)
+        if parser_engine == "chromelens":
             pages = ChromeLensParserTool(self.pdf_path)\
                                 .build_xml(start_page, end_page)
         else:
@@ -2771,7 +2812,7 @@ class Main:
                 self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
 
     def clear_ocr_engines(self):
-        if self.ocr_engine == "paddleocr":
+        if self.ocr_engine_image_text == "paddleocr":
             clear_paddle_ocr_engines()
             self.logger.info("Released paddleocr model(s) held by this run")
 
@@ -3622,11 +3663,23 @@ def get_arg_parser():
     parser.add_argument('-mip', '--min-img-pixels', dest = 'min_img_pixels', action = 'store', \
                       required = False,  default = 0,  help = 'minimum pixel area threshold for initial filtering (area = dimension^2). Images are further filtered based on text content detection.')
     parser.add_argument('-ol', '--ocr-language', dest='ocr_language', action='store', \
-                      required=False, default='eng', choices=TESSERACT_LANGUAGES,
-                      help=f'tesseract language code for OCR (default: eng). One of: {", ".join(TESSERACT_LANGUAGES)}')
-    parser.add_argument('-oe', '--ocr-engine', dest='ocr_engine', action='store', \
+                      required=False, default='eng',
+                      help=f'tesseract language code for OCR (default: eng), or several joined '
+                           f'with "+" (tesseract\'s own multi-language syntax, e.g. hin+eng) - '
+                           f'only the tesseract engine (-op tesseract / -oe tesseract) honours a '
+                           f'combination; paddleocr takes a single language and degrades a '
+                           f'combination to the first language in it it supports; chromelens '
+                           f'ignores this option entirely (it auto-detects language). One of: '
+                           f'{", ".join(TESSERACT_LANGUAGES)}')
+    parser.add_argument('-oe', '--ocr-engine-image-text', dest='ocr_engine_image_text', action='store', \
                       required=False, default='tesseract', choices=OCR_ENGINES_AVAILABLE,
-                      help=f'OCR engine to use for figure text extraction (default: tesseract). One of: {", ".join(OCR_ENGINES_AVAILABLE)}')
+                      help=f'OCR engine to use for figure/image text extraction (default: tesseract). One of: {", ".join(OCR_ENGINES_AVAILABLE)}')
+    parser.add_argument('-op', '--ocr-engine-pdf-parser', dest='ocr_engine_pdf_parser', action='store', \
+                      required=False, default=None, choices=OCR_PDF_PARSERS_AVAILABLE,
+                      help='OCR engine used to parse a scanned-copy PDF into text (page-text extraction path, '
+                           'distinct from -oe/--ocr-engine-image-text which is for figure/image text). Default: '
+                           'chromelens for egazette/acts/sebi_circulars, tesseract otherwise; pass explicitly to '
+                           f'override that default in either direction. One of: {", ".join(OCR_PDF_PARSERS_AVAILABLE)}')
     parser.add_argument('-sc', '--scanned-copy', dest = 'scanned_copy', action = 'store_true',
                         required = False, default = False, help = 'mention if the pdf copy is scanned')
     parser.add_argument('-te', '--table-extract', dest = 'table_extract', action = 'store_true',
@@ -3754,7 +3807,8 @@ if __name__ == "__main__":
     if min_img_pixels and isinstance(min_img_pixels, str):
         min_img_pixels = int(min_img_pixels)
     ocr_language = args.ocr_language
-    ocr_engine = args.ocr_engine
+    ocr_engine_image_text = args.ocr_engine_image_text
+    ocr_engine_pdf_parser = args.ocr_engine_pdf_parser
     is_scanned_copy = args.scanned_copy
     table_extract = args.table_extract
     figure_text = args.figure_text
@@ -3764,13 +3818,13 @@ if __name__ == "__main__":
     provider_id = args.provider_id
     provider_name = args.provider_name
     attribution = args.attribution
-    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, 
+    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type,
                 has_sidenotes, has_doc_end,
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
-                figure_text, args.font_conv_map, ocr_engine,
-                args.font_model, args.font_detect)
+                figure_text, args.font_conv_map, ocr_engine_image_text,
+                args.font_model, args.font_detect, ocr_engine_pdf_parser)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])

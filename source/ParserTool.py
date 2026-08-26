@@ -579,6 +579,9 @@ class ChromeLensParserTool:
                     f"(Attempt {attempt + 1}/{retries}): {e}"
                 )
 
+                if attempt + 1 < retries:
+                    await asyncio.sleep((attempt + 1) * 5)
+
         raise last_exception
 
     async def _build_async(self, doc, start_page, end_page):

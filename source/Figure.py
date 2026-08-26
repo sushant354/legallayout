@@ -1,4 +1,6 @@
 import os
+import io
+import hashlib
 import logging
 import numpy as np
 from .Utils import *
@@ -153,6 +155,7 @@ class Pictures:
         self.unique_images = unique_images
         self.figure_text = figure_text
         self.pdf_type = pdf_type
+        self.raw_name_to_hash = {}
 
         try:
             self.pics = self.get_images(
@@ -171,6 +174,7 @@ class Pictures:
                 f"for page {pg_num} of {base_name_of_file}"
             )
             self.pics = {}
+            self.raw_name_to_hash = {}
 
     def walk_layout(self, obj):
         if isinstance(obj, LTImage):
@@ -187,11 +191,12 @@ class Pictures:
             for img in self.walk_layout(element)
         ]
 
-    def register_global(self, img_name, path, text_content = None, text_language = None, width = None, height = None):
+    def register_global(self, img_hash, canonical_name, path, text_content = None, text_language = None, width = None, height = None):
         reg = self.unique_images.setdefault(
-            img_name,
+            img_hash,
             {
                 "count": 0,
+                "name": canonical_name,
                 "path": path,
                 "text": text_content if text_content else "",
                 "language": text_language,
@@ -205,10 +210,10 @@ class Pictures:
         reg["pages"].add(self.pg_num)
 
 
-    def remove_hash(self, img_name):
+    def remove_hash(self, img_hash):
 
-        if img_name in self.pics:
-            del self.pics[img_name]
+        if img_hash in self.pics:
+            del self.pics[img_hash]
 
     def remove_empty_dirs_up_to(self, start_dir, stop_dir):
         current = start_dir
@@ -394,16 +399,6 @@ class Pictures:
 
                     img_name = lt_image.name
 
-                    if self.pdf_type in ('egazette', 'sebi'):
-                        canonical_dir = os.path.join(
-                            file_dir, img_name, "full", "max", "0"
-                        )
-                        os.makedirs(canonical_dir, exist_ok=True)
-                        final_path = os.path.join(canonical_dir, "default.png")
-                    else:
-                        canonical_dir = None
-                        final_path = os.path.join(file_dir, f"{img_name}.png")
-
                     with Image.open(temp_path) as img:
                         converted = img
                         if img.mode == "P":
@@ -416,11 +411,45 @@ class Pictures:
                         elif img.mode != "RGB":
                             converted = img.convert("RGB")
 
-                        converted.save(final_path, "PNG")
                         img_width, img_height = converted.size
+                        png_buf = io.BytesIO()
+                        converted.save(png_buf, "PNG")
+                        png_bytes = png_buf.getvalue()
+
+                    img_hash = hashlib.sha256(png_bytes).hexdigest()
 
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
+
+                    existing = self.unique_images.get(img_hash)
+
+                    if existing is not None:
+                        self.raw_name_to_hash[img_name] = img_hash
+                        existing["count"] += 1
+                        existing["pages"].add(self.pg_num)
+                        continue
+
+                    name_taken = any(
+                        meta.get("name") == img_name
+                        for meta in self.unique_images.values()
+                    )
+
+                    canonical_name = (
+                        f"{img_name}-{img_hash[:20]}" if name_taken else img_name
+                    )
+
+                    if self.pdf_type in ('egazette', 'sebi'):
+                        canonical_dir = os.path.join(
+                            file_dir, canonical_name, "full", "max", "0"
+                        )
+                        os.makedirs(canonical_dir, exist_ok=True)
+                        final_path = os.path.join(canonical_dir, "default.png")
+                    else:
+                        canonical_dir = None
+                        final_path = os.path.join(file_dir, f"{canonical_name}.png")
+
+                    with open(final_path, "wb") as f:
+                        f.write(png_bytes)
 
                     if self.figure_text and not self.has_visual_content(final_path):
                         os.remove(final_path)
@@ -433,8 +462,8 @@ class Pictures:
                     else:
                         text_content, text_language = None, None
 
-                    saved_images[img_name] = {
-                        "name": img_name,
+                    saved_images[img_hash] = {
+                        "name": canonical_name,
                         "path": final_path,
                         "text": text_content,
                         "language": text_language,
@@ -442,8 +471,11 @@ class Pictures:
                         "height": img_height
                     }
 
+                    self.raw_name_to_hash[img_name] = img_hash
+
                     self.register_global(
-                        img_name,
+                        img_hash,
+                        canonical_name,
                         final_path,
                         text_content,
                         text_language,

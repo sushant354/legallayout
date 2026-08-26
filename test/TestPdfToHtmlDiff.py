@@ -49,7 +49,8 @@ def process_case(job):
             is_footnote_continuation=job['is_footnote_continuation'],
             min_img_pixels=job['min_img_pixels'],
             ocr_language=job['ocr_language'],
-            ocr_engine=job['ocr_engine'],
+            ocr_engine_image_text=job['ocr_engine'],
+            ocr_engine_pdf_parser=job['ocr_engine_pdf_parser'],
             is_scanned_copy=job['scanned_copy'],
             table_extract=job['table_extract'],
             figure_text=job['figure_text'],
@@ -259,6 +260,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'suffix': test_case['actual_html'].suffix,
             'ocr_language': params.get('ocr_language') or 'eng',
             'ocr_engine': params.get('ocr_engine') or 'tesseract',
+            'ocr_engine_pdf_parser': params.get('ocr_engine_pdf_parser') or None,
             'min_img_pixels': params.get('min_img_pixels') or 0,
             # on unless a row turns it off, which is the pipeline's own default
             'font_detect': params.get('font_detect', True)
@@ -392,6 +394,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     is_footnote_continuation = cls._parse_bool(row.get('is_footnote_continuation', ''))
                     ocr_language = row.get('ocr_language', '').strip() or 'eng'
                     ocr_engine = row.get('ocr_engine', '').strip() or 'tesseract'
+                    ocr_engine_pdf_parser = row.get('ocr_engine_pdf_parser', '').strip() or None
                     min_img_pixels_raw = row.get('min_img_pixels', '').strip()
                     min_img_pixels = int(min_img_pixels_raw) if min_img_pixels_raw.isdigit() else 0
                     server_root = cls._resolve_server_root(row.get('server_root', ''))
@@ -407,6 +410,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     base_name = pdf_path.stem
                     if scanned_copy:
                         base_name += '_scanned'
+                    if ocr_engine_pdf_parser:
+                        base_name += f'_op-{ocr_engine_pdf_parser}'
 
                     # base_name is only known here, so the row is filtered now
                     # rather than as soon as its filename was read
@@ -434,6 +439,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'is_footnote_continuation': is_footnote_continuation,
                         'ocr_language': ocr_language,
                         'ocr_engine': ocr_engine,
+                        'ocr_engine_pdf_parser': ocr_engine_pdf_parser,
                         'min_img_pixels': min_img_pixels,
                         'server_root': server_root,
                         'public_base_url': public_base_url,
@@ -463,7 +469,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      start_page = None, end_page = None, scanned_copy = False, table_extract = False,
                      figure_text = False,
                      has_doc_end = False, is_footnote_continuation = False, ocr_language = 'eng',
-                     ocr_engine = 'tesseract',
+                     ocr_engine = 'tesseract', ocr_engine_pdf_parser = None,
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None,
                      font_conv = None, font_detect = True):
@@ -477,6 +483,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'figure_text': figure_text, 'has_doc_end': has_doc_end,
             'is_footnote_continuation': is_footnote_continuation,
             'ocr_language': ocr_language, 'ocr_engine': ocr_engine,
+            'ocr_engine_pdf_parser': ocr_engine_pdf_parser,
             'min_img_pixels': min_img_pixels,
             'server_root': server_root, 'public_base_url': public_base_url,
             'rights': rights, 'provider_id': provider_id,

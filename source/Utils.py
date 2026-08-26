@@ -29,6 +29,8 @@ TESSERACT_LANGUAGES = [
 
 OCR_ENGINES_AVAILABLE = ["tesseract", "paddleocr"]
 
+OCR_PDF_PARSERS_AVAILABLE = ["chromelens", "tesseract"]
+
 TESSERACT_TO_PADDLE_LANG = {
     "eng": "en",
     "hin": "hi",

@@ -140,7 +140,13 @@ class Page:
                     continue
         except Exception as e:
             self.logger.exception("Failed to process figures for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
-        
+
+    def reconcile_figure_names(self):
+        for fig_obj in self.all_figbox:
+            fig_obj.figname = self.figures.raw_name_to_hash.get(
+                fig_obj.figname, fig_obj.figname
+            )
+
     def sort_all_boxes(self):
             def parse_bbox(obj):
                 try:

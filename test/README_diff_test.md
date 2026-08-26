@@ -56,6 +56,15 @@ regulations.pdf,sebi,false,3,
   is taken as given and only works where the repo really sits under it, which
   makes the case fail everywhere else (`output_dir is not located within
   server_root`)
+- **ocr_engine_pdf_parser**: `-op` — which engine parses a `scanned_copy` row's
+  page text, `chromelens` or `tesseract` (optional). Blank leaves the pipeline's
+  own default in place (`chromelens` for `egazette`/`acts`/`sebi_circulars`,
+  `tesseract` otherwise); a value forces that engine regardless of `pdf_type`.
+  Two rows for the same PDF that differ only in this column get distinct
+  reported names (`_op-<value>` appended to the base name) so their baselines
+  don't collide - see `csl1.pdf` in `test_cases.csv` for an example (one row
+  left blank to exercise the default `chromelens` path, one forcing
+  `tesseract`)
 
 ### 3. Run the Diff Test
 ```bash
