@@ -23,15 +23,9 @@ regexps, matched (anywhere, case insensitively) against the font name:
   text is the negative class, `not_required`. Repeat the option to list the
   families a few at a time.
 
+For Hindi+English model
 ```bash
-python -m source.FontSurvey -i pdfs/ -r -tc training_data/samples.csv \
-    -tf nirmala='nirmala\s*ui' \
-    -tf arialuni='arial\s*unicode' \
-    -tf krutidev='kruti\s*dev' \
-    -tf chanakya='chanakya|TT[0-9A-F]+t[0-9]+' \
-    -tf type3='^type3' \
-    -nf 'times|arial|calibri|cambria|courier|helvetica' \
-    -nf 'liberation|dejavu|nimbus|century|tahoma'
+python -m source.FontSurvey -i ~/public/gzdl/raw/bihar  ~/public/gzdl/raw/central_extraordinary ~/public/gzdl/raw/central_weekly  ~/public/gzdl/raw/uttarpradesh_extraordinary  ~/public/gzdl/raw/uttarpradesh_ordinary -r -tc union_bihar.csv -o central_ext.txt -tf nirmala="nirmala\s*ui" -tf arialuni="arial\s*unicode" -tf krutidev="chanakya|kruti\s*dev"  -nf "times|arial|calibri|cambria|courier|helvetica|verdana|tahoma|garamond" -nf "book antiqua|bookman|liberation|nimbus|myriadpro|minionpro" -nf "segoe|malgun|yu gothic" -tf mangal="mangal"
 ```
 
 The whole corpus is the one csv `-tc/--training-csv` names, a row per sample:

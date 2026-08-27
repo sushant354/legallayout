@@ -151,6 +151,16 @@ FONT_CLASS_NOT_REQUIRED = 'not_required'
 # --- did place, and is reached through get_repaired_font_res(), never here
 FONT_CLASSES_WITHOUT_CONVERTER = {'type3', 'mangal'}
 
+# --- the fonts whose name already places them in one of the two classes above, and
+# --- which are therefore never handed to the model either: whatever it answers
+# --- about such a font, the only thing that can be done with its text is to
+# --- take it as it is, so classifying it can add nothing and can only get it
+# --- wrong. This is the name-based half of FONT_CLASSES_WITHOUT_CONVERTER; the
+# --- type3 half of it is not a name at all and is read off the pdf instead,
+# --- see get_type3_font_names(). Matched anywhere in the name, case
+# --- insensitively, exactly as FONT_DETECT_SKIP_RE and the -fc names are
+FONT_DETECT_NO_CONVERTER_RE = re.compile(r'mangal', re.IGNORECASE)
+
 # --- how much text drawn in one font is enough to say what it is. The model is
 # --- trained on samples of 50 words and its confidence falls apart well below
 # --- that: the chanakya of union_hindi.pdf scores 1.00 on the 1000 words it
@@ -202,13 +212,17 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- the classes whose text is already drawn in an indic script by the time it
 # --- is extracted: a font whose ToUnicode map is broken draws real devanagari,
 # --- it is just the wrong devanagari ('निर्माण' as 'जिमावण'), and type3 text was
-# --- put right by repair_tounicode() before anything read the pdf. Every other
-# --- class is a legacy 8-bit encoding that overloads the latin codepoints, so
-# --- its text extracts as latin and cannot contain an indic character at all -
-# --- which is what makes the check in get_detected_font_key() possible, and
-# --- what makes assuming it of a class not named here the safe default
+# --- put right by repair_tounicode() before anything read the pdf. tunga is
+# --- here for a third reason - it is a real unicode font whose map is sound, so
+# --- its text extracts as correct kannada characters and what is wrong is only
+# --- the order they are in ('ಪರ್ಸಾತ್ವನೆ' for 'ಪ್ರಸ್ತಾವನೆ'), the converter
+# --- reordering rather than decoding. Every other class is a legacy 8-bit
+# --- encoding that overloads the latin codepoints, so its text extracts as
+# --- latin and cannot contain an indic character at all - which is what makes
+# --- the check in get_detected_font_key() possible, and what makes assuming it
+# --- of a class not named here the safe default
 FONT_CLASSES_INDIC_TEXT = {
-    'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal',
+    'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal', 'tunga',
     FONT_CLASS_NOT_REQUIRED,
 }
 
@@ -358,6 +372,9 @@ class Main:
         # loaded when a document first has a font that needs it: None means not
         # tried yet, False means tried and failed (so it is reported just once)
         self.font_classifier = None
+        # the names pdfminer gives the type3 fonts of the document, read off the
+        # pdf when detection first needs them, see get_type3_font_names()
+        self.type3_font_names = None
         # self.fontmapper.extract_fonts()
 
     # --- func to get the indic2unicode font convertor, None if unavailable ---
@@ -741,6 +758,69 @@ class Main:
             for font_name, font_key in self.indic_font_keys.items() if font_key
         }
 
+    # --- func to get the names pdfminer gives the type3 fonts of the document ---
+    def get_type3_font_names(self):
+        """The names the type3 fonts of the document are known by here.
+
+        type3 is one of FONT_CLASSES_WITHOUT_CONVERTER: repair_tounicode() is
+        what puts a type3 font's text right, before anything reads the pdf, and
+        no converter of indic2unicode's decodes such a font. So the one answer
+        the model can give about one that is true - type3 - is also the one
+        answer that changes nothing, while every other answer runs a decoder
+        over text that is already correct. There is nothing to gain by
+        classifying a type3 font and a document to lose, so they are left out of
+        detection altogether rather than classified and then discarded.
+
+        A type3 font carries no BaseFont, so pdfminer names it after the
+        FontName of its FontDescriptor and calls it 'unknown' when it has none.
+        ToUnicodeFixer gives every type3 font it repairs a descriptor naming the
+        font whose glyphs it read, which is what points that font at a
+        reordering converter, so this is read off the same repaired copy the
+        rest of the run reads: the ones it named are placed by
+        get_repaired_font_res() long before detection and never reach it, and
+        what is left to be skipped here are the type3 fonts it found nothing to
+        repair - whose maps were already sound, and whose text is therefore
+        already correct. Five of the eight type3 fonts of
+        test/test_pdfs/union_hindi5.pdf are exactly those, and the model calls
+        the clean devanagari they draw arialuni at a probability of 1.00.
+        """
+        if self.type3_font_names is not None:
+            return self.type3_font_names
+
+        self.type3_font_names = set()
+
+        if not os.path.exists(self.pdf_path) or not self.is_pdf_file(self.pdf_path):
+            return self.type3_font_names
+
+        try:
+            doc = pymupdf.open(self.pdf_path)
+
+            try:
+                for pagenum in range(doc.page_count):
+                    for font in doc[pagenum].get_fonts(full = True):
+                        xref, ftype = font[0], font[2]
+
+                        if ftype != 'Type3':
+                            continue
+
+                        # pymupdf resolves the path and writes the name out as
+                        # the characters it stands for, '/Arial#20Unicode#20MS'
+                        # coming back as '/Arial Unicode MS', which is the
+                        # spelling pdfminer reports too
+                        key, name = doc.xref_get_key(xref, 'FontDescriptor/FontName')
+                        self.type3_font_names.add(
+                            name.lstrip('/') if key == 'name' else 'unknown'
+                        )
+            finally:
+                doc.close()
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not read the type3 fonts of %s, so they are classified "
+                "like any other font: %s", self.pdf_path, e
+            )
+
+        return self.type3_font_names
+
     # --- func to get the text drawn in each font that nothing else identifies ---
     def get_unknown_font_texts(self, pages):
         """{font name: the text the pdf draws in it}, for the unplaced fonts.
@@ -754,6 +834,14 @@ class Main:
         all, and the model cannot improve on that, only get it wrong. Arial
         Unicode MS is named like one of them but is not one of them
         (FONT_DETECT_SKIP_EXCEPT_RE), so it is classified like anything else.
+
+        Left out too are the fonts of FONT_CLASSES_WITHOUT_CONVERTER that can be
+        recognised without asking the model - the type3 fonts of the document
+        (get_type3_font_names()) and the ones named in FONT_DETECT_NO_CONVERTER_RE.
+        This tool corrects those itself, in repair_tounicode(), and no converter
+        decodes them, so the true answer about one of them is the answer that
+        changes nothing and every other answer corrupts text that is already
+        correct - which makes classifying them all risk and no gain.
 
         The text of a font is collected as the runs of consecutive chars drawn
         in it joined with a space, and not as one string of every char it draws:
@@ -800,6 +888,22 @@ class Main:
                 self.logger.debug(
                     "Font %s is one of the standard latin faces, whose text needs "
                     "no decoder, so it is not classified at all", font_name
+                )
+                continue
+
+            if font_name in self.get_type3_font_names():
+                self.logger.debug(
+                    "Font %s is a type3 font, whose text repair_tounicode() is "
+                    "what puts right and which no converter decodes, so it is "
+                    "not classified at all", font_name
+                )
+                continue
+
+            if FONT_DETECT_NO_CONVERTER_RE.search(font_name):
+                self.logger.debug(
+                    "Font %s is named as one of the fonts that have no converter "
+                    "to point their text at, so it is not classified at all",
+                    font_name
                 )
                 continue
 
