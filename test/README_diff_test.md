@@ -49,6 +49,12 @@ regulations.pdf,sebi,false,3,
   row only writes `false` to turn it off, which a case whose fonts are all
   placed by name wants (`Kannada-Nudi.pdf`), while `union_hindi.pdf` depends on
   detection and leaves it blank
+- **font_names**: Whether the pdf font each run of text is drawn in is named in
+  the output, i.e. `-fn` (optional, default false). Html output only, so it does
+  nothing for the `acts`/`sebi_circulars` rows, which are written as bluebell.
+  `lsdebate.pdf` is the case that covers it, and it covers `data-detected-font`
+  with it: it leaves `font_detect` blank (i.e. on), so the fonts detection is
+  run on carry the model's verdict in the baseline beside their pdf font name
 - **server_root**: Web server document root for IIIF manifest URLs, i.e. `-sr`
   (optional). **Keep it relative**: it is resolved against the repository, not
   the current directory, so `.` means the repo is the server root and the

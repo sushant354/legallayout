@@ -141,6 +141,9 @@ CID_FALLBACK_FONT_KEYS = {'tunga'}
 # --- drawing from the text extracted from it, see detect_unknown_fonts()
 FONT_MODEL_PATH = PROJECT_ROOT / 'model' / 'eng_hin_fonts.pkl'
 
+# the types whose output is bluebell rather than html (see buildHTML)
+BLUEBELL_PDF_TYPES = frozenset(['acts', 'sebi_circulars'])
+
 # --- the classes that model is trained on, mapped to the converter the text of
 # --- such a font needs. A class already named after its converter needs no
 # --- entry here, these are only the ones the two spell differently
@@ -280,7 +283,7 @@ class Main:
                  rights=None, provider_id=None, provider_name=None, 
                  attribution=None, figure_text=False, font_conv_map=None,
                  ocr_engine="tesseract", font_model=None,
-                 font_detect=True): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 font_detect=True, show_fonts=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
             raise ValueError(
@@ -390,6 +393,20 @@ class Main:
         # the names pdfminer gives the type3 fonts of the document, read off the
         # pdf when detection first needs them, see get_type3_font_names()
         self.type3_font_names = None
+        # {pdf font name: what the model called it}, for every font detection was
+        # actually run on, whether or not the answer was acted on. Reported in the
+        # html as data-detected-font when -fn/--font-names is given
+        self.detected_font_classes = {}
+        # -fn/--font-names: name the pdf font of every run of text in the output,
+        # as <span data-font="...">. It is markup of the html output itself, so
+        # it means nothing for the types that are written as bluebell instead
+        self.show_fonts = show_fonts
+        if show_fonts and pdf_type in BLUEBELL_PDF_TYPES:
+            self.logger.warning(
+                f"[!] font names (-fn) are html markup and the '{pdf_type}' type "
+                f"is written as bluebell, not html - ignoring the option."
+            )
+            self.show_fonts = False
         # self.fontmapper.extract_fonts()
 
     # --- func to get the indic2unicode font convertor, None if unavailable ---
@@ -752,6 +769,11 @@ class Main:
         font_res = []
 
         for font_name, (label, probability) in zip(font_names, results):
+            # what the model said, kept whether or not it is acted on below: a
+            # verdict that was rejected (too unsure, or impossible for the text
+            # it was reached on) is exactly what someone reading the html to see
+            # how detection went needs to be told, see get_detected_font_key()
+            self.detected_font_classes[font_name] = label
             font_key = self.get_detected_font_key(
                 font_name, label, probability, font_texts[font_name]
             )
@@ -1565,10 +1587,21 @@ class Main:
                 f"Failed removing directory for: {file_path}"
             )
     
+    def warn_font_names_unsupported(self, what):
+        if not self.show_fonts:
+            return
+
+        self.logger.warning(
+            f"[!] font names (-fn) are not carried through {what} - "
+            f"the output has no data-font markup in it."
+        )
+
     def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                               show_fonts = self.show_fonts,
+                               detected_fonts = self.detected_font_classes)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
@@ -1586,10 +1619,13 @@ class Main:
 
         elif pdf_type == 'judgments':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";')
+            self.warn_font_names_unsupported('the judgments builder')
             return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         else:
             sentence_completion_punctutation = ('.', ':')
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                               show_fonts = self.show_fonts,
+                               detected_fonts = self.detected_font_classes)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
@@ -3815,6 +3851,15 @@ def get_arg_parser():
                         help = 'Do not detect the encoding of the fonts whose name does '
                                'not give it away, i.e. use nothing but the font names '
                                'and the -fc mappings, as before the model existed.')
+    parser.add_argument('-fn', '--font-names', dest = 'show_fonts',
+                        action = 'store_true', required = False, default = False,
+                        help = 'Name the pdf font every run of text is drawn in, in the '
+                               'output itself: each contiguous piece of text drawn in one '
+                               'font is wrapped in <span data-font="FONT">...</span>, and '
+                               'a font the detector was run on also carries what the model '
+                               'made of it, as data-detected-font="CLASS". '
+                               'Html output only, so it does nothing for the types written '
+                               'as bluebell (%s).' % ' | '.join(sorted(BLUEBELL_PDF_TYPES)))
     return parser
 
 
@@ -3892,7 +3937,7 @@ if __name__ == "__main__":
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
                 figure_text, args.font_conv_map, ocr_engine,
-                args.font_model, args.font_detect)
+                args.font_model, args.font_detect, args.show_fonts)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
