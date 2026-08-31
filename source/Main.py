@@ -90,6 +90,21 @@ INDIC_FONT_NAME_ALIASES = {
     'krutidev': [r'kruti[\s_-]*dev', r'vivek', r'dev[\s_-]*lys'],
 }
 
+# --- the converter keys whose name is not the pattern to look for in a pdf
+# --- font name. 'nudi' is the legacy 8 bit Nudi, whose text is the keys the
+# --- typist pressed, and NudiUni is the unicode font of the same family,
+# --- whose text is real kannada - but '.*nudi.*' matches 'NudiUni01e' too and
+# --- takes it first, since no longer key matches that name at all. Handing
+# --- real kannada to a decoder that reads latin is the one outcome worth
+# --- guarding against, so the key is held to a name that is not NudiUni.
+# --- The unicode font needs its glyphs reordered rather than decoded and has
+# --- a converter of its own, nudiuni_glyphs, which is reached through
+# --- get_repaired_font_res() and never by name - like every *_glyphs
+# --- converter it is for the text of a pdf that has already been repaired
+INDIC_FONT_NAME_PATTERNS = {
+    'nudi': r'nudi(?![\s_-]*uni)',
+}
+
 # --- what pdfminer writes for a glyph its font's ToUnicode map has no entry
 # --- for: the literal string '(cid:315)', the cid being the glyph's id in the
 # --- font. The whole of a glyph's <text> element has to be the placeholder for
@@ -603,7 +618,10 @@ class Main:
         # all (Tunga/Tunga-Bold, both the same converter object anyway), so
         # nothing else moves
         for font_key in sorted(self.font_conv.converters, key=len, reverse=True):
-            patterns = [re.escape(font_key)]
+            # a key that must not be looked for as itself (nudi, which
+            # would swallow NudiUni), and failing that the key itself
+            patterns = [INDIC_FONT_NAME_PATTERNS.get(font_key)
+                        or re.escape(font_key)]
             # a font whose pdf name is not its converter's name (Kruti Dev)
             patterns.extend(INDIC_FONT_NAME_ALIASES.get(font_key, []))
 
