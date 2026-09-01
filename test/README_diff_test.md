@@ -49,6 +49,16 @@ regulations.pdf,sebi,false,3,
   row only writes `false` to turn it off, which a case whose fonts are all
   placed by name wants (`Kannada-Nudi.pdf`), while `union_hindi.pdf` depends on
   detection and leaves it blank
+- **font_lang**: Which of the models in `model/` the font classifier is, named
+  by the language of the text this pdf's fonts draw, i.e. `-fl` (optional,
+  default `hin` -> `eng_hin_fonts.pkl`). The six kannada rows write `kan` ->
+  `eng_kan_fonts.pkl`, whose classes are the kannada fonts (`nudi`, `nudiuni`,
+  `tunga`, `aklite`, ...) rather than the devanagari ones. It does nothing on a
+  row that also turns `font_detect` off (`Kannada-Nudi.pdf`, which is named here
+  anyway so that turning detection back on there picks the right model), and
+  nothing on a document whose fonts are all placed by name or by the ToUnicode
+  repair - which is every kannada case as it stands, so none of their baselines
+  moved when they were switched to it
 - **font_names**: Whether the pdf font each run of text is drawn in is named in
   the output, i.e. `-fn` (optional, default false). Html output only, so it does
   nothing for the `acts`/`sebi_circulars` rows, which are written as bluebell.

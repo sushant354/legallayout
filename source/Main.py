@@ -139,7 +139,25 @@ CID_FALLBACK_FONT_KEYS = {'tunga'}
 
 # --- the model machinelearning/training.py writes, which says what a font is
 # --- drawing from the text extracted from it, see detect_unknown_fonts()
-FONT_MODEL_PATH = PROJECT_ROOT / 'model' / 'eng_hin_fonts.pkl'
+FONT_MODEL_DIR = PROJECT_ROOT / 'model'
+
+# --- one model per language of the text a font draws: a class is a way of
+# --- encoding a script, so a model trained on the devanagari fonts knows
+# --- nothing of the kannada ones and calling either from the other's classes
+# --- is exactly the wrong-decoder-on-correct-text failure detection is tuned
+# --- to avoid. -fl/--font-lang picks between them, -fm/--font-model names a
+# --- model outright and wins over it
+FONT_LANG_MODELS = {
+    'hin': 'eng_hin_fonts.pkl',
+    'kan': 'eng_kan_fonts.pkl',
+}
+DEFAULT_FONT_LANG = 'hin'
+FONT_MODEL_PATH = FONT_MODEL_DIR / FONT_LANG_MODELS[DEFAULT_FONT_LANG]
+
+
+def get_font_model_path(font_lang=None):
+    """the model -fl/--font-lang names, the devanagari one when it names none"""
+    return FONT_MODEL_DIR / FONT_LANG_MODELS[font_lang or DEFAULT_FONT_LANG]
 
 # the types whose output is bluebell rather than html (see buildHTML)
 BLUEBELL_PDF_TYPES = frozenset(['acts', 'sebi_circulars'])
@@ -282,7 +300,7 @@ class Main:
                  table_extract, public_base_url=None, server_root=None,
                  rights=None, provider_id=None, provider_name=None, 
                  attribution=None, figure_text=False, font_conv_map=None,
-                 ocr_engine="tesseract", font_model=None,
+                 ocr_engine="tesseract", font_model=None, font_lang=None,
                  font_detect=True, show_fonts=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         if self.is_url_like(output_dir):
@@ -386,7 +404,20 @@ class Main:
         # The fonts none of the above can place are identified from the text they
         # draw instead, with the model of machinelearning/, see detect_unknown_fonts()
         self.font_detect = font_detect
-        self.font_model = font_model or FONT_MODEL_PATH
+        # a model named outright says which model to use; a language only says
+        # which of the ones shipped here to pick, so -fm wins over -fl
+        if font_lang and font_lang not in FONT_LANG_MODELS:
+            raise ValueError(
+                f"font_lang ('{font_lang}') names no font model. The languages a "
+                f"model is shipped for are: {', '.join(sorted(FONT_LANG_MODELS))}. "
+                f"Name a model of your own with font_model/-fm instead."
+            )
+        if font_model and font_lang:
+            self.logger.warning(
+                'both a font model (%s) and a font language (%s) were given, '
+                'going with the model', font_model, font_lang
+            )
+        self.font_model = font_model or get_font_model_path(font_lang)
         # loaded when a document first has a font that needs it: None means not
         # tried yet, False means tried and failed (so it is reported just once)
         self.font_classifier = None
@@ -3846,6 +3877,16 @@ def get_arg_parser():
                                'is simply skipped when there is no model there). A font '
                                'the model places needs no -fc mapping; a -fc mapping '
                                'wins over the model for the font it names.')
+    parser.add_argument('-fl', '--font-lang', dest = 'font_lang', action = 'store',
+                        required = False, default = None, metavar = 'LANG',
+                        choices = sorted(FONT_LANG_MODELS),
+                        help = 'Language of the text the fonts of this pdf draw, which '
+                               'picks the model that says what a font whose name '
+                               'identifies no encoding is drawing: '
+                               + ', '.join('%s -> %s' % (lang, FONT_LANG_MODELS[lang])
+                                           for lang in sorted(FONT_LANG_MODELS))
+                               + f' (default {DEFAULT_FONT_LANG}). A model named with '
+                               '-fm wins over this.')
     parser.add_argument('-nfd', '--no-font-detect', dest = 'font_detect',
                         action = 'store_false',
                         help = 'Do not detect the encoding of the fonts whose name does '
@@ -3937,7 +3978,7 @@ if __name__ == "__main__":
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
                 figure_text, args.font_conv_map, ocr_engine,
-                args.font_model, args.font_detect, args.show_fonts)
+                args.font_model, args.font_lang, args.font_detect, args.show_fonts)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
