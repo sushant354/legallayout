@@ -628,8 +628,21 @@ class Main:
                 "Text in the repaired font %s will be reordered using %s",
                 font_name, font_key
             )
+            # the *whole* name, unlike the name-based regexps of
+            # get_indic_font_res, which match anywhere: this one says "this
+            # font, in this document, was really repaired", and a font whose
+            # name merely contains it was not. A .* here would reorder the
+            # text of a font that is already in the order unicode wants and
+            # so destroy it - the Tamil Nadu gazette carries
+            # TAUElangoPanchali-SC700 beside TAUElangoPanchali, only the
+            # second of which is repaired (font_lookup_key keeps them apart),
+            # and reordering the first turns செய்ய into சய்ெய. Everything
+            # around the name is what a pdf adds to it and fixed_fonts has
+            # already dropped: the six letter subset prefix, which
+            # ToUnicodeFixer.base_font strips the same way
             font_res.append(
-                (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
+                (re.compile('^(?:.{6}\\+)?%s$' % re.escape(font_name),
+                            re.IGNORECASE), font_key)
             )
 
         return font_res
