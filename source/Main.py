@@ -96,7 +96,15 @@ LT_CHAR_ACCESSORS = (get_lt_char_font, get_lt_char_text, set_lt_char_text)
 # --- this converter was never read against
 INDIC_FONT_NAME_ALIASES = {
     'krutidev': [r'kruti[\s_-]*dev', r'vivek', r'dev[\s_-]*lys'],
-    'tamelango': [r'tam[\s_-]*elango'],
+    # --- the TAM layout is a layout and not a typeface, so a font of any
+    # --- family can be cut in it and names itself with the layout in front of
+    # --- the face: the Vanavil typing package's own faces are carried in the
+    # --- Tamil Nadu gazette both as themselves (VANAVILAvvaiyar, which
+    # --- fonts/tamil/vanavil.py reads) and in this one, as
+    # --- TAMVANAVILAvvaiyar, TAM-VANAVIL-Avvaiyar, TAMVanavilAvvaiyar,
+    # --- TAMVanavilPandian and TAMVANAVILKanchiNormal - one alias for all
+    # --- five, the separators spelled the way the elango one spells them
+    'tamelango': [r'tam[\s_-]*elango', r'tam[\s_-]*vanavil'],
 }
 
 # --- the converter keys whose name is not the pattern to look for in a pdf
@@ -109,9 +117,21 @@ INDIC_FONT_NAME_ALIASES = {
 # --- The unicode font needs its glyphs reordered rather than decoded and has
 # --- a converter of its own, nudiuni_glyphs, which is reached through
 # --- get_repaired_font_res() and never by name - like every *_glyphs
-# --- converter it is for the text of a pdf that has already been repaired
+# --- converter it is for the text of a pdf that has already been repaired.
+# --- ---
+# --- 'vanavil' is the same guard, and the thing it guards against is the same
+# --- one thing: handing text to a decoder that reads a different layout. The
+# --- Vanavil typing package's faces are carried in the Tamil Nadu gazette in
+# --- three layouts, and a font of one of the other two says so by putting
+# --- that layout in front of the face - TAMVANAVILAvvaiyar and
+# --- TAM-VANAVIL-Avvaiyar are the TAM layout, which fonts/tamil/tamelango.py
+# --- reads, and TABVanavilAvvaiyar is the TAB one, which nothing here reads
+# --- at all. Only a name that *starts* with the family is this converter's,
+# --- so the key is held to one with no letter in front of it and none in
+# --- front of the separator a name spells that prefix with
 INDIC_FONT_NAME_PATTERNS = {
     'nudi': r'nudi(?![\s_-]*uni)',
+    'vanavil': r'(?<![a-z])(?<![a-z][\s_-])vanavil',
 }
 
 # --- what pdfminer writes for a glyph its font's ToUnicode map has no entry
