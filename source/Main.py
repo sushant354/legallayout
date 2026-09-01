@@ -86,8 +86,17 @@ LT_CHAR_ACCESSORS = (get_lt_char_font, get_lt_char_text, set_lt_char_text)
 # --- points its own 'vivek'/'devlys' keys at the very same converter object,
 # --- so naming them here only makes the equivalence hold on a build that
 # --- predates those keys
+# --- 'tamelango' is the whole TAM_ELANGO family, whose faces a pdf names with
+# --- and without the separators ('TAM_ELANGO_Panchali', 'B067TAMElangoPanchali'
+# --- and 'B068TAMElangoPanchaliBol' are all in one document of the Tamil Nadu
+# --- gazette) and whose display faces (Kapilan) draw the same TAM layout the
+# --- text face does. It matches no other family of that corpus: the TAU faces
+# --- ('TAUElangoPanchali') are the unicode fonts of the same foundry and need
+# --- no decoder, and 'tam' alone would sweep in TAMVANAVILAvvaiyar, a font
+# --- this converter was never read against
 INDIC_FONT_NAME_ALIASES = {
     'krutidev': [r'kruti[\s_-]*dev', r'vivek', r'dev[\s_-]*lys'],
+    'tamelango': [r'tam[\s_-]*elango'],
 }
 
 # --- the converter keys whose name is not the pattern to look for in a pdf
