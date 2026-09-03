@@ -647,21 +647,41 @@ class Main:
         if self.fontmapper is not None:
             self.fontmapper.pdf_path = fixed_path
 
+        # the name a font was repaired *as* is not always the name the pdf
+        # carries for it - a producer that writes no font name at all is
+        # looked up under the name the font program gives itself - and it is
+        # the pdf's own name that pdfminer will report, so the two are kept
+        # apart. An indic2unicode that predates fixed_font_names knows of no
+        # such font and the two names are always one
+        fixed_font_names = getattr(fixer, 'fixed_font_names', None) or \
+                           {name: name for name in fixer.fixed_fonts}
+
         self.indic_font_res = self.font_conv_map_res + \
-                              self.get_repaired_font_res(fixer.fixed_fonts) + \
+                              self.get_repaired_font_res(fixed_font_names) + \
                               self.get_indic_font_res()
         # a font may already have been looked up while the map was broken
         self.indic_font_keys = {}
         self.indic_text_cache = {}
 
     # --- func to get the regexps for the fonts whose map was repaired ---
-    def get_repaired_font_res(self, fixed_fonts):
+    def get_repaired_font_res(self, fixed_font_names):
+        """The reordering converters for the fonts repair_tounicode() repaired.
+
+        fixed_font_names is {the name the pdf carries: the name the font was
+        repaired as}. The two are the same for every font a pdf names itself,
+        and differ where the pdf named the font nothing at all and
+        ToUnicodeFixer read its name out of the embedded font program instead
+        (recover_font_names()). Which one is wanted differs by line: the
+        converter is looked up by the name the font really is, and the regexp
+        is built on the name the pdf carries, since that is the one pdfminer
+        will report and so the one this has to match.
+        """
         if self.font_conv is None:
             return []
 
         font_res = []
 
-        for font_name in sorted(fixed_fonts):
+        for pdf_name, font_name in sorted(fixed_font_names.items()):
             # the name is the one the pdf carries, which is not always the
             # spelling the converter is listed under: Arial Unicode MS is
             # embedded as ArialUnicodeMS too and Nirmala UI carries its bold
@@ -678,10 +698,18 @@ class Main:
                 )
                 continue
 
-            self.logger.info(
-                "Text in the repaired font %s will be reordered using %s",
-                font_name, font_key
-            )
+            if pdf_name == font_name:
+                self.logger.info(
+                    "Text in the repaired font %s will be reordered using %s",
+                    font_name, font_key
+                )
+            else:
+                self.logger.info(
+                    "Text in the repaired font %s, which this pdf carries as "
+                    "%s, will be reordered using %s", font_name, pdf_name,
+                    font_key
+                )
+
             # the *whole* name, unlike the name-based regexps of
             # get_indic_font_res, which match anywhere: this one says "this
             # font, in this document, was really repaired", and a font whose
@@ -691,11 +719,11 @@ class Main:
             # TAUElangoPanchali-SC700 beside TAUElangoPanchali, only the
             # second of which is repaired (font_lookup_key keeps them apart),
             # and reordering the first turns செய்ய into சய்ெய. Everything
-            # around the name is what a pdf adds to it and fixed_fonts has
-            # already dropped: the six letter subset prefix, which
+            # around the name is what a pdf adds to it and fixed_font_names
+            # has already dropped: the six letter subset prefix, which
             # ToUnicodeFixer.base_font strips the same way
             font_res.append(
-                (re.compile('^(?:.{6}\\+)?%s$' % re.escape(font_name),
+                (re.compile('^(?:.{6}\\+)?%s$' % re.escape(pdf_name),
                             re.IGNORECASE), font_key)
             )
 
