@@ -218,8 +218,9 @@ FONT_CLASS_NOT_REQUIRED = 'not_required'
 # ---
 # --- The rest of the set is every other class of that kind, one per font whose
 # --- converter in indic2unicode is a *_glyphs pass registered under no bare
-# --- font name: nudiuni, tauelango, ilasundaram, marutham and meera. Each of
-# --- those is a real unicode font that repair_tounicode() puts right and whose
+# --- font name: nudiuni, tauelango, ilasundaram, marutham, meera and nats.
+# --- Each of those is a real unicode font that repair_tounicode() puts right
+# --- and whose
 # --- converter only reorders the text the repair wrote, so a font of one of
 # --- them that reaches detection at all is - exactly as with Mangal - one the
 # --- repair could not place, whose text is not merely out of order: NudiUni's
@@ -227,13 +228,13 @@ FONT_CLASS_NOT_REQUIRED = 'not_required'
 # --- and TAU Elango Panchali's and Uni-Ila.Sundaram's carry the wrong
 # --- characters, so reordering it would only move wrong text about. The model
 # --- naming one of these is therefore right and still says nothing that can be
-# --- acted on. meera is named here before any model is trained on it, for the
-# --- reason the comment on FONT_CLASSES_INDIC_TEXT gives: this table is a
-# --- statement about which converters exist under which name, not about which
-# --- classes a model happens to have today
+# --- acted on. meera and nats are named here before any model is trained on
+# --- their scripts, for the reason the comment on FONT_CLASSES_INDIC_TEXT
+# --- gives: this table is a statement about which converters exist under which
+# --- name, not about which classes a model happens to have today
 FONT_CLASSES_WITHOUT_CONVERTER = {
     'type3', 'mangal', 'nudiuni', 'tauelango', 'ilasundaram', 'marutham',
-    'meera',
+    'meera', 'nats',
 }
 
 # --- the fonts whose name already places them in one of the two classes above, and
@@ -243,10 +244,14 @@ FONT_CLASSES_WITHOUT_CONVERTER = {
 # --- wrong. This is the name-based half of FONT_CLASSES_WITHOUT_CONVERTER; the
 # --- type3 half of it is not a name at all and is read off the pdf instead,
 # --- see get_type3_font_names(). Matched anywhere in the name, case
-# --- insensitively, exactly as FONT_DETECT_SKIP_RE and the -fc names are
+# --- insensitively, exactly as FONT_DETECT_SKIP_RE and the -fc names are - bar
+# --- nats, which is spelt with a lookbehind for the reason the vanavil pattern in
+# --- INDIC_FONT_NAME_PATTERNS is: four letters match inside too many words to
+# --- be taken anywhere in a name, so a font is this one only where the name
+# --- starts with it or a separator does
 FONT_DETECT_NO_CONVERTER_RE = re.compile(
     r'mangal|nudi[\s_-]*uni|tau[\s_-]*elango|ila[\s._-]*sundaram'
-    r'|marutham|meera',
+    r'|marutham|meera|(?<![a-z])nats',
     re.IGNORECASE
 )
 
@@ -305,10 +310,10 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- here for a third reason - it is a real unicode font whose map is sound, so
 # --- its text extracts as correct kannada characters and what is wrong is only
 # --- the order they are in ('ಪರ್ಸಾತ್ವನೆ' for 'ಪ್ರಸ್ತಾವನೆ'), the converter
-# --- reordering rather than decoding, and the five classes on the second line
+# --- reordering rather than decoding, and the six classes on the second line
 # --- below are here for that same third reason: nudiuni, tauelango,
-# --- ilasundaram, marutham and meera are all real unicode fonts drawing real
-# --- kannada, tamil and malayalam, whose maps are broken in ways
+# --- ilasundaram, marutham, meera and nats are all real unicode fonts drawing
+# --- real kannada, tamil, malayalam and telugu, whose maps are broken in ways
 # --- repair_tounicode() is what answers (see FONT_CLASSES_WITHOUT_CONVERTER,
 # --- which names them all again for the second half of the same fact - none of
 # --- them has a converter to point at either). Every other class is a legacy
@@ -321,7 +326,7 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- since that is the half that rejects a true verdict as an impossible one
 FONT_CLASSES_INDIC_TEXT = {
     'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal', 'tunga',
-    'nudiuni', 'tauelango', 'ilasundaram', 'marutham', 'meera',
+    'nudiuni', 'tauelango', 'ilasundaram', 'marutham', 'meera', 'nats',
     FONT_CLASS_NOT_REQUIRED,
 }
 
