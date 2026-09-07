@@ -208,8 +208,10 @@ def get_arg_parser():
     parser.add_argument('-mc', '--max-per-class', dest = 'max_per_class', \
                         action = 'store', type = int, default = 0, \
                         help = 'cap the samples read from each class, to stop '
-                               'not_required swamping the rest (default 0, no '
-                               'cap)')
+                               'not_required swamping the rest; a class with '
+                               'more than this is sampled at random rather '
+                               'than cut off at the head of the file '
+                               '(default 0, no cap)')
     parser.add_argument('-ms', '--min-samples', dest = 'min_samples', \
                         action = 'store', type = int, default = 10, \
                         help = 'drop a class with fewer samples than this, it '
