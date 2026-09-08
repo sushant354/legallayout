@@ -125,7 +125,7 @@ class Page:
                     continue
         except Exception as e:
             self.logger.exception("Failed to process textboxes for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
-        
+
     def get_figures(self): #, pg):
         pg = self.page_in_xml
         try:
@@ -465,6 +465,65 @@ class Page:
                 self.logger.warning("Error while detection of  textbox for title on page %s: %s", self.pg_num, e)
                 continue
 
+    def get_underlined_titles(self, pdf_type):
+        max_words = 10
+        underline_gap = 3.0
+        min_overlap_ratio = 0.7
+
+        underline_bboxes = []
+        for tag in ('rect', 'line', 'curve'):
+            for el in self.page_in_xml.findall(f'.//{tag}'):
+                try:
+                    bbox = tuple(map(float, el.attrib['bbox'].split(',')))
+                except (KeyError, ValueError):
+                    continue
+                if self.is_line_like(bbox) and not self.is_table_line(bbox):
+                    underline_bboxes.append(bbox)
+
+        if not underline_bboxes:
+            return
+
+        for tb in self.all_tbs.keys():
+            try:
+                label = self.all_tbs.get(tb)
+                if label not in (None, ["amendment"]):
+                    continue
+
+                text = tb.extract_text_from_tb().strip()
+                if not text or text.count(' ') >= max_words:
+                    continue
+
+                if len(tb.tbox.findall('.//textline')) > 1:
+                    continue
+
+                x0, y0, x1, y1 = tb.coords
+                tb_width = x1 - x0
+                if tb_width <= 0:
+                    continue
+
+                for ux0, uy0, ux1, uy1 in underline_bboxes:
+                    underline_y = max(uy0, uy1)
+                    if abs(y0 - underline_y) > underline_gap:
+                        continue
+
+                    underline_width = ux1 - ux0
+                    if underline_width <= 0:
+                        continue
+
+                    overlap = min(x1, ux1) - max(x0, ux0)
+                    if overlap <= 0 or overlap / min(tb_width, underline_width) < min_overlap_ratio:
+                        continue
+
+                    if label == ["amendment"]:
+                        self.all_tbs[tb].append("title")
+                    else:
+                        self.all_tbs[tb] = "title"
+                    self.logger.debug(f"Title detected by underline: '{text}' on page {self.pg_num}")
+                    break
+            except Exception as e:
+                self.logger.warning("Error while detection of underlined title on page %s: %s", self.pg_num, e)
+                continue
+
     def get_italic_blockquotes(self, pdf_type):
         for tb, label in self.all_tbs.items():
             if label is not None:
@@ -772,8 +831,9 @@ class Page:
         return round(self.body_endX - self.body_startX, 2)
 
     # --- func to detect whether the page body is laid out in multiple (usually two) columns ---
-    def detect_multicolumn_layout(self, min_items_per_column=3, min_column_height_ratio=0.25,
-                                   min_gap_ratio=0.03, min_gap_em_ratio=1.0, max_overlap_ratio=0.15):
+    def detect_multicolumn_layout(self, min_items_per_column=2, min_column_height_ratio=0.25,
+                                   min_gap_ratio=0.03, min_gap_em_ratio=1.0, max_overlap_ratio=0.15,
+                                   min_band_height_ratio=0.15, min_paired_per_column=1):
         self.is_multicolumn = False
         self.column_bounds = []
         self.column_split_x = None
@@ -782,10 +842,15 @@ class Page:
         if len(all_candidates) < 2 * min_items_per_column:
             return
 
-        page_mid = self.pg_width / 2.0
-        candidates = [tb for tb in all_candidates if not (tb.coords[0] < page_mid < tb.coords[2])]
+        upright = [tb for tb in all_candidates if tb.height <= 1.5 * tb.width]
+        if len(upright) < 2 * min_items_per_column:
+            return
 
-        candidates = [tb for tb in candidates if tb.height <= 1.5 * tb.width]
+        content_x0 = min(tb.coords[0] for tb in upright)
+        content_x1 = max(tb.coords[2] for tb in upright)
+        content_mid = (content_x0 + content_x1) / 2.0
+
+        candidates = [tb for tb in upright if not (tb.coords[0] < content_mid < tb.coords[2])]
         if len(candidates) < 2 * min_items_per_column:
             return
 
@@ -805,10 +870,19 @@ class Page:
         left_cluster_id = int(np.argmin(centers))
         right_cluster_id = 1 - left_cluster_id
 
-        left_items = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == left_cluster_id]
-        right_items = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == right_cluster_id]
+        left_cluster = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == left_cluster_id]
+        right_cluster = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == right_cluster_id]
 
-        if len(left_items) < min_items_per_column or len(right_items) < min_items_per_column:
+        if not left_cluster or not right_cluster:
+            return
+
+        def y_overlaps(a, b):
+            return min(a.coords[3], b.coords[3]) - max(a.coords[1], b.coords[1]) > 0
+
+        left_items = [l for l in left_cluster if any(y_overlaps(l, r) for r in right_cluster)]
+        right_items = [r for r in right_cluster if any(y_overlaps(r, l) for l in left_cluster)]
+
+        if len(left_items) < min_paired_per_column or len(right_items) < min_paired_per_column:
             return
 
         left_font_sizes = [tb.avg_font_size for tb in left_items if tb.avg_font_size]
@@ -820,10 +894,24 @@ class Page:
             if larger > 0 and (smaller / larger) < 0.5:
                 return
 
-        left_height = sum(tb.height for tb in left_items)
-        right_height = sum(tb.height for tb in right_items)
-        if left_height < min_column_height_ratio * self.pg_height or \
-           right_height < min_column_height_ratio * self.pg_height:
+        paired_items = left_items + right_items
+        band_top = max(tb.coords[3] for tb in paired_items)
+        band_bottom = min(tb.coords[1] for tb in paired_items)
+        band_height = band_top - band_bottom
+        if band_height < min_band_height_ratio * self.pg_height:
+            return
+
+        def band_coverage(items):
+            covered = 0.0
+            for tb in items:
+                lo = max(tb.coords[1], band_bottom)
+                hi = min(tb.coords[3], band_top)
+                if hi > lo:
+                    covered += hi - lo
+            return covered / band_height
+
+        if band_coverage(left_items) < min_column_height_ratio or \
+           band_coverage(right_items) < min_column_height_ratio:
             return
 
         left_x0 = min(tb.coords[0] for tb in left_items)
@@ -876,8 +964,9 @@ class Page:
 
         for tb, label in sorted_items:
             x0, y0, x1, y1 = tb.coords
-            is_full_width = (x1 - x0) >= full_width_ratio * combined_width and x0 < split_x < x1
-            if is_full_width or label is not None:
+            straddles_split = x0 < split_x < x1
+            is_full_width = (x1 - x0) >= full_width_ratio * combined_width
+            if straddles_split or is_full_width or label is not None:
                 flush()
                 bands.append([(tb, label)])
             else:
@@ -2030,14 +2119,29 @@ class Page:
                     f"Page {self.pg_num}: Reclaimed '{label}' textbox for continuation candidacy"
                 )
 
+    def columns_have_paragraph(self, min_lines=3):
+        if not self.is_multicolumn or not self.column_bounds:
+            return False
+        for tb, label in self.all_tbs.items():
+            if label is not None:
+                continue
+            center = (tb.coords[0] + tb.coords[2]) / 2.0
+            if not any(cx0 <= center <= cx1 for cx0, cx1 in self.column_bounds):
+                continue
+            if len(tb.tbox.findall('.//textline')) >= min_lines:
+                return True
+        return False
+
     def get_borderless_table(self, pdf_type, header_classifier=None, region_merge_classifier=None,
                              continuation_template=None, continuation_classifier=None):
+        use_column_bounds = self.column_bounds if self.columns_have_paragraph() else None
         self.borderless_tabular_datas = BorderlessTableExtraction(
                 self.all_tbs, pdf_type, self.pg_width, self.pg_height,
                 header_classifier=header_classifier,
                 region_merge_classifier=region_merge_classifier,
                 continuation_classifier=continuation_classifier,
                 continuation_template=continuation_template,
+                column_bounds=use_column_bounds,
             )
 
         return self.borderless_tabular_datas.continuation_out

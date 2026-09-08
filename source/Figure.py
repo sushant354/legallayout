@@ -3,13 +3,14 @@ import io
 import hashlib
 import logging
 import numpy as np
+import pymupdf
 from .Utils import *
 from PIL import Image
 from typing import Tuple
 
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTImage
-from pdfminer.image import ImageWriter
+from pdfminer.image import ImageWriter, LITERALS_JBIG2_DECODE
 from pdfminer import pdftypes, utils as pdfminer_utils
 from pdfminer.pdfexceptions import PDFValueError
 
@@ -339,6 +340,37 @@ class Pictures:
 
         return False
 
+    def is_jbig2(self, lt_image):
+        try:
+            return any(
+                name in LITERALS_JBIG2_DECODE
+                for name, _ in lt_image.stream.get_filters()
+            )
+        except Exception:
+            return False
+
+    def render_image_to_png(self, pdf_path, page_num, image_name):
+        doc = None
+        try:
+            doc = pymupdf.open(pdf_path)
+            page = doc[int(page_num) - 1]
+            for info in page.get_images(full=True):
+                xref, name = info[0], info[7]
+                if name != image_name:
+                    continue
+                pix = pymupdf.Pixmap(doc, xref)
+                if pix.alpha or (pix.colorspace and pix.colorspace.n >= 4):
+                    pix = pymupdf.Pixmap(pymupdf.csRGB, pix)
+                return pix.tobytes("png"), pix.width, pix.height
+        except Exception:
+            self.logger.exception(
+                f"Failed to render image {image_name} on page {self.pg_num}"
+            )
+        finally:
+            if doc is not None:
+                doc.close()
+        return None, None, None
+
     def get_images(
         self,
         pdf_path,
@@ -379,47 +411,59 @@ class Pictures:
 
                     if self.should_skip(lt_image, min_img_pixels):
                         continue
-                
-                    if iw is None:
-                        os.makedirs(file_dir, exist_ok=True)
-                        iw = StableImageWriter(file_dir)
-
-                    img_saved = iw.export_image(lt_image)
-
-                    if not img_saved:
-                        continue
-                    
-                    temp_path = os.path.join(
-                        file_dir,
-                        img_saved
-                    )
-
-                    if not os.path.exists(temp_path):
-                        continue
 
                     img_name = lt_image.name
 
-                    with Image.open(temp_path) as img:
-                        converted = img
-                        if img.mode == "P":
-                            converted = img.convert("RGBA")
-                        if img.mode in ("RGBA", "LA"):
-                            background = Image.new("RGB", img.size, (255, 255, 255))
-                            alpha = img.getchannel("A")
-                            background.paste(img.convert("RGB"), mask=alpha)
-                            converted = background
-                        elif img.mode != "RGB":
-                            converted = img.convert("RGB")
+                    if self.is_jbig2(lt_image):
+                        png_bytes, img_width, img_height = self.render_image_to_png(
+                            pdf_path, page_num, img_name
+                        )
+                        if not png_bytes:
+                            self.logger.warning(
+                                f"Skipping JBIG2 image {img_name} "
+                                f"on page {self.pg_num}: could not decode"
+                            )
+                            continue
+                        os.makedirs(file_dir, exist_ok=True)
+                    else:
+                        if iw is None:
+                            os.makedirs(file_dir, exist_ok=True)
+                            iw = StableImageWriter(file_dir)
 
-                        img_width, img_height = converted.size
-                        png_buf = io.BytesIO()
-                        converted.save(png_buf, "PNG")
-                        png_bytes = png_buf.getvalue()
+                        img_saved = iw.export_image(lt_image)
+
+                        if not img_saved:
+                            continue
+
+                        temp_path = os.path.join(
+                            file_dir,
+                            img_saved
+                        )
+
+                        if not os.path.exists(temp_path):
+                            continue
+
+                        with Image.open(temp_path) as img:
+                            converted = img
+                            if img.mode == "P":
+                                converted = img.convert("RGBA")
+                            if img.mode in ("RGBA", "LA"):
+                                background = Image.new("RGB", img.size, (255, 255, 255))
+                                alpha = img.getchannel("A")
+                                background.paste(img.convert("RGB"), mask=alpha)
+                                converted = background
+                            elif img.mode != "RGB":
+                                converted = img.convert("RGB")
+
+                            img_width, img_height = converted.size
+                            png_buf = io.BytesIO()
+                            converted.save(png_buf, "PNG")
+                            png_bytes = png_buf.getvalue()
+
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
 
                     img_hash = hashlib.sha256(png_bytes).hexdigest()
-
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
 
                     existing = self.unique_images.get(img_hash)
 

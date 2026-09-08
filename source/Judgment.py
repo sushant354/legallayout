@@ -2,7 +2,7 @@ import re
 import logging
 from pathlib import Path
 
-from .Table import TableBuilder
+from .Table import TableBuilder, TOC_PLACEHOLDER
 from .NormalizeText import NormalizeText
 from .SentenceEndDetector import LEGAL_ABBREVIATIONS, EXTENDED_LEGAL_ABBREVIATIONS, is_abbreviation_like_token
 
@@ -11,6 +11,7 @@ TAG_FOR_LABEL = {
     "pre": "pre",
     "pre_header": "pre",
     "blockquote": "blockquote",
+    "title": "title",
 }
 
 SENTENCE_END = ('.', '?', '!', ';', ':', '."', ".'", ';"', ";'", ':-', '—', '...', '…')
@@ -21,6 +22,11 @@ LAST_TOKEN_RE = re.compile(r'(\S+?)([.?!:;]+)\s*$')
 
 BULLET_TOKEN_RE = re.compile(r'^\s*(\()?([A-Za-z0-9]{1,4})(?(1)\)|[.\):-])\s+\S')
 STRICT_ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.IGNORECASE)
+
+PARA_GAP_FACTOR = 1.15
+TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z])\.\s+\S|^Re:\s+\S')
+QUOTE_ANNOTATION_RE = re.compile(r'^[\(\[（［][^\(\[\)\]（）［］]+[\)\]）］]$')
+BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
 
 FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
 FOOTNOTE_ABBREVIATION_RE = re.compile(
@@ -39,8 +45,10 @@ class JudgmentBuilder(TableBuilder):
         self.all_footnote_text = all_footnote_text
         self.footnote_refs_used = []
         self.current_page_num = None
-        self.toc_html = None
+        self.toc_entries = None
+        self.toc_title = None
         self.toc_rendered = False
+        self.doc_line_gap = None
         self.sentence_completion_punctuation = sentence_completion_punctuation
         self._base_normalize_text = NormalizeText().normalize_text
         self.normalize_text = self._normalize_and_linkify_footnotes
@@ -136,6 +144,10 @@ class JudgmentBuilder(TableBuilder):
                     'kind': 'text',
                     'value': ' '.join(l['text'] for l in current_row),
                     'page_num': current_row[0].get('page_num'),
+                    'y0': min(l['y0'] for l in current_row),
+                    'y1': max(l['y1'] for l in current_row),
+                    'x0': min(l['x0'] for l in current_row),
+                    'x1': max(l['x1'] for l in current_row),
                 })
 
         for item in lines:
@@ -168,7 +180,9 @@ class JudgmentBuilder(TableBuilder):
                 continue
             text = self.normalize_text(unit['value'], unit.get('page_num'))
             if text.strip():
-                result.append({'kind': 'text', 'value': text})
+                new_unit = dict(unit)
+                new_unit['value'] = text
+                result.append(new_unit)
         return result
 
     def ends_with_abbreviation(self, text):
@@ -239,6 +253,96 @@ class JudgmentBuilder(TableBuilder):
             items.append(current)
         return items
 
+    def is_title_row(self, value):
+        text = value.strip()
+        if not text or text[0].isdigit():
+            return False
+        return bool(TITLE_ENUM_RE.match(text))
+
+    def median_line_gap(self, units):
+        if self.doc_line_gap:
+            return self.doc_line_gap
+        gaps = []
+        prev = None
+        for unit in units:
+            if unit['kind'] != 'text' or 'y0' not in unit:
+                continue
+            if prev is not None and prev.get('page_num') == unit.get('page_num'):
+                gap = prev['y0'] - unit['y0']
+                if gap > 0:
+                    gaps.append(gap)
+            prev = unit
+        if not gaps:
+            return None
+        ordered = sorted(gaps)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+    def split_rows_into_paragraphs(self, units):
+        normal = self.median_line_gap(units)
+        groups = []
+        current = []
+        prev_text = None
+
+        for unit in units:
+            if unit['kind'] != 'text':
+                current.append(unit)
+                continue
+
+            starts_para = False
+            if current and any(u['kind'] == 'text' for u in current):
+                if self.is_title_row(unit['value']):
+                    starts_para = True
+                elif self.is_bullet_row(unit['value']):
+                    starts_para = True
+                elif (normal and prev_text is not None
+                        and prev_text.get('page_num') == unit.get('page_num')
+                        and 'y0' in prev_text and 'y0' in unit):
+                    gap = prev_text['y0'] - unit['y0']
+                    if gap > normal * PARA_GAP_FACTOR:
+                        starts_para = True
+
+            if starts_para:
+                groups.append(current)
+                current = []
+            current.append(unit)
+            prev_text = unit
+
+        if current:
+            groups.append(current)
+        return groups
+
+    def last_block_is_blockquote(self):
+        idx = self.builder.rfind('</blockquote>')
+        if idx == -1:
+            return -1
+        after = self.builder[idx + len('</blockquote>'):]
+        if BLOCK_CLOSE_RE.search(after):
+            return -1
+        return idx
+
+    def emit_paragraph(self, tag, units):
+        text_parts = [u['value'].strip() for u in units if u['kind'] == 'text' and u['value'].strip()]
+        raws = [u['value'] for u in units if u['kind'] == 'raw']
+        if not text_parts:
+            if raws:
+                self.builder += ''.join(raws) + '\n'
+            return
+        body_text = ' '.join(text_parts)
+        if tag == "p" and QUOTE_ANNOTATION_RE.match(body_text):
+            idx = self.last_block_is_blockquote()
+            if idx != -1:
+                self.builder = (self.builder[:idx]
+                                + ' ' + body_text
+                                + self.builder[idx:])
+                if raws:
+                    self.builder += ''.join(raws) + '\n'
+                return
+        body = body_text + ''.join(raws)
+        self.builder += f"<{tag}>{body}</{tag}>\n"
+
     def group_units_for_render(self, units):
         groups = []
         leading_raw = []
@@ -296,12 +400,18 @@ class JudgmentBuilder(TableBuilder):
         if not units:
             return
 
-        if tag != "p":
-            self.emit_each_group_as_own_tag(tag, self.group_rows_into_sentences(units))
+        if tag == "title":
+            for group in self.split_rows_into_paragraphs(units):
+                self.emit_paragraph("p", group)
             return
 
-        for item_units in self.split_rows_into_bullet_items(units):
-            self.emit_each_group_as_own_tag(tag, self.group_rows_into_sentences(item_units))
+        if tag != "p":
+            for group in self.split_rows_into_paragraphs(units):
+                self.emit_paragraph(tag, group)
+            return
+
+        for group in self.split_rows_into_paragraphs(units):
+            self.emit_paragraph("p", group)
 
     def flush_block(self):
         if self.current_tag and self.current_lines:
@@ -473,9 +583,9 @@ class JudgmentBuilder(TableBuilder):
                 continue
 
             if label == "toc":
-                if self.toc_html and not self.toc_rendered:
+                if self.toc_entries and not self.toc_rendered:
                     self.flush_block()
-                    self.builder += self.toc_html
+                    self.builder += TOC_PLACEHOLDER
                     self.toc_rendered = True
                 continue
 
@@ -526,4 +636,7 @@ class JudgmentBuilder(TableBuilder):
         self.flushTables()
         self.flush_pending_header_footer()
         self.render_footnote_section()
-        return self.close_html()
+        html = self.close_html()
+        if html:
+            html = self.finalize_toc(html)
+        return html

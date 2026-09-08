@@ -6,19 +6,104 @@ import pandas as pd
 from difflib import SequenceMatcher
 import copy
 from pathlib import Path
-from .Table import TableBuilder
+from .Table import TableBuilder, TOC_PLACEHOLDER
 from .SentenceEndDetector import LegalSentenceDetector
 from .NormalizeText import NormalizeText
 
 
+HTML_PARA_GAP_FACTOR = 1.15
+
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
 VOID_TAGS = {"br"}
-FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)(?:@(\d+))?\}\}\}\}')
 FOOTNOTE_ABBREVIATION_RE = re.compile(
     r'(?:\b[a-z]\.){2,}$|\b(?:no|ref)\.$',
     re.IGNORECASE
 )
+
+ROW_MERGEABLE_LABELS = {None, "title", "section", "subsection", "para", "subpara",
+                        "blockquote", "level1", "level2", "level3", "level4"}
+
+
+def is_row_mergeable_label(label):
+    if isinstance(label, (tuple, list)):
+        return False
+    return label in ROW_MERGEABLE_LABELS
+
+
+class RowMergedTextEl:
+    def __init__(self, text):
+        self.text = text
+
+    def findall(self, path):
+        return [self]
+
+
+class RowMergedTBoxElement:
+    def __init__(self, line_texts):
+        self._lines = [RowMergedTextEl(text) for text in line_texts]
+
+    def findall(self, path):
+        return self._lines
+
+
+class RowMergedTextBox:
+
+    def __init__(self, builder, parts):
+        self.parts = parts
+        x0 = min(p.coords[0] for p in parts)
+        y0 = min(p.coords[1] for p in parts)
+        x1 = max(p.coords[2] for p in parts)
+        y1 = max(p.coords[3] for p in parts)
+        self.coords = (x0, y0, x1, y1)
+        self.width = x1 - x0
+        self.height = y1 - y0
+        line_texts = self._build_line_texts(builder)
+        self.tbox = RowMergedTBoxElement(line_texts)
+        self._text = ' '.join(line_texts)
+
+    def _build_line_texts(self, builder):
+        lines = []
+        for part in self.parts:
+            for textline in part.tbox.findall('.//textline'):
+                bbox = textline.attrib.get('bbox')
+                if not bbox:
+                    continue
+                lx0, ly0, lx1, ly1 = map(float, bbox.split(','))
+                text = builder.build_line_text(part, textline)
+                if text:
+                    lines.append({'x0': lx0, 'y0': ly0, 'x1': lx1, 'y1': ly1, 'text': text})
+
+        lines.sort(key=lambda item: (-item['y0'], item['x0']))
+        rows = []
+        current_row = []
+        for item in lines:
+            if current_row:
+                prev = current_row[-1]
+                row_height = max(prev['y1'] - prev['y0'], item['y1'] - item['y0'], 1.0)
+                same_row = abs(prev['y0'] - item['y0']) <= row_height * 0.4
+                continues_rightward = item['x0'] >= prev['x1'] - row_height * 0.5
+                if same_row and continues_rightward:
+                    current_row.append(item)
+                    continue
+                rows.append(current_row)
+                current_row = []
+            current_row.append(item)
+        if current_row:
+            rows.append(current_row)
+
+        return [' '.join(i['text'] for i in row) for row in rows]
+
+    def extract_text_from_tb(self):
+        return self._text
+
+    def get_first_char_coords(self):
+        return self.parts[0].get_first_char_coords()
+
+    def get_last_char_coords(self):
+        return self.parts[-1].get_last_char_coords()
+
 
 class HTMLBuilder(TableBuilder):
     
@@ -29,7 +114,7 @@ class HTMLBuilder(TableBuilder):
         self.all_footnote_text = all_footnote_text
         self.current_page_num = None
         self.footnote_refs_used = []
-        self.toc_html = None
+        self.toc_entries = None
         self.toc_rendered = False
         self.pending_text = ""
         self.pending_tag = None
@@ -40,6 +125,7 @@ class HTMLBuilder(TableBuilder):
         self.level_hierarchy = ('level1', 'level2', 'level3', 'level4','level5')
         self._sentence_detector = LegalSentenceDetector()
         self.is_real_sentence_end = self._sentence_detector.is_real_sentence_end
+        self._page_line_gap = None
         self.previous_sentence_end_status = True
         self.is_pre_added = False
         self._base_normalize_text = NormalizeText().normalize_text
@@ -415,12 +501,15 @@ class HTMLBuilder(TableBuilder):
       sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
       
       try:
+        gap_break = self.is_para_gap_break(text_tb, next_text_tb)
         if self.stack_for_section:
           if re.fullmatch(r'—{3,}', text.strip()):
             self.close_sections()
             self.builder += f"<center>{text}</center>"
             return
-          if self.pdf_type != 'acts':
+          if gap_break is not None:
+            is_sentence_completed = gap_break
+          elif self.pdf_type != 'acts':
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
@@ -432,7 +521,9 @@ class HTMLBuilder(TableBuilder):
           if text and sebi_level_close_re.match(text):
                   self.close_levels()
                   # return
-          if self.pdf_type != 'acts':
+          if gap_break is not None:
+            is_sentence_completed = gap_break
+          elif self.pdf_type != 'acts':
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
@@ -448,7 +539,9 @@ class HTMLBuilder(TableBuilder):
                 self.builder += (' ' + text)
                 self.previous_sentence_end_status = is_sentence_completed
         else:
-            if self.pdf_type != 'acts':
+            if gap_break is not None:
+              is_sentence_completed = gap_break
+            elif self.pdf_type != 'acts':
               is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
             else:
               is_sentence_completed = text.strip().endswith(self.sentence_completion_punctuation)
@@ -961,10 +1054,12 @@ class HTMLBuilder(TableBuilder):
 
         def replace(match):
             footnote_num = match.group(1)
-            if footnote_num not in self.footnote_refs_used:
-                self.footnote_refs_used.append(footnote_num)
-            anchor = f"fn-{self.current_page_num}-{footnote_num}"
-            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            page_num = int(match.group(2)) if match.group(2) else self.current_page_num
+            ref_key = (page_num, footnote_num)
+            if ref_key not in self.footnote_refs_used:
+                self.footnote_refs_used.append(ref_key)
+            anchor = f"fn-{page_num}-{footnote_num}"
+            ref = f"fnref-{page_num}-{footnote_num}"
             return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
 
         return FOOTNOTE_MARKER_RE.sub(replace, text)
@@ -999,16 +1094,18 @@ class HTMLBuilder(TableBuilder):
         if not self.footnote_refs_used:
             return
 
-        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
         items = []
 
-        for footnote_num in sorted(self.footnote_refs_used, key=lambda n: int(n) if n.isdigit() else n):
+        for page_num, footnote_num in sorted(
+            self.footnote_refs_used, key=lambda pair: (pair[0], int(pair[1]))
+        ):
+            page_footnote_text = self.all_footnote_text.get(page_num, {})
             if footnote_num not in page_footnote_text:
                 continue
 
             body = self.arrange_footnote_sentences(page_footnote_text[footnote_num])
-            anchor = f"fn-{self.current_page_num}-{footnote_num}"
-            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            anchor = f"fn-{page_num}-{footnote_num}"
+            ref = f"fnref-{page_num}-{footnote_num}"
             items.append(f'<li id="{anchor}" value="{footnote_num}">{body} <a href="#{ref}">↩</a></li>\n')
 
         if items:
@@ -1018,6 +1115,72 @@ class HTMLBuilder(TableBuilder):
             self.builder += '</ol>\n</section>\n'
 
         self.footnote_refs_used = []
+
+    def is_row_aligned(self, prev_tb, tb):
+        px0, py0, px1, py1 = prev_tb.coords
+        ix0, iy0, ix1, iy1 = tb.coords
+        row_height = max(py1 - py0, iy1 - iy0, 1.0)
+        same_row = abs(py0 - iy0) <= row_height * 0.4
+        continues_rightward = ix0 >= px1 - row_height * 0.5
+        return same_row and continues_rightward
+
+    def page_normal_line_gap(self, tbs):
+        ys = []
+        for tb in tbs:
+            try:
+                lines = self.extract_textlines(tb)
+            except Exception:
+                continue
+            for l in lines:
+                ys.append(l['y0'])
+        ys.sort(reverse=True)
+        gaps = [ys[i] - ys[i + 1] for i in range(len(ys) - 1) if ys[i] - ys[i + 1] > 0]
+        if not gaps:
+            return None
+        ordered = sorted(gaps)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+    def is_para_gap_break(self, tb, next_tb):
+        if self._page_line_gap is None or tb is None or next_tb is None:
+            return None
+        try:
+            la = self.extract_textlines(tb)
+            lb = self.extract_textlines(next_tb)
+        except Exception:
+            return None
+        if not la or not lb:
+            return None
+        la.sort(key=lambda l: -l['y0'])
+        lb.sort(key=lambda l: -l['y0'])
+        gap = la[-1]['y0'] - lb[0]['y0']
+        if gap <= 0:
+            return None
+        return gap > self._page_line_gap * HTML_PARA_GAP_FACTOR
+
+    def merge_row_aligned_textboxes(self, items):
+        merged = []
+        current_parts = []
+        current_label = None
+        for tb, label in items:
+            if current_parts and label == current_label and is_row_mergeable_label(label) \
+                    and self.is_row_aligned(current_parts[-1], tb):
+                current_parts.append(tb)
+                continue
+            if current_parts:
+                merged.append(self._finalize_row_group(current_parts, current_label))
+            current_parts = [tb]
+            current_label = label
+        if current_parts:
+            merged.append(self._finalize_row_group(current_parts, current_label))
+        return merged
+
+    def _finalize_row_group(self, parts, label):
+        if len(parts) == 1:
+            return (parts[0], label)
+        return (RowMergedTextBox(self, parts), label)
 
     def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
@@ -1032,7 +1195,9 @@ class HTMLBuilder(TableBuilder):
         # except Exception as e:
         #     self.logger.warning(f'when closing sections tag after section end page - {e}')
               
-        all_items = list(page.all_tbs.items())
+        all_items = self.merge_row_aligned_textboxes(list(page.all_tbs.items()))
+        self._page_line_gap = self.page_normal_line_gap(
+            [tb for tb, label in all_items if label is None])
         for idx, (tb, label) in enumerate(all_items):
             next_text = None
             next_text_tb = None
@@ -1078,13 +1243,13 @@ class HTMLBuilder(TableBuilder):
                 continue
 
             elif label == "toc":
-                if self.toc_html and not self.toc_rendered:
+                if self.toc_entries and not self.toc_rendered:
                     self.flushPrevious()
                     if self.pending_table is not None and len(self.pending_table) <= 2:
                         self.addTable(self.pending_table[0])
                         self.pending_table = None
                         self.flush_pending_header_footer()
-                    self.builder += self.toc_html
+                    self.builder += TOC_PLACEHOLDER
                     self.toc_rendered = True
                 continue
 
@@ -1105,6 +1270,7 @@ class HTMLBuilder(TableBuilder):
                     table_width = page.tabular_datas.get_table_width(table_id)
 
                     if table_obj is not None:
+                        table_obj = self.apply_table_footnote_markers(page, table_id, table_obj)
                         if self.pending_table is None:
                             self.pending_table = [table_obj, table_width]
                         
@@ -1162,8 +1328,6 @@ class HTMLBuilder(TableBuilder):
                 # if not self.is_pg_num(tb,page.pg_width):
                   self.addUnlabelled(self.normalize_text(tb.extract_text_from_tb()), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
 
-        self.render_footnote_section()
-
     def is_pg_num(self,tb,pg_width):
         if  tb.width < 0.04 * pg_width and self.check_isDigit(tb):
             self.logger.debug("The unlabelled textbox [%s] is classified as pg_num",tb.extract_text_from_tb())
@@ -1208,7 +1372,11 @@ class HTMLBuilder(TableBuilder):
         self.close_levels()
         self.close_sections()
         self.flushTables()
-        return self.close_html()
+        self.render_footnote_section()
+        html = self.close_html()
+        if html:
+            html = self.finalize_toc(html)
+        return html
 
     def flushTables(self):
         """Flush pending_table into final storage."""

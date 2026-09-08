@@ -1,8 +1,110 @@
 import pandas as pd
 import re
 import numpy as np
+import html as html_lib
 from difflib import SequenceMatcher
 import logging
+
+TABLE_FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+
+TOC_PLACEHOLDER = '{{__TOC_ANCHOR_PLACEHOLDER__}}'
+TOC_TAG_NAMES = ('h4', 'p', 'li', 'blockquote')
+TOC_TAG_OPEN_ANY_RE = re.compile(
+    r'<(' + '|'.join(TOC_TAG_NAMES) + r')(?![a-zA-Z])([^>]*)>'
+)
+TOC_TAG_OPEN_RES = {t: re.compile(r'<' + t + r'(?![a-zA-Z])[^>]*>') for t in TOC_TAG_NAMES}
+TOC_TAG_CLOSE_RES = {t: re.compile(r'</' + t + r'>') for t in TOC_TAG_NAMES}
+TOC_TAG_STRIP_RE = re.compile(r'<[^>]+>')
+TOC_LEADING_ENUM_RE = re.compile(
+    r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9]{1,4}\)?[.\):])+\s*',
+    re.IGNORECASE
+)
+TOC_MATCH_THRESHOLD = 0.6
+TOC_MIN_CONTAINED_TARGET_LEN = 8
+
+
+def toc_block_text(fragment):
+    text = TOC_TAG_STRIP_RE.sub(' ', fragment)
+    text = html_lib.unescape(text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def toc_normalize(text):
+    text = text.lower()
+    text = TOC_LEADING_ENUM_RE.sub('', text)
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    return text.strip()
+
+
+def toc_best_containment_match(candidates, target, start, end):
+    best_idx = None
+    best_len_diff = None
+    for idx in range(start, end):
+        cand_norm = candidates[idx]['norm']
+        if cand_norm in target:
+            contained = True
+        elif target in cand_norm:
+            contained = len(target) >= TOC_MIN_CONTAINED_TARGET_LEN
+        else:
+            contained = False
+        if not contained:
+            continue
+
+        len_diff = abs(len(cand_norm) - len(target))
+        if best_idx is None or len_diff < best_len_diff:
+            best_idx = idx
+            best_len_diff = len_diff
+            if len_diff == 0:
+                break
+    return best_idx
+
+
+def toc_iter_blocks(html, start=0, end=None):
+    if end is None:
+        end = len(html)
+    pos = start
+    while pos < end:
+        match = TOC_TAG_OPEN_ANY_RE.search(html, pos, end)
+        if not match:
+            return
+
+        tag = match.group(1)
+        open_re = TOC_TAG_OPEN_RES[tag]
+        close_re = TOC_TAG_CLOSE_RES[tag]
+
+        depth = 1
+        scan_pos = match.end()
+        body_start = match.end()
+        body_end = None
+        close_end = None
+        while depth > 0:
+            next_open = open_re.search(html, scan_pos, end)
+            next_close = close_re.search(html, scan_pos, end)
+            if not next_close:
+                break
+            if next_open and next_open.start() < next_close.start():
+                depth += 1
+                scan_pos = next_open.end()
+            else:
+                depth -= 1
+                scan_pos = next_close.end()
+                if depth == 0:
+                    body_end = next_close.start()
+                    close_end = next_close.end()
+
+        if body_end is None:
+            pos = match.end()
+            continue
+
+        yield {
+            'insert_pos': match.end(1),
+            'attrs': match.group(2),
+            'body': html[body_start:body_end],
+            'body_start': body_start,
+        }
+        yield from toc_iter_blocks(html, body_start, body_end)
+        pos = close_end
+
 
 class TableBuilder:
     def __init__(self):
@@ -22,6 +124,155 @@ class TableBuilder:
             r"^(\d+\s*of\s*\d+)$",            # "1 of 10" pattern
         ]
     
+    def apply_table_footnote_markers(self, page, table_id, table_obj):
+        marker_tbs = [
+            tb for tb, label in page.all_tbs.items()
+            if label == ("table", table_id) and tb.footnotes_superscript
+        ]
+        if not marker_tbs:
+            return table_obj
+
+        df = table_obj.copy()
+
+        for tb in marker_tbs:
+            text = tb.extract_text_from_tb()
+            for match in TABLE_FOOTNOTE_MARKER_RE.finditer(text):
+                footnote_num = match.group(1)
+                preceding = text[:match.start()].rstrip()
+                word_match = re.search(r'(\S+)$', preceding)
+                if not word_match:
+                    continue
+
+                preceding_word = word_match.group(1)
+                needle = preceding_word + footnote_num
+                replacement = (preceding_word + '{{^{{FOOTNOTE ' + footnote_num
+                              + '@' + str(page.pg_num) + '}}}}')
+
+                for row_idx in range(df.shape[0]):
+                    for col_idx in range(df.shape[1]):
+                        cell = df.iat[row_idx, col_idx]
+                        if isinstance(cell, str) and needle in cell:
+                            df.iat[row_idx, col_idx] = cell.replace(needle, replacement, 1)
+                            break
+                    else:
+                        continue
+                    break
+
+        return df
+
+    def finalize_toc(self, html):
+        if TOC_PLACEHOLDER not in html:
+            return html
+
+        entries = getattr(self, 'toc_entries', None) or []
+        if not entries:
+            return html.replace(TOC_PLACEHOLDER, '', 1)
+
+        candidates = []
+        for block in toc_iter_blocks(html):
+            if 'id=' in block['attrs']:
+                continue
+            norm = toc_normalize(toc_block_text(block['body']))
+            if len(norm) < 3:
+                continue
+            candidates.append({
+                'insert_pos': block['insert_pos'],
+                'body_start': block['body_start'],
+                'body': block['body'],
+                'norm': norm,
+            })
+
+        anchor_counter = [0]
+        block_anchor = {}
+        insertions = []
+        used_positions = set()
+
+        def next_anchor():
+            anchor_counter[0] += 1
+            return f'toc-anchor-{anchor_counter[0]}'
+
+        def inline_position(cand, entry_text):
+            words = [w for w in re.split(r'\s+', entry_text.strip()) if w]
+            if not words:
+                return None
+            pattern = r'\s*'.join(re.escape(w) for w in words[:6])
+            found = re.search(pattern, cand['body'])
+            if not found:
+                return None
+            return cand['body_start'] + found.start()
+
+        def assign_anchor(idx, entry_text):
+            cand = candidates[idx]
+            pos = cand['insert_pos']
+            if pos not in block_anchor:
+                anchor = next_anchor()
+                block_anchor[pos] = anchor
+                insertions.append((pos, f' id="{anchor}"'))
+                used_positions.add(pos)
+                return anchor
+            inline_pos = inline_position(cand, entry_text)
+            if inline_pos is not None and inline_pos not in used_positions:
+                anchor = next_anchor()
+                insertions.append((inline_pos, f'<span id="{anchor}"></span>'))
+                used_positions.add(inline_pos)
+                return anchor
+            return block_anchor[pos]
+
+        cursor = 0
+        entry_anchors = []
+        for entry in entries:
+            target = toc_normalize(entry['text'])
+            match_idx = None
+
+            if len(target) >= 3:
+                match_idx = toc_best_containment_match(candidates, target, cursor, len(candidates))
+                if match_idx is None:
+                    match_idx = toc_best_containment_match(candidates, target, 0, len(candidates))
+
+                if match_idx is None:
+                    best_score = TOC_MATCH_THRESHOLD
+                    for idx, cand in enumerate(candidates):
+                        score = SequenceMatcher(None, target, cand['norm']).ratio()
+                        if score > best_score:
+                            best_score = score
+                            match_idx = idx
+
+            if match_idx is not None:
+                entry_anchors.append(assign_anchor(match_idx, entry['text']))
+                cursor = match_idx
+            else:
+                entry_anchors.append(None)
+
+        pieces = []
+        last = 0
+        for pos, snippet in sorted(insertions, key=lambda item: item[0]):
+            pieces.append(html[last:pos])
+            pieces.append(snippet)
+            last = pos
+        pieces.append(html[last:])
+        html = ''.join(pieces)
+
+        title_text = getattr(self, 'toc_title', None) or 'Table of Contents'
+        out = [
+            '<nav class="toc">',
+            f'<p class="toc-title">{html_lib.escape(title_text)}</p>',
+            '<table class="toc-table">',
+        ]
+        for entry, anchor in zip(entries, entry_anchors):
+            level = entry['level']
+            indent = f' style="padding-left: {(level - 1) * 1.5}em;"' if level > 1 else ''
+            title = html_lib.escape(entry['text'])
+            body = f'<a href="#{anchor}">{title}</a>' if anchor else title
+            out.append(
+                f'<tr class="toc-level-{level}">'
+                f'<td class="toc-entry"{indent}>{body}</td></tr>'
+            )
+        out.append('</table>')
+        out.append('</nav>')
+        toc_html = '\n'.join(out) + '\n'
+
+        return html.replace(TOC_PLACEHOLDER, toc_html, 1)
+
     def is_sequential(self, text1, text2):
         try:
             s1, s2 = str(text1).strip(), str(text2).strip()

@@ -5,7 +5,6 @@ from pathlib import Path
 from collections import defaultdict
 import re
 import codecs
-import html
 import logging
 import shutil
 import pymupdf
@@ -1248,8 +1247,8 @@ class Main:
 
     def get_all_footnote_text(self):
 
-        FOOTNOTE_START_RE = re.compile(
-            r'^\{\{\^\{\{FOOTNOTE\s*(.+?)\}\}\}\}'
+        FOOTNOTE_MARKER_RE = re.compile(
+            r'\{\{\^\{\{FOOTNOTE\s*(.+?)\}\}\}\}'
         )
 
         active_footnote_num = None
@@ -1344,28 +1343,38 @@ class Main:
                     if not text:
                         continue
 
-                    start_match = FOOTNOTE_START_RE.match(text)
+                    segments = FOOTNOTE_MARKER_RE.split(text)
 
-                    if start_match:
+                    leading_text = segments[0].strip()
 
-                        footnote_num = (
-                            start_match.group(1).strip()
+                    if leading_text:
+
+                        if active_footnote_num and active_footnote_page is not None:
+
+                            self.all_footnote_text[
+                                active_footnote_page
+                            ][
+                                active_footnote_num
+                            ] += "\n" + leading_text
+
+                    for i in range(1, len(segments), 2):
+
+                        footnote_num = segments[i].strip()
+
+                        cleaned_text = (
+                            segments[i + 1].strip()
+                            if i + 1 < len(segments)
+                            else ""
                         )
-
-                        active_footnote_num = footnote_num
-                        active_footnote_page = pg_num
-
-                        cleaned_text = FOOTNOTE_START_RE.sub(
-                            '',
-                            text,
-                            count=1
-                        ).strip()
 
                         cleaned_text = re.sub(
                             r'^[.\):\]]\s*',
                             '',
                             cleaned_text
                         )
+
+                        active_footnote_num = footnote_num
+                        active_footnote_page = pg_num
 
                         if (
                             footnote_num
@@ -1381,17 +1390,6 @@ class Main:
                             page_footnote_text[
                                 footnote_num
                             ] += "\n" + cleaned_text
-
-                    else:
-
-                        if not active_footnote_num or active_footnote_page is None:
-                            continue
-
-                        self.all_footnote_text[
-                            active_footnote_page
-                        ][
-                            active_footnote_num
-                        ] += "\n" + text
 
             if not self.is_footnote_continuation:
 
@@ -1587,6 +1585,7 @@ class Main:
             # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
             page.get_titles(pdf_type)
+            page.get_underlined_titles(pdf_type)
             page.sort_all_boxes()
             # page.print_blockquote()
             # page.print_headers()
@@ -1607,14 +1606,40 @@ class Main:
             self.amendment.check_for_blockquotes_judgments(page)
             page.detect_sparse_pre()
             # page.detect_pre()
-           
+
             # page.get_titles(pdf_type)
+            page.get_underlined_titles(pdf_type)
             # page.get_bulletins(self.section_state)
             page.sort_all_boxes()
             # page.print_headers()
             # page.print_footers()
             page.print_all()
-    
+        self.html_builder.doc_line_gap = self.compute_doc_line_gap()
+
+    def compute_doc_line_gap(self):
+        gaps = []
+        for page in self.all_pgs.values():
+            ys = []
+            for tb, label in page.all_tbs.items():
+                if label in ("header", "footer", "footnote", "title", "toc", "figure"):
+                    continue
+                if isinstance(label, (tuple, list)):
+                    continue
+                for line in self.extract_toc_lines(tb):
+                    ys.append(line["y0"])
+            ys.sort(reverse=True)
+            for a, b in zip(ys, ys[1:]):
+                gap = a - b
+                if gap > 0:
+                    gaps.append(gap)
+        if not gaps:
+            return None
+        gaps.sort()
+        mid = len(gaps) // 2
+        if len(gaps) % 2:
+            return gaps[mid]
+        return (gaps[mid - 1] + gaps[mid]) / 2.0
+
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
@@ -1701,6 +1726,10 @@ class Main:
         if not self.is_scanned_copy:
             self.finalize_adaptive_header_footer_detection()
 
+        self.logger.info("Detecting multicolumn page layouts...")
+        for page in self.all_pgs.values():
+            page.detect_multicolumn_layout()
+
         if self.table_extract and self.pdf_type != 'judgments':
             self.logger.info("Detecting borderless tables...")
             self.pending_continuation = None
@@ -1713,9 +1742,7 @@ class Main:
                 )
                 page.label_borderless_table_tbs()
 
-        self.logger.info("Detecting multicolumn page layouts...")
         for page in self.all_pgs.values():
-            page.detect_multicolumn_layout()
             page.apply_column_reading_order()
 
         if self.pdf_type in {'judgments'}:
@@ -2811,6 +2838,13 @@ class Main:
             else:
                 self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
 
+    def clear_camelot_cache(self):
+        try:
+            from .TableExtraction import cleanup_camelot_temp_dirs
+            cleanup_camelot_temp_dirs()
+        except Exception as e:
+            self.logger.debug("Skipping camelot temp cleanup: %s", e)
+
     def clear_ocr_engines(self):
         if self.ocr_engine_image_text == "paddleocr":
             clear_paddle_ocr_engines()
@@ -3436,6 +3470,23 @@ class Main:
             if page_obj.all_tbs[row["tb"]] is None:
                 page_obj.all_tbs[row["tb"]] = "pre_header"
 
+    def extract_toc_lines(self, tb):
+        lines = []
+        for textline in tb.tbox.findall('.//textline'):
+            bbox = textline.attrib.get('bbox')
+            if not bbox:
+                continue
+            try:
+                x0, y0, x1, y1 = map(float, bbox.split(','))
+            except ValueError:
+                continue
+            chars = [t.text for t in textline.findall('.//text') if t.text]
+            text = re.sub(r'\s+', ' ', ''.join(chars)).strip()
+            if not text:
+                continue
+            lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
+        return lines
+
     def detect_toc(self, pages):
         TOC_HEADING_RE = re.compile(
             r'^\s*(TABLE\s+OF\s+CONTENTS?|INDEX|CONTENTS?|SYNOPSIS|'
@@ -3445,9 +3496,11 @@ class Main:
         )
         PAGE_NO_HEADER_RE = re.compile(r'^\s*PAGE\s*(?:NO\.?|NUMBER)\s*$', re.I)
         ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.I)
-        TOC_ENTRY_RE = re.compile(r'^(.*?\S)[\s.․…]{2,}(\(?[A-Za-z0-9]{1,7}\)?)\.?\s*$')
-        MAX_MISS_STREAK = 2
-        MAX_CONTINUATION_LEN = 120
+        TOC_PAGE_REF_RE = re.compile(
+            r'[.․…\s]*[.․…]{2,}[.․…\s]*(\(?[A-Za-z0-9]{1,7}\)?)\.?(?=\s|$)'
+        )
+        MAX_MISS_STREAK = 3
+        MAX_CONTINUATION_LEN = 160
         LEVEL_TOL = 10.0
         MIN_ENTRIES = 3
         ROW_Y_TOL = 0.6
@@ -3462,19 +3515,18 @@ class Main:
                 return token
             return None
 
-        def match_entry(row):
-            if len(row["texts"]) > 1:
-                token = page_token(row["texts"][-1])
-                if token:
-                    body = " ".join(row["texts"][:-1]).strip()
-                    if body:
-                        return body, token
-            match = TOC_ENTRY_RE.match(row["text"])
-            if match:
-                token = page_token(match.group(2))
-                if token:
-                    return match.group(1).strip(), token
-            return None
+        def split_entries(text):
+            found = []
+            last = 0
+            for match in TOC_PAGE_REF_RE.finditer(text):
+                token = page_token(match.group(1))
+                if not token:
+                    continue
+                body = text[last:match.start()].strip()
+                found.append((body, token))
+                last = match.end()
+            remainder = text[last:].strip()
+            return found, remainder
 
         rows = []
         for pg_idx, pg in enumerate(pages):
@@ -3485,14 +3537,13 @@ class Main:
             for tb, label in page_obj.all_tbs.items():
                 if label is not None:
                     continue
-                text = re.sub(r'\s+', ' ', tb.extract_text_from_tb()).strip()
-                if not text:
-                    continue
-                x0, y0, x1, y1 = tb.coords
-                rows.append({
-                    "page": page_num, "tbs": [tb], "texts": [text], "text": text,
-                    "x0": x0, "y0": y0, "x1": x1, "y1": y1,
-                })
+                for line in self.extract_toc_lines(tb):
+                    rows.append({
+                        "page": page_num, "tbs": [tb], "texts": [line["text"]],
+                        "text": line["text"],
+                        "x0": line["x0"], "y0": line["y0"],
+                        "x1": line["x1"], "y1": line["y1"],
+                    })
 
         if not rows:
             return
@@ -3526,9 +3577,14 @@ class Main:
         rows = merged_rows
 
         heading_idx = None
+        heading_text = None
         for idx, row in enumerate(rows):
-            if any(TOC_HEADING_RE.match(t) for t in row["texts"]):
-                heading_idx = idx
+            for t in row["texts"]:
+                if TOC_HEADING_RE.match(t):
+                    heading_idx = idx
+                    heading_text = t.strip()
+                    break
+            if heading_idx is not None:
                 break
 
         if heading_idx is None:
@@ -3553,20 +3609,18 @@ class Main:
                 i += 1
                 continue
 
-            matched = match_entry(row)
-            if matched:
-                body, page_no = matched
-                if pending_prefix:
-                    body = f"{pending_prefix} {body}"
-                entries.append({
-                    "text": body,
-                    "page_no": page_no,
-                    "x0": pending_start_x0 if pending_start_x0 is not None else row["x0"],
-                })
+            found, remainder = split_entries(text)
+            if found:
+                for idx, (body, page_no) in enumerate(found):
+                    if idx == 0 and pending_prefix:
+                        body = f"{pending_prefix} {body}".strip()
+                    entry_x0 = pending_start_x0 if (idx == 0 and pending_start_x0 is not None) else row["x0"]
+                    if body:
+                        entries.append({"text": body, "page_no": page_no, "x0": entry_x0})
                 consumed_tbs.extend((row["page"], tb) for tb in row["tbs"])
                 consumed_tbs.extend(pending_tbs)
-                pending_prefix = ""
-                pending_start_x0 = None
+                pending_prefix = remainder
+                pending_start_x0 = row["x0"] if remainder else None
                 pending_tbs = []
                 miss_streak = 0
                 i += 1
@@ -3601,25 +3655,8 @@ class Main:
                 stack = [(x0, level)]
             entry["level"] = level
 
-        out = [
-            '<nav class="toc">',
-            '<p class="toc-title">Table of Contents</p>',
-            '<table class="toc-table">',
-        ]
-        for entry in entries:
-            level = entry["level"]
-            indent = f' style="padding-left: {(level - 1) * 1.5}em;"' if level > 1 else ''
-            title = html.escape(entry["text"])
-            page_no = html.escape(entry["page_no"])
-            out.append(
-                f'<tr class="toc-level-{level}">'
-                f'<td class="toc-entry"{indent}>{title}</td>'
-                f'<td class="toc-page">{page_no}</td></tr>'
-            )
-        out.append('</table>')
-        out.append('</nav>')
-
-        self.html_builder.toc_html = '\n'.join(out) + '\n'
+        self.html_builder.toc_entries = entries
+        self.html_builder.toc_title = heading_text
 
         for page_num, tb in consumed_tbs:
             page_obj = self.all_pgs[page_num]
@@ -3839,4 +3876,5 @@ if __name__ == "__main__":
         main.clear_cache_pdf()
         if not args.keep_xml:
             main.clear_xml_cache()
+        main.clear_camelot_cache()
         main.clear_ocr_engines()

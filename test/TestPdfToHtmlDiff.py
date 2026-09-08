@@ -93,6 +93,11 @@ def process_case(job):
         return result
 
     finally:
+        try:
+            from source.TableExtraction import cleanup_camelot_temp_dirs
+            cleanup_camelot_temp_dirs()
+        except Exception:
+            pass
         if renamed_copy and renamed_copy.exists():
             renamed_copy.unlink()
 

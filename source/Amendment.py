@@ -2,6 +2,9 @@ import logging
 import re
 import unicodedata
 
+SECTION_HEADING_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z])\.\s+\S|^Re:\s+\S')
+LIST_ITEM_RE = re.compile(r'^\s*(?:\([A-Za-z0-9]{1,4}\)|\d{1,3}(?:\.\d{1,3})+|[A-Za-z0-9]{1,3}[.\)])(?=\s|$)')
+
 _ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
 
 
@@ -111,6 +114,7 @@ class Amendment:
         self.bq_active_run_length = 0
         self.bq_has_evidence = False
         self.bq_seen_row = False
+        self.bq_prev_block_boundary = True
         self.clause_tracker = ClauseTracker()
 
     # --- func to classify the textbox if it is detected with sign of amendments properties ---
@@ -514,6 +518,21 @@ class Amendment:
                 is_first_row = not self.bq_seen_row
                 self.bq_seen_row = True
 
+                row_is_section_heading = (
+                    bool(SECTION_HEADING_ENUM_RE.match(text))
+                    and (len(text.split()) < heading_max_words or text.rstrip().endswith(':'))
+                    and bool(row["boxes"])
+                    and all(b["tb"].textFont_is_bold() for b in row["boxes"])
+                )
+                if self.bq_active and row_is_section_heading:
+                    self.bq_active = False
+                    self.bq_quote_stack = []
+                    self.bq_return_marker = None
+                    self.bq_indent_x0 = None
+                    self.bq_active_run_length = 0
+                    self.bq_has_evidence = False
+                    self.logger.debug(f"Page {page.pg_num}: blockquote closed before section heading '{text}'")
+
                 if self.bq_active:
                     self.bq_active_run_length += 1
 
@@ -534,7 +553,7 @@ class Amendment:
                     # absolute ceiling is a last-resort backstop only: nothing here is
                     # a substitute for real close-detection, it just guarantees a
                     # mistaken open can never consume the rest of the document.
-                    if self.bq_quote_stack or marker is not None:
+                    if self.bq_quote_stack or marker is not None or LIST_ITEM_RE.match(text):
                         self.bq_has_evidence = True
                     elif not self.bq_has_evidence and self.bq_indent_x0 is not None \
                             and self.bq_outer_x0 is not None:
@@ -595,7 +614,9 @@ class Amendment:
                         tight = max(4.0, 0.4 * unit)
                         delta_outer = abs(row_x0 - self.bq_outer_x0)
                         delta_indent = abs(row_x0 - self.bq_indent_x0) if self.bq_indent_x0 is not None else None
-                        indent_returned = delta_outer <= tight and (
+                        indent_distinct = self.bq_indent_x0 is None or \
+                            abs(self.bq_indent_x0 - self.bq_outer_x0) > tight
+                        indent_returned = indent_distinct and delta_outer <= tight and (
                             delta_indent is None or delta_outer < delta_indent
                         )
                         # A margin match can be a false alarm rather than a genuine
@@ -652,16 +673,24 @@ class Amendment:
                 self.bq_pending_trigger = False
                 opened_ongoing = False
                 opened_self_contained = False
-                if text.startswith('"') and not is_closing(text, '"') and (double_count % 2 != 0 and not is_first_row or pending_trigger):
+                quote_open_ok = pending_trigger or self.bq_prev_block_boundary or (
+                    self.bq_outer_x0 is not None and row_x0 is not None
+                    and row_x0 > self.bq_outer_x0 + (row_height or 0) * 0.5)
+                if text.startswith('"') and not is_closing(text, '"') and (pending_trigger or (double_count % 2 != 0 and not is_first_row and quote_open_ok)):
                     self.bq_quote_stack.append('"')
                     opened_ongoing = True
-                elif text.startswith("'") and not is_closing(text, "'") and (single_count % 2 != 0 and not is_first_row or pending_trigger):
+                elif text.startswith("'") and not is_closing(text, "'") and (pending_trigger or (single_count % 2 != 0 and not is_first_row and quote_open_ok)):
                     self.bq_quote_stack.append("'")
                     opened_ongoing = True
                 elif (text.startswith('"') and is_closing(text, '"')) or \
                      (text.startswith("'") and is_closing(text, "'")):
                     opened_self_contained = True
-                elif pending_trigger and not (marker is not None and ClauseTracker.matches_with_indent(
+                elif pending_trigger \
+                        and (marker is not None
+                             or LIST_ITEM_RE.match(text)
+                             or self.bq_outer_x0 is None
+                             or row_x0 > self.bq_outer_x0 + (row_height or 0) * 0.5) \
+                        and not (marker is not None and ClauseTracker.matches_with_indent(
                     marker, self.clause_tracker.snapshot_next_sibling(), row_x0, None, row_height
                 )):
                     opened_ongoing = True
@@ -692,6 +721,7 @@ class Amendment:
                 # baseline the indentation-return closing check above compares
                 # against once we're back out of the quote.
                 self.bq_outer_x0 = row_x0
+                self.bq_prev_block_boundary = bool(re.search(r'[.?!:;][)\'"”’\]]*$', text.strip()))
 
                 # A line ending in ':' is only rejected as a standalone label/heading
                 # (e.g. "CORAM:", "Present:", "Scope of review and analysis:") when it

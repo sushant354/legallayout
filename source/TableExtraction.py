@@ -2,8 +2,34 @@ import camelot
 import logging
 import re
 import statistics
+import atexit
+import shutil
+import tempfile
 import numpy as np
 import pandas as pd
+from camelot.utils import TemporaryDirectory as _CamelotTempDir
+
+_camelot_temp_dirs = []
+
+
+def _tracking_camelot_tempdir_enter(self):
+    self.name = tempfile.mkdtemp()
+    _camelot_temp_dirs.append(self.name)
+    return self.name
+
+
+def cleanup_camelot_temp_dirs():
+    while _camelot_temp_dirs:
+        shutil.rmtree(_camelot_temp_dirs.pop(), ignore_errors=True)
+
+
+def patch_camelot_tempdir():
+    _CamelotTempDir.__enter__ = _tracking_camelot_tempdir_enter
+    atexit.register(cleanup_camelot_temp_dirs)
+
+
+patch_camelot_tempdir()
+
 
 class TableExtraction:
     def __init__(self,pdf_path,pg_num, pdf_type, scanned_copy):
@@ -248,6 +274,7 @@ class BorderlessTableExtraction:
                  continuation_classifier=None,
                  continuation_probability_threshold=0.5,
                  continuation_template=None,
+                 column_bounds=None,
                  continuation_page_coverage=0.30,
                  continuation_bottom_margin_ratio=0.15,
                  continuation_top_band_ratio=0.30,
@@ -285,6 +312,7 @@ class BorderlessTableExtraction:
         self.continuation_classifier = self._resolve_classifier(continuation_classifier, ContinuationClassifier)
         self.continuation_probability_threshold = continuation_probability_threshold
         self.continuation_template = continuation_template
+        self.column_bounds = column_bounds or []
         self.continuation_page_coverage = continuation_page_coverage
         self.continuation_bottom_margin_ratio = continuation_bottom_margin_ratio
         self.continuation_top_band_ratio = continuation_top_band_ratio
@@ -340,7 +368,9 @@ class BorderlessTableExtraction:
 
             remaining = [it for it in items if id(it) not in claimed_ids]
             if len(remaining) >= self.min_rows:
-                self._detect_page_tables(remaining, table, bbox, start_idx=len(table))
+                for group in self._partition_items_by_column(remaining):
+                    if len(group) >= self.min_rows:
+                        self._detect_page_tables(group, table, bbox, start_idx=len(table))
 
             cont_indices = [i for i, c in self.table_is_continuation.items() if c and i in bbox]
             for cont_idx in cont_indices:
@@ -356,6 +386,26 @@ class BorderlessTableExtraction:
             )
 
         return table, bbox
+
+    def _partition_items_by_column(self, items):
+        if len(self.column_bounds) < 2:
+            return [items]
+        groups = [[] for _ in self.column_bounds]
+        for it in items:
+            center = (it.x0 + it.x1) / 2.0
+            placed = False
+            for i, (cx0, cx1) in enumerate(self.column_bounds):
+                if cx0 <= center <= cx1:
+                    groups[i].append(it)
+                    placed = True
+                    break
+            if not placed:
+                nearest = min(
+                    range(len(self.column_bounds)),
+                    key=lambda i: abs(center - (self.column_bounds[i][0] + self.column_bounds[i][1]) / 2.0),
+                )
+                groups[nearest].append(it)
+        return groups
 
     def _detect_page_tables(self, items, table, bbox, start_idx=0):
         try:
