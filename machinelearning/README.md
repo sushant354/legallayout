@@ -39,6 +39,24 @@ For Hindi+Tamil model
 python -m source.FontSurvey -i ~/public/gzdl/raw/tamilnadu -r -tc training_data/tamil_samples.csv -o tamil_corpus_report.txt -tf tamelango='tam[\s_-]*elango|tam[\s_-]*vanavil|reginet' -tf vanavil='(?<![a-z])(?<![a-z][\s_-])vanavil' -tf tommy='tommy' -tf tauelango='tau[\s_-]*elango[\s_-]*panchali(?![\s_-]*sc7)' -tf ilasundaram='uni[\s_.-]*ila[\s_.-]*sundaram' -tf marutham='tau[\s_-]*marutham' -nf 'times|arial(?![\s_-]*unicode)|calibri|cambria|courier|helvetica|verdana|tahoma|garamond' -nf 'book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro|minion[\s_-]*pro' -nf 'segoe|malgun|yu[\s_-]*gothic|trebuchet|century[\s_-]*gothic|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|aptos|rockwell|cgtimes|calisto|clarendon' -nf 'vijaya|tau[\s_-]*elango[\s_-]*valluvan|tau[\s_-]*elango[\s_-]*panchali[\s_-]*sc7'
 ```
 
+For Hindi+Tamil model
+```bash
+  nohup python -m source.FontSurvey -i ~/public/gzdl/raw/maharashtra -r \
+      -tc training_data/marathi_samples.csv -o marathi_corpus_report.txt \
+      -tf yogesh='dvb[\s_-]*w?[\s_-]*tt' \
+      -tf surekh='dvttsurekh' \
+      -tf dvotsurekh='dvot[-]?surekh' \
+      -tf abhishek='abhishek' \
+      -tf sakal='sakal[\s_-]*marathi' \
+      -tf arialuni='arial[\s_-]*unicode' \
+      -tf nirmala='nirmala[\s_-]*ui' \
+      -tf mangal='mangal' \
+      -tf type3='^type3' \
+      -nf 'times|arial(?![\s_-]*unicode)|calibri|cambria|courier|helvetica|verdana|tahoma|garamond' \
+      -nf 'newcentury|century[\s_-]*schoolbook|century[\s_-]*gothic|bookman|book[\s_-]*antiqua|calisto|minion[\s_-]*pro|myriad[\s_-]*pro' \
+      -nf 'segoe|malgun|yu[\s_-]*gothic|trebuchet|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|liberation|nimbus|symbol|aptos|consolas|candara|corbel'  &
+```
+
 The whole corpus is the one csv `-tc/--training-csv` names, a row per sample:
 
 ```

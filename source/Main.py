@@ -180,6 +180,7 @@ FONT_LANG_MODELS = {
     'hin': 'eng_hin_fonts.pkl',
     'tam': 'eng_tam_fonts.pkl',
     'kan': 'eng_kan_fonts.pkl',
+    'mar': 'eng_mar_fonts.pkl',
 }
 DEFAULT_FONT_LANG = 'hin'
 FONT_MODEL_PATH = FONT_MODEL_DIR / FONT_LANG_MODELS[DEFAULT_FONT_LANG]
