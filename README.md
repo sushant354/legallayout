@@ -152,6 +152,14 @@ python -m unittest test.TestPdfToHtmlDiff
 
 See [`test/README_diff_test.md`](test/README_diff_test.md) for details on configuring test cases.
 
-## License
+## Acknowledgments
 
-No license file is currently present in this repository.
+The HTML tool here uses font converters from the indic2unicode project. Following people have helped us to validate the conversion of various fonts embedded in PDFs to HTML:
+
+- **Barath Kumar** (barath@indiankanoon.com) — Tamil
+- **Nanditha Harimohan** (nanditha@indiankanoon.com) — Malayalam
+- **Yashwanth A** (yashwanth@indiankanoon.com) — Kannada
+
+## License
+ 
+GNU GPL v3
