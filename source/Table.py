@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 import logging
 
 TABLE_FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+BOLD_FONT_RE = re.compile(r'bold', re.IGNORECASE)
 
 TOC_PLACEHOLDER = '{{__TOC_ANCHOR_PLACEHOLDER__}}'
 TOC_TAG_NAMES = ('h4', 'p', 'li', 'blockquote')
@@ -885,6 +886,24 @@ class TableBuilder:
 
         return ''.join(line_parts).replace('\n', ' ').strip()
 
+    def leading_token_is_bold(self, textline):
+        total = 0
+        bold = 0
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+            if raw.isspace():
+                if total:
+                    break
+                continue
+            total += 1
+            if BOLD_FONT_RE.search(text_el.attrib.get('font', '')):
+                bold += 1
+        if not total:
+            return False
+        return (bold / total) > 0.5
+
     def extract_textlines(self, tb):
         lines = []
         for textline in tb.tbox.findall('.//textline'):
@@ -900,7 +919,10 @@ class TableBuilder:
             if not text:
                 continue
 
-            lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
+            lines.append({
+                'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text,
+                'lead_bold': self.leading_token_is_bold(textline),
+            })
         return lines
 
     def cluster_rows_by_position(self, items):

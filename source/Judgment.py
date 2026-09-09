@@ -21,9 +21,14 @@ ABBREVIATIONS = {abbr.lower() for abbr in LEGAL_ABBREVIATIONS} | EXTENDED_LEGAL_
 LAST_TOKEN_RE = re.compile(r'(\S+?)([.?!:;]+)\s*$')
 
 BULLET_TOKEN_RE = re.compile(r'^\s*(\()?([A-Za-z0-9]{1,4})(?(1)\)|[.\):-])\s+\S')
+NUMERIC_PARA_MARKER_RE = re.compile(r'^\s*\d{1,3}(?:\.\d{1,3}){0,4}\.?\s+\S')
 STRICT_ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.IGNORECASE)
 
 PARA_GAP_FACTOR = 1.15
+PARA_END_RE = re.compile(r'[.?!।॥][\)\'"”’\]›»】」』]*\s*$')
+MERGE_BOUNDARY_RE = re.compile(r'[.?!।॥:;][\)\'"”’\]›»】」』]*\s*$')
+QUOTE_OPEN_RE = re.compile(r'^["\'“‘«‹「『]')
+LEADING_WRAP_RE = re.compile(r'^[\(\[\{"\'“‘«‹「『]+')
 TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z])\.\s+\S|^Re:\s+\S')
 QUOTE_ANNOTATION_RE = re.compile(r'^[\(\[（［][^\(\[\)\]（）［］]+[\)\]）］]$')
 BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
@@ -56,6 +61,7 @@ class JudgmentBuilder(TableBuilder):
         self.pending_header_footer = []
         self.current_tag = None
         self.current_lines = []
+        self._merge_anchor = None
         self.main_builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -148,6 +154,7 @@ class JudgmentBuilder(TableBuilder):
                     'y1': max(l['y1'] for l in current_row),
                     'x0': min(l['x0'] for l in current_row),
                     'x1': max(l['x1'] for l in current_row),
+                    'lead_bold': current_row[0].get('lead_bold', False),
                 })
 
         for item in lines:
@@ -190,6 +197,38 @@ class JudgmentBuilder(TableBuilder):
         if not match:
             return False
         return is_abbreviation_like_token(match.group(1))
+
+    def line_completes_sentence(self, text):
+        stripped = text.strip()
+        if not PARA_END_RE.search(stripped):
+            return False
+        return not self.ends_with_abbreviation(stripped)
+
+    def is_merge_boundary(self, text):
+        stripped = text.strip()
+        if not MERGE_BOUNDARY_RE.search(stripped):
+            return False
+        return not self.ends_with_abbreviation(stripped)
+
+    def is_block_starter(self, text):
+        stripped = text.strip()
+        if not stripped:
+            return True
+        if QUOTE_OPEN_RE.match(stripped):
+            return True
+        if NUMERIC_PARA_MARKER_RE.match(stripped):
+            return True
+        return self.is_title_row(stripped) or self.is_bullet_row(stripped)
+
+    def has_continuation_evidence(self, text):
+        stripped = text.strip()
+        if not stripped:
+            return False
+        core = LEADING_WRAP_RE.sub('', stripped)
+        first = core[0] if core else stripped[0]
+        if first.isalpha() and not first.isupper():
+            return True
+        return self.line_completes_sentence(stripped)
 
     def group_rows_into_sentences(self, units):
         result = []
@@ -239,7 +278,15 @@ class JudgmentBuilder(TableBuilder):
         if low_token in ABBREVIATIONS or (low_token + '.') in ABBREVIATIONS:
             return False
 
+        if len(token) == 1 and token.isalpha() and token.islower():
+            return True
+
         return len(token) >= 2 and self.is_roman_numeral(token)
+
+    def is_bold_numbered_marker_row(self, unit):
+        if not unit.get('lead_bold'):
+            return False
+        return bool(NUMERIC_PARA_MARKER_RE.match(unit['value']))
 
     def split_rows_into_bullet_items(self, units):
         items = []
@@ -297,11 +344,14 @@ class JudgmentBuilder(TableBuilder):
                     starts_para = True
                 elif self.is_bullet_row(unit['value']):
                     starts_para = True
+                elif self.is_bold_numbered_marker_row(unit):
+                    starts_para = True
                 elif (normal and prev_text is not None
                         and prev_text.get('page_num') == unit.get('page_num')
                         and 'y0' in prev_text and 'y0' in unit):
                     gap = prev_text['y0'] - unit['y0']
-                    if gap > normal * PARA_GAP_FACTOR:
+                    if (gap > normal * PARA_GAP_FACTOR
+                            and self.is_merge_boundary(prev_text['value'])):
                         starts_para = True
 
             if starts_para:
@@ -323,7 +373,7 @@ class JudgmentBuilder(TableBuilder):
             return -1
         return idx
 
-    def emit_paragraph(self, tag, units):
+    def emit_paragraph(self, tag, units, is_heading=False):
         text_parts = [u['value'].strip() for u in units if u['kind'] == 'text' and u['value'].strip()]
         raws = [u['value'] for u in units if u['kind'] == 'raw']
         if not text_parts:
@@ -331,6 +381,16 @@ class JudgmentBuilder(TableBuilder):
                 self.builder += ''.join(raws) + '\n'
             return
         body_text = ' '.join(text_parts)
+        if is_heading:
+            anchor = self._merge_anchor
+            if self.line_completes_sentence(body_text):
+                is_heading = False
+            elif (anchor is not None
+                    and not anchor['boundary']
+                    and not self.is_block_starter(body_text)
+                    and self.has_continuation_evidence(body_text)):
+                is_heading = False
+                anchor['is_heading'] = False
         if tag == "p" and QUOTE_ANNOTATION_RE.match(body_text):
             idx = self.last_block_is_blockquote()
             if idx != -1:
@@ -339,9 +399,43 @@ class JudgmentBuilder(TableBuilder):
                                 + self.builder[idx:])
                 if raws:
                     self.builder += ''.join(raws) + '\n'
+                self._merge_anchor = None
                 return
+        if self.try_continuation_merge(tag, body_text, raws, is_heading):
+            return
         body = body_text + ''.join(raws)
+        start = len(self.builder)
         self.builder += f"<{tag}>{body}</{tag}>\n"
+        if tag in ("p", "blockquote"):
+            self._merge_anchor = {
+                'close_idx': start + len(f"<{tag}>") + len(body),
+                'tag': tag,
+                'complete': self.line_completes_sentence(body_text),
+                'boundary': self.is_merge_boundary(body_text),
+                'is_heading': is_heading,
+            }
+        else:
+            self._merge_anchor = None
+
+    def try_continuation_merge(self, tag, body_text, raws, is_heading):
+        anchor = self._merge_anchor
+        if anchor is None or is_heading or anchor['is_heading']:
+            return False
+        if anchor['complete'] or tag not in ("p", "blockquote"):
+            return False
+        if self.is_block_starter(body_text) or not self.has_continuation_evidence(body_text):
+            return False
+        close = f"</{anchor['tag']}>"
+        idx = anchor['close_idx']
+        if self.builder[idx:idx + len(close)] != close:
+            self._merge_anchor = None
+            return False
+        insert = ' ' + body_text + ''.join(raws)
+        self.builder = self.builder[:idx] + insert + self.builder[idx:]
+        anchor['close_idx'] = idx + len(insert)
+        anchor['complete'] = self.line_completes_sentence(body_text)
+        anchor['boundary'] = self.is_merge_boundary(body_text)
+        return True
 
     def group_units_for_render(self, units):
         groups = []
@@ -402,7 +496,7 @@ class JudgmentBuilder(TableBuilder):
 
         if tag == "title":
             for group in self.split_rows_into_paragraphs(units):
-                self.emit_paragraph("p", group)
+                self.emit_paragraph("p", group, is_heading=True)
             return
 
         if tag != "p":
@@ -428,6 +522,7 @@ class JudgmentBuilder(TableBuilder):
             )
             self.builder += self.normalize_text(table_html)
             self.builder += "\n"
+            self._merge_anchor = None
         except Exception as e:
             self.logger.exception("Error while adding table in html - %s", e)
 
@@ -467,6 +562,7 @@ class JudgmentBuilder(TableBuilder):
                 text_content = img_data.get("text", "")
                 if text_content:
                     self.builder += f'<p class="figure-text">{text_content}</p>\n'
+                self._merge_anchor = None
         except Exception as e:
             self.logger.warning(f'While adding figure to judgment html, {e}')
 
@@ -554,6 +650,7 @@ class JudgmentBuilder(TableBuilder):
             for item in items:
                 self.builder += item
             self.builder += '</ol>\n</section>\n'
+            self._merge_anchor = None
 
         self.footnote_refs_used = []
 
@@ -586,6 +683,7 @@ class JudgmentBuilder(TableBuilder):
                 if self.toc_entries and not self.toc_rendered:
                     self.flush_block()
                     self.builder += TOC_PLACEHOLDER
+                    self._merge_anchor = None
                     self.toc_rendered = True
                 continue
 

@@ -3,7 +3,7 @@ import re
 import unicodedata
 
 SECTION_HEADING_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z])\.\s+\S|^Re:\s+\S')
-LIST_ITEM_RE = re.compile(r'^\s*(?:\([A-Za-z0-9]{1,4}\)|\d{1,3}(?:\.\d{1,3})+|[A-Za-z0-9]{1,3}[.\)])(?=\s|$)')
+LIST_ITEM_RE = re.compile(r'^\s*(?:\([A-Za-z0-9]{1,4}\)|\d{1,3}(?:\.\d{1,3})+\.?|[A-Za-z0-9]{1,3}[.\)])(?=\s|$)')
 
 _ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
 
@@ -518,11 +518,18 @@ class Amendment:
                 is_first_row = not self.bq_seen_row
                 self.bq_seen_row = True
 
+                has_boxes = bool(row["boxes"])
+                row_is_bold = has_boxes and all(b["tb"].textFont_is_bold() for b in row["boxes"])
+                row_is_bold_or_italic = has_boxes and all(
+                    b["tb"].textFont_is_bold() or b["tb"].textFont_is_italic() for b in row["boxes"])
                 row_is_section_heading = (
-                    bool(SECTION_HEADING_ENUM_RE.match(text))
-                    and (len(text.split()) < heading_max_words or text.rstrip().endswith(':'))
-                    and bool(row["boxes"])
-                    and all(b["tb"].textFont_is_bold() for b in row["boxes"])
+                    not self.bq_quote_stack
+                    and (
+                        (row_is_bold_or_italic and bool(SECTION_HEADING_ENUM_RE.match(text)))
+                        or (row_is_bold and not LIST_ITEM_RE.match(text)
+                            and (text.rstrip().endswith(':')
+                                 or not re.search(r'[.?!]["\'”’)\]]*$', text.rstrip())))
+                    )
                 )
                 if self.bq_active and row_is_section_heading:
                     self.bq_active = False
@@ -686,9 +693,8 @@ class Amendment:
                      (text.startswith("'") and is_closing(text, "'")):
                     opened_self_contained = True
                 elif pending_trigger \
-                        and (marker is not None
-                             or LIST_ITEM_RE.match(text)
-                             or self.bq_outer_x0 is None
+                        and (marker is not None or LIST_ITEM_RE.match(text)) \
+                        and (self.bq_outer_x0 is None
                              or row_x0 > self.bq_outer_x0 + (row_height or 0) * 0.5) \
                         and not (marker is not None and ClauseTracker.matches_with_indent(
                     marker, self.clause_tracker.snapshot_next_sibling(), row_x0, None, row_height
