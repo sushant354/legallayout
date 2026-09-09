@@ -19,6 +19,7 @@ from .Amendment import Amendment
 from .Utils import *
 from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
+from .Figure import PageImages
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
 
 from contextlib import contextmanager
@@ -1915,8 +1916,34 @@ class Main:
             # self.bq_layout.print_sections()
         pass
 
+    def get_image_page_nums(self, pages):
+        """The page numbers of the parsed xml that draw an image.
+
+        pdf2txt writes an <image> element for every image pdfminer lays out, so
+        a page carrying none of them has nothing for Figure.get_images to find
+        and need never be extracted from the pdf at all.
+        """
+        nums = []
+
+        for pg in pages:
+            if pg.find(".//image") is None:
+                continue
+
+            try:
+                nums.append(int(pg.attrib["id"]))
+            except (KeyError, ValueError):
+                self.logger.warning(
+                    "Page with no usable id in the xml, its images will be "
+                    "extracted on their own: %s", pg.attrib
+                )
+
+        return nums
+
     # --- NEW ADAPTIVE HEADER/FOOTER DETECTION ---
     def get_page_header_footer(self, pages, base_name_of_file, output_dir):
+        image_page_nums = self.get_image_page_nums(pages)
+        page_images = None
+
         # Initialize page objects first
         for pg in pages:
             pdf_dir = self.get_path_cache_pdf()
@@ -1927,11 +1954,17 @@ class Main:
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
 
+            if page_images is None:
+                # built here rather than before the loop so it is anchored on
+                # the path the copy above may just have moved the pdf to
+                page_images = PageImages(self.pdf_path, image_page_nums)
+
             page = Page(pg, self.pdf_path, base_name_of_file, output_dir,
                         self.pdf_type, self.has_side_notes, self.is_amendment_pdf,
                         self.fontmapper, self.unique_images, self.min_img_pixels,
                         self.ocr_language,
-                        self.is_scanned_copy, self.figure_text, self.ocr_engine)
+                        self.is_scanned_copy, self.figure_text, self.ocr_engine,
+                        page_images=page_images)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes()#pg)

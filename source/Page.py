@@ -34,7 +34,8 @@ class Page:
     def __init__(self,pg,pdfPath, base_name_of_file, output_dir,
                  pdf_type, has_side_notes, is_amendment_pdf,
                  font_mapper, unique_images, min_img_size, ocr_language,
-                 scanned_copy, figure_text=False, ocr_engine="tesseract"):
+                 scanned_copy, figure_text=False, ocr_engine="tesseract",
+                 page_images=None):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdfPath
         self.page_in_xml = pg
@@ -54,7 +55,8 @@ class Page:
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file,
                                 output_dir, unique_images, min_img_size,
                                 ocr_language, scanned_copy, figure_text,
-                                pdf_type=pdf_type, ocr_engine=ocr_engine)
+                                pdf_type=pdf_type, ocr_engine=ocr_engine,
+                                page_images=page_images)
         self.tabular_datas = TableExtraction(self.pdf_path,self.pg_num, pdf_type,
                                             scanned_copy)
         self.borderless_tabular_datas = None

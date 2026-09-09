@@ -128,6 +128,69 @@ class Figure:
     def has_figure(self, fig):
         return fig.find("image") is not None
 
+class PageImages:
+    """The image-bearing pages of one pdf, extracted in a single pass.
+
+    pdfminer reparses the whole document to reach a page, so an
+    ``extract_pages()`` call per page walks the file as many times as it has
+    pages - 140 of the 297 seconds a 323-page gazette took, on a document
+    where exactly one page draws an image.  The parsed xml already says which
+    pages carry one (pdfminer writes an ``<image>`` for every image it lays
+    out), so the rest are never extracted at all and those that are come off
+    one generator advanced in page order rather than one call each.
+
+    ``page_nums`` are the xml's own page ids, which are the pdf's 1-based page
+    numbers - the same numbering ``Pictures.get_images`` already indexes by.
+    """
+
+    def __init__(self, pdf_path, page_nums):
+        self.logger = logging.getLogger(__name__)
+        self.pdf_path = pdf_path
+        self.image_pages = set(page_nums)
+        self.pending = sorted(self.image_pages)
+        self.layouts = None
+
+    def get_layout(self, page_num):
+        """The layout of page_num, or None when that page draws no image."""
+        if page_num not in self.image_pages:
+            return None
+
+        if page_num not in self.pending:
+            # asked for out of the order the pages are built in, so the single
+            # pass has already gone past it - read that one page on its own
+            return self.extract_one(page_num)
+
+        if self.layouts is None:
+            self.layouts = extract_pages(
+                self.pdf_path,
+                page_numbers=[num - 1 for num in self.pending]
+            )
+
+        # the pages come off the generator in the order they were asked for,
+        # so walk it forward to the one wanted and drop what it passes
+        while self.pending:
+            num = self.pending.pop(0)
+
+            try:
+                layout = next(self.layouts)
+            except StopIteration:
+                self.logger.warning(
+                    "Ran out of pages looking for page %s of %s",
+                    page_num, self.pdf_path
+                )
+                return self.extract_one(page_num)
+
+            if num == page_num:
+                return layout
+
+        return self.extract_one(page_num)
+
+    def extract_one(self, page_num):
+        for layout in extract_pages(self.pdf_path, page_numbers=[page_num - 1]):
+            return layout
+
+        return None
+
 class Pictures:
     
     def __init__(
@@ -143,11 +206,13 @@ class Pictures:
         figure_text=False,
         image_base_dir="manifest",
         pdf_type=None,
-        ocr_engine="tesseract"
+        ocr_engine="tesseract",
+        page_images=None
     ):
         self.logger = logging.getLogger(__name__)
 
         self.pg_num = pg_num
+        self.page_images = page_images
         self.ocr_language = ocr_language
         self.ocr_engine = ocr_engine
         self.unique_images = unique_images
@@ -348,10 +413,16 @@ class Pictures:
             return
         saved_images = {}
 
-        page_layouts = extract_pages(
-            pdf_path,
-            page_numbers=[int(page_num) - 1]
-        )
+        if self.page_images is not None:
+            # one pass over the document for the whole pdf, and nothing at all
+            # for a page the xml says draws no image
+            page_layout = self.page_images.get_layout(int(page_num))
+            page_layouts = [] if page_layout is None else [page_layout]
+        else:
+            page_layouts = extract_pages(
+                pdf_path,
+                page_numbers=[int(page_num) - 1]
+            )
 
         file_dir = os.path.join(
             output_dir,
