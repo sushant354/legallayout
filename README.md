@@ -154,11 +154,16 @@ See [`test/README_diff_test.md`](test/README_diff_test.md) for details on config
 
 ## Acknowledgments
 
+This work is sponsored by [Public Resource](https://public.resource.org/), a non-profit dedicated to making government records publicly available.
+
 The HTML tool here uses font converters from the indic2unicode project. Following people have helped us to validate the conversion of various fonts embedded in PDFs to HTML:
 
-- **Barath Kumar** (barath@indiankanoon.com) — Tamil
-- **Nanditha Harimohan** (nanditha@indiankanoon.com) — Malayalam
-- **Yashwanth A** (yashwanth@indiankanoon.com) — Kannada
+| Contributor | Email | Language |
+|---|---|---|
+| Sushant Sinha | sushant@indiankanoon.com | Hindi |
+| Barath Kumar | barath@indiankanoon.com | Tamil |
+| Nanditha Harimohan | nanditha@indiankanoon.com | Malayalam |
+| Yashwanth A | yashwanth@indiankanoon.com | Kannada |
 
 ## License
  
