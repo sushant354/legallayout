@@ -639,7 +639,10 @@ class Pictures:
                         converted.save(final_path, "PNG")
                         img_width, img_height = converted.size
 
-                    if os.path.exists(temp_path):
+                    # StableImageWriter writes a decoded image straight to
+                    # <name>.png, which outside egazette/sebi is final_path
+                    # itself - removing it then deletes the image just saved
+                    if temp_path != final_path and os.path.exists(temp_path):
                         os.remove(temp_path)
 
                     if self.figure_text and not self.has_visual_content(final_path):
