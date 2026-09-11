@@ -1543,7 +1543,9 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             if label == "header" or label == "footer" \
                 or label == "footnote" or label == "toc":
                continue
-            
+            if isinstance(label, tuple) and label[0] in ("table_boilerplate", "borderless_table_boilerplate"):
+               continue
+
             if label in ('figure',) and (tb.figname not in self.unique_image):
                 self.logger.warning("The figure may be header or junk image, skipping...")
                 continue

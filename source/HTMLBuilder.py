@@ -195,7 +195,11 @@ class HTMLBuilder(TableBuilder):
   span.footer-text{
     display:None;
   }
-  
+
+  span.table-header-text, span.table-footer-text{
+    display:None;
+  }
+
   h4 {
     text-align: center;
   }
@@ -1040,6 +1044,18 @@ class HTMLBuilder(TableBuilder):
            footer = f'<span class="footer-text">{text}</span>\n'
            self.pending_header_footer.append(footer) 
 
+    def add_table_boilerplate(self, table_obj, position):
+        text_html = self.render_table_boilerplate_text(table_obj, position)
+        if not text_html:
+            return
+        if not self.pending_table:
+            if self.pending_tag and self.pending_text:
+                self.pending_text += text_html + '\n'
+            else:
+                self.builder += text_html + '\n'
+        else:
+            self.pending_header_footer.append(text_html + '\n')
+
     def flush_pending_header_footer(self):
         if self.pending_header_footer:
             self.builder += '\n'
@@ -1158,7 +1174,9 @@ class HTMLBuilder(TableBuilder):
         gap = la[-1]['y0'] - lb[0]['y0']
         if gap <= 0:
             return None
-        return gap > self._page_line_gap * HTML_PARA_GAP_FACTOR
+        if gap > self._page_line_gap * HTML_PARA_GAP_FACTOR:
+            return True
+        return None
 
     def merge_row_aligned_textboxes(self, items):
         merged = []
@@ -1195,7 +1213,7 @@ class HTMLBuilder(TableBuilder):
         # except Exception as e:
         #     self.logger.warning(f'when closing sections tag after section end page - {e}')
               
-        all_items = self.merge_row_aligned_textboxes(list(page.all_tbs.items()))
+        all_items = list(page.all_tbs.items())
         self._page_line_gap = self.page_normal_line_gap(
             [tb for tb, label in all_items if label is None])
         for idx, (tb, label) in enumerate(all_items):
@@ -1302,6 +1320,17 @@ class HTMLBuilder(TableBuilder):
                                 self.addTable(self.pending_table[0])
                                 self.pending_table = [table_obj, table_width]
 
+                    visited_for_table.add(table_id)
+
+            elif isinstance(label, tuple) and label[0] in ("table_boilerplate", "borderless_table_boilerplate"):
+                table_id = label[1]
+                position = label[2]
+                if table_id not in visited_for_table:
+                    source_tables = (page.tabular_datas if label[0] == "table_boilerplate"
+                                      else page.borderless_tabular_datas).tables
+                    table_obj = source_tables.get(table_id)
+                    if table_obj is not None:
+                        self.add_table_boilerplate(table_obj, position)
                     visited_for_table.add(table_id)
 
             elif isinstance(label,list) and label[0] == "amendment":

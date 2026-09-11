@@ -1112,6 +1112,8 @@ class Acts(TableBuilder, SentenceMaker):
                 break
             if label == "header" or label == "footer" or label == "footnote" or label == "toc":
                continue
+            if isinstance(label, tuple) and label[0] in ("table_boilerplate", "borderless_table_boilerplate"):
+               continue
             if not ((isinstance(label, tuple) and (label[0] == "table" or \
                                                    label[0] == "borderless_table"))):
                 if self.pending_table is not None and len(self.pending_table) <= 2:

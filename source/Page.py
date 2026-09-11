@@ -5,6 +5,7 @@ import numpy as np
 import re
 import logging
 import pandas as pd
+import bisect
 
 
 from .TextBox import TextBox
@@ -1369,6 +1370,12 @@ class Page:
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to label textbox '{tb}' for table {idx} -- {e}")
     
+    def mark_table_boilerplate(self, idx, source, position):
+        boilerplate_label = f"{source}_boilerplate"
+        for tb in list(self.all_tbs.keys()):
+            if self.all_tbs[tb] == (source, idx):
+                self.all_tbs[tb] = (boilerplate_label, idx, position)
+
     def label_borderless_table_tbs(self):
         if self.borderless_tabular_datas is None:
             return
@@ -2159,6 +2166,10 @@ class Page:
         MAX_GAP_HEIGHT_RATIO = 1.8
         MIN_GROUP = 2
         GAP_SHORT_ITEM_WORD_LIMIT = 6
+        TRAILING_ANNOTATION_RE = re.compile(
+            r'[\(\[](emphasis (supplied|added|mine)|underlined?|sic)[\)\]]\.?\s*$',
+            re.IGNORECASE,
+        )
 
         body_start = self.body_startX
         body_end = self.body_endX
@@ -2167,6 +2178,19 @@ class Page:
             return
 
         split_gap_abs = body_width * SPLIT_GAP_RATIO
+
+        blockquote_y0s = sorted(
+            tb.coords[1] for tb, label in self.all_tbs.items() if label == "blockquote"
+        )
+
+        def group_follows_blockquote(group_top_y1, row_height):
+            if not blockquote_y0s:
+                return False
+            idx = bisect.bisect_left(blockquote_y0s, group_top_y1)
+            if idx >= len(blockquote_y0s):
+                return False
+            nearest_above = blockquote_y0s[idx]
+            return 0 <= nearest_above - group_top_y1 <= max(4.0, row_height * MAX_GAP_HEIGHT_RATIO)
 
         items = []
         for tb, label in self.all_tbs.items():
@@ -2319,10 +2343,16 @@ class Page:
             if kind == "gap" and all(
                 max(len(it["text"].split()) for it in row) <= GAP_SHORT_ITEM_WORD_LIMIT
                 for row in group
+            ) and not any(
+                TRAILING_ANNOTATION_RE.search(row[-1]["text"]) for row in group
             ):
                 required_group = 1
 
-            if len(group) >= required_group:
+            group_row_height = max(group[0][0]["y1"] - group[0][0]["y0"], 1.0)
+            group_top_y1 = max(it["y1"] for it in group[0])
+            follows_blockquote = group_follows_blockquote(group_top_y1, group_row_height)
+
+            if len(group) >= required_group and not follows_blockquote:
                 for row in group:
                     for it in row:
                         if self.all_tbs[it["tb"]] is None:

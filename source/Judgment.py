@@ -1,5 +1,6 @@
 import re
 import logging
+import bisect
 from pathlib import Path
 
 from .Table import TableBuilder, TOC_PLACEHOLDER
@@ -25,6 +26,7 @@ NUMERIC_PARA_MARKER_RE = re.compile(r'^\s*\d{1,3}(?:\.\d{1,3}){0,4}\.?\s+\S')
 STRICT_ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.IGNORECASE)
 
 PARA_GAP_FACTOR = 1.15
+FULL_LINE_WIDTH_RATIO = 0.92
 PARA_END_RE = re.compile(r'[.?!।॥][\)\'"”’\]›»】」』]*\s*$')
 MERGE_BOUNDARY_RE = re.compile(r'[.?!।॥:;][\)\'"”’\]›»】」』]*\s*$')
 QUOTE_OPEN_RE = re.compile(r'^["\'“‘«‹「『]')
@@ -54,6 +56,9 @@ class JudgmentBuilder(TableBuilder):
         self.toc_title = None
         self.toc_rendered = False
         self.doc_line_gap = None
+        self.doc_max_line_width = None
+        self._doc_line_width_xs = None
+        self._doc_line_width_ws = None
         self.sentence_completion_punctuation = sentence_completion_punctuation
         self._base_normalize_text = NormalizeText().normalize_text
         self.normalize_text = self._normalize_and_linkify_footnotes
@@ -81,6 +86,10 @@ class JudgmentBuilder(TableBuilder):
   }
 
   span.header-text, span.footer-text {
+    display: none;
+  }
+
+  span.table-header-text, span.table-footer-text {
     display: none;
   }
 
@@ -198,19 +207,32 @@ class JudgmentBuilder(TableBuilder):
             return False
         return is_abbreviation_like_token(match.group(1))
 
+    def strip_trailing_footnote_markers(self, text):
+        stripped = text.rstrip()
+        while True:
+            match = FOOTNOTE_MARKER_RE.search(stripped)
+            if not match or match.end() != len(stripped):
+                break
+            stripped = stripped[:match.start()].rstrip()
+        return stripped
+
     def line_completes_sentence(self, text):
-        stripped = text.strip()
+        stripped = self.strip_trailing_footnote_markers(text.strip())
         if not PARA_END_RE.search(stripped):
             return False
         return not self.ends_with_abbreviation(stripped)
 
     def is_merge_boundary(self, text):
-        stripped = text.strip()
+        stripped = self.strip_trailing_footnote_markers(text.strip())
         if not MERGE_BOUNDARY_RE.search(stripped):
             return False
         return not self.ends_with_abbreviation(stripped)
 
-    def is_block_starter(self, text):
+    def ends_with_punct_loose(self, text):
+        stripped = self.strip_trailing_footnote_markers(text.strip())
+        return bool(MERGE_BOUNDARY_RE.search(stripped))
+
+    def is_block_starter(self, text, allow_bullet=True):
         stripped = text.strip()
         if not stripped:
             return True
@@ -218,7 +240,38 @@ class JudgmentBuilder(TableBuilder):
             return True
         if NUMERIC_PARA_MARKER_RE.match(stripped):
             return True
-        return self.is_title_row(stripped) or self.is_bullet_row(stripped)
+        if self.is_title_row(stripped):
+            return True
+        return allow_bullet and self.is_bullet_row(stripped)
+
+    def local_line_width_entries(self):
+        if self._doc_line_width_xs is None:
+            entries = self.doc_max_line_width or []
+            self._doc_line_width_xs = [e[0] for e in entries]
+            self._doc_line_width_ws = [e[1] for e in entries]
+        return self._doc_line_width_xs, self._doc_line_width_ws
+
+    def is_anchor_line_full(self, units):
+        if not self.doc_max_line_width:
+            return False
+        last = None
+        for unit in units:
+            if unit.get('kind') == 'text' and 'x0' in unit and 'x1' in unit:
+                last = unit
+        if last is None:
+            return False
+        width = last['x1'] - last['x0']
+        row_height = last.get('y1', 0) - last.get('y0', 0) or 8.0
+        x0_tol = max(10.0, 1.5 * row_height)
+        xs, ws = self.local_line_width_entries()
+        lo = bisect.bisect_left(xs, last['x0'] - x0_tol)
+        hi = bisect.bisect_right(xs, last['x0'] + x0_tol)
+        nearby = sorted(ws[lo:hi])
+        if len(nearby) < 5:
+            return False
+        idx = min(len(nearby) - 1, int(len(nearby) * 0.9))
+        local_max = nearby[idx]
+        return width >= local_max * FULL_LINE_WIDTH_RATIO
 
     def has_continuation_evidence(self, text):
         stripped = text.strip()
@@ -332,19 +385,26 @@ class JudgmentBuilder(TableBuilder):
         groups = []
         current = []
         prev_text = None
+        prev_was_marker = True
 
         for unit in units:
             if unit['kind'] != 'text':
                 current.append(unit)
                 continue
 
+            prev_at_boundary = (prev_text is None or prev_was_marker
+                                 or self.ends_with_punct_loose(prev_text['value']))
+            is_marker_row = self.is_bold_numbered_marker_row(unit) or (
+                prev_at_boundary and (
+                    bool(NUMERIC_PARA_MARKER_RE.match(unit['value'].strip()))
+                    or self.is_title_row(unit['value'])
+                    or self.is_bullet_row(unit['value'])
+                )
+            )
+
             starts_para = False
             if current and any(u['kind'] == 'text' for u in current):
-                if self.is_title_row(unit['value']):
-                    starts_para = True
-                elif self.is_bullet_row(unit['value']):
-                    starts_para = True
-                elif self.is_bold_numbered_marker_row(unit):
+                if is_marker_row:
                     starts_para = True
                 elif (normal and prev_text is not None
                         and prev_text.get('page_num') == unit.get('page_num')
@@ -354,6 +414,7 @@ class JudgmentBuilder(TableBuilder):
                             and self.is_merge_boundary(prev_text['value'])):
                         starts_para = True
 
+            prev_was_marker = is_marker_row
             if starts_para:
                 groups.append(current)
                 current = []
@@ -387,7 +448,7 @@ class JudgmentBuilder(TableBuilder):
                 is_heading = False
             elif (anchor is not None
                     and not anchor['boundary']
-                    and not self.is_block_starter(body_text)
+                    and not self.is_block_starter(body_text, allow_bullet=not anchor['line_full'])
                     and self.has_continuation_evidence(body_text)):
                 is_heading = False
                 anchor['is_heading'] = False
@@ -401,7 +462,7 @@ class JudgmentBuilder(TableBuilder):
                     self.builder += ''.join(raws) + '\n'
                 self._merge_anchor = None
                 return
-        if self.try_continuation_merge(tag, body_text, raws, is_heading):
+        if self.try_continuation_merge(tag, body_text, raws, is_heading, units):
             return
         body = body_text + ''.join(raws)
         start = len(self.builder)
@@ -413,21 +474,24 @@ class JudgmentBuilder(TableBuilder):
                 'complete': self.line_completes_sentence(body_text),
                 'boundary': self.is_merge_boundary(body_text),
                 'is_heading': is_heading,
+                'line_full': self.is_anchor_line_full(units),
             }
         else:
             self._merge_anchor = None
 
-    def try_continuation_merge(self, tag, body_text, raws, is_heading):
+    def try_continuation_merge(self, tag, body_text, raws, is_heading, units):
         anchor = self._merge_anchor
         if anchor is None or is_heading or anchor['is_heading']:
             return False
         if anchor['complete'] or tag not in ("p", "blockquote"):
             return False
-        if self.is_block_starter(body_text) or not self.has_continuation_evidence(body_text):
+        allow_bullet = not anchor['line_full']
+        if self.is_block_starter(body_text, allow_bullet=allow_bullet) or not self.has_continuation_evidence(body_text):
             return False
         close = f"</{anchor['tag']}>"
         idx = anchor['close_idx']
-        if self.builder[idx:idx + len(close)] != close:
+        if (len(self.builder) != idx + len(close)
+                or self.builder[idx:idx + len(close)] != close):
             self._merge_anchor = None
             return False
         insert = ' ' + body_text + ''.join(raws)
@@ -435,6 +499,7 @@ class JudgmentBuilder(TableBuilder):
         anchor['close_idx'] = idx + len(insert)
         anchor['complete'] = self.line_completes_sentence(body_text)
         anchor['boundary'] = self.is_merge_boundary(body_text)
+        anchor['line_full'] = self.is_anchor_line_full(units)
         return True
 
     def group_units_for_render(self, units):
@@ -488,6 +553,7 @@ class JudgmentBuilder(TableBuilder):
     def render_block(self, tag, lines):
         if tag == "pre":
             self.render_pre_block(lines)
+            self._merge_anchor = None
             return
 
         units = self.normalize_units(self.club_lines_into_rows(lines))
@@ -571,6 +637,11 @@ class JudgmentBuilder(TableBuilder):
 
     def add_footer(self, text):
         self.add_hidden_span(f'<span class="footer-text">{text}</span>')
+
+    def add_table_boilerplate(self, table_obj, position):
+        text_html = self.render_table_boilerplate_text(table_obj, position)
+        if text_html:
+            self.add_hidden_span(text_html)
 
     def add_hidden_span(self, span):
         if self.pending_table:
@@ -660,13 +731,28 @@ class JudgmentBuilder(TableBuilder):
 
         for tb, label in page.all_tbs.items():
             is_table_label = isinstance(label, tuple) and label[0] in ("table", "borderless_table")
+            is_table_boilerplate_label = isinstance(label, tuple) and label[0] in (
+                "table_boilerplate", "borderless_table_boilerplate"
+            )
             is_header_footer_label = label in ("header", "footer", "footnote")
 
-            if not is_table_label and not is_header_footer_label \
+            if not is_table_label and not is_table_boilerplate_label and not is_header_footer_label \
                     and self.pending_table is not None and len(self.pending_table) <= 2:
                 self.addTable(self.pending_table[0])
                 self.pending_table = None
                 self.flush_pending_header_footer()
+
+            if is_table_boilerplate_label:
+                table_id = label[1]
+                position = label[2]
+                if table_id not in visited_for_table:
+                    source_tables = (page.tabular_datas if label[0] == "table_boilerplate"
+                                      else page.borderless_tabular_datas).tables
+                    table_obj = source_tables.get(table_id)
+                    if table_obj is not None:
+                        self.add_table_boilerplate(table_obj, position)
+                    visited_for_table.add(table_id)
+                continue
 
             if label == "header":
                 self.add_header(self.normalize_text(tb.extract_text_from_tb()))

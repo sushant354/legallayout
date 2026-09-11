@@ -8,6 +8,33 @@ import logging
 TABLE_FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
 BOLD_FONT_RE = re.compile(r'bold', re.IGNORECASE)
 
+
+def table_dataframe_signature(df):
+    try:
+        cells = [
+            str(value).strip()
+            for row in df.itertuples(index=False, name=None)
+            for value in row
+        ]
+    except Exception:
+        return ""
+    text = ' '.join(cell for cell in cells if cell and cell.lower() != 'nan')
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def table_dataframe_flattened_text(df, col_sep='    ', row_sep='&#10;'):
+    try:
+        rows = list(df.itertuples(index=False, name=None))
+    except Exception:
+        return ""
+    lines = []
+    for row in rows:
+        cells = [str(value).strip() for value in row]
+        cells = [cell for cell in cells if cell and cell.lower() != 'nan']
+        if cells:
+            lines.append(col_sep.join(cells))
+    return row_sep.join(lines)
+
 TOC_PLACEHOLDER = '{{__TOC_ANCHOR_PLACEHOLDER__}}'
 TOC_TAG_NAMES = ('h4', 'p', 'li', 'blockquote')
 TOC_TAG_OPEN_ANY_RE = re.compile(
@@ -125,6 +152,14 @@ class TableBuilder:
             r"^(\d+\s*of\s*\d+)$",            # "1 of 10" pattern
         ]
     
+    def render_table_boilerplate_text(self, table_obj, position):
+        if table_obj is None:
+            return ""
+        flattened = table_dataframe_flattened_text(table_obj)
+        if not flattened:
+            return ""
+        return f'<span class="table-{position}-text">{self.normalize_text(flattened)}</span>'
+
     def apply_table_footnote_markers(self, page, table_id, table_obj):
         marker_tbs = [
             tb for tb, label in page.all_tbs.items()

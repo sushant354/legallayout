@@ -19,6 +19,7 @@ from .Utils import *
 from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
+from .Table import table_dataframe_signature
 
 from contextlib import contextmanager
 
@@ -1417,7 +1418,7 @@ class Main:
                         )
 
                         self.remove_empty_parent_dir(img_path)
-                    
+
                     except Exception as e:
 
                         self.logger.warning(
@@ -1615,6 +1616,24 @@ class Main:
             # page.print_footers()
             page.print_all()
         self.html_builder.doc_line_gap = self.compute_doc_line_gap()
+        self.html_builder.doc_max_line_width = self.compute_doc_max_line_width()
+
+    def compute_doc_max_line_width(self):
+        entries = []
+        for page in self.all_pgs.values():
+            for tb, label in page.all_tbs.items():
+                if label in ("header", "footer", "footnote", "title", "toc", "figure"):
+                    continue
+                if isinstance(label, (tuple, list)):
+                    continue
+                for line in self.extract_toc_lines(tb):
+                    width = line['x1'] - line['x0']
+                    if width > 0:
+                        entries.append((line['x0'], width))
+        if not entries:
+            return None
+        entries.sort(key=lambda e: e[0])
+        return entries
 
     def compute_doc_line_gap(self):
         gaps = []
@@ -1745,6 +1764,8 @@ class Main:
         for page in self.all_pgs.values():
             page.apply_column_reading_order()
 
+        self.detect_repeating_tables()
+
         if self.pdf_type in {'judgments'}:
             self.detect_header_pre(pages)
         # elif self.pdf_type in {'sebi'}:
@@ -1757,6 +1778,79 @@ class Main:
             self.remove_empty_manifest_dir(base_name_of_file, output_dir)
         self.get_all_footnote_text()
         self.logger.info(self.all_footnote_text)
+
+    def detect_repeating_tables(self):
+        total_pages = len(self.all_pgs)
+        if total_pages < 3:
+            return
+
+        SIMILARITY_THRESHOLD = 0.9
+        POSITION_TOLERANCE = 0.05
+        MIN_OCCURRENCES = 3
+        MIN_OCCURRENCE_RATE = 0.4
+
+        entries = []
+        for page_num, page in self.all_pgs.items():
+            if not page.pg_height:
+                continue
+            sources = [("table", page.tabular_datas.tables, page.tabular_datas.table_bbox)]
+            if page.borderless_tabular_datas is not None:
+                sources.append((
+                    "borderless_table",
+                    getattr(page.borderless_tabular_datas, "tables", {}) or {},
+                    getattr(page.borderless_tabular_datas, "table_bbox", {}) or {},
+                ))
+            for source, tables, table_bbox in sources:
+                for idx, df in tables.items():
+                    bbox = table_bbox.get(idx)
+                    if bbox is None:
+                        continue
+                    signature = table_dataframe_signature(df)
+                    if not signature:
+                        continue
+                    entries.append({
+                        'page_num': page_num,
+                        'idx': idx,
+                        'source': source,
+                        'signature': signature,
+                        'y0_pct': bbox[1] / page.pg_height,
+                    })
+
+        if not entries:
+            return
+
+        used = [False] * len(entries)
+        for i, entry in enumerate(entries):
+            if used[i]:
+                continue
+            group = [entry]
+            used[i] = True
+            for j in range(i + 1, len(entries)):
+                if used[j] or entries[j]['source'] != entry['source']:
+                    continue
+                other = entries[j]
+                if abs(entry['y0_pct'] - other['y0_pct']) > POSITION_TOLERANCE:
+                    continue
+                similarity = SequenceMatcher(None, entry['signature'], other['signature']).ratio()
+                if similarity >= SIMILARITY_THRESHOLD:
+                    group.append(other)
+                    used[j] = True
+
+            if (len(group) < MIN_OCCURRENCES
+                    or len(group) / total_pages < MIN_OCCURRENCE_RATE):
+                continue
+
+            avg_y0_pct = sum(member['y0_pct'] for member in group) / len(group)
+            position = "header" if avg_y0_pct >= 0.5 else "footer"
+
+            for member in group:
+                page_obj = self.all_pgs.get(member['page_num'])
+                if page_obj is not None:
+                    page_obj.mark_table_boilerplate(member['idx'], member['source'], position)
+                    self.logger.debug(
+                        "Page %s: table %s (%s) marked as repeating %s boilerplate",
+                        member['page_num'], member['idx'], member['source'], position
+                    )
 
     def remove_empty_manifest_dir(self, base_name_of_file, output_dir, image_base_dir="manifest"):
         manifest_pdf_dir = os.path.join(output_dir, image_base_dir, base_name_of_file)
@@ -2603,6 +2697,8 @@ class Main:
 
             if pdf_type in {'egazette', 'sebi'}:
                 self.write_manifest()
+
+            self.remove_empty_manifest_dir(base_name_of_file, self.output_dir)
 
             return True
         except Exception as e:
