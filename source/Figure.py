@@ -225,7 +225,8 @@ def decode_image(image):
         palette = np.asarray(palette.convert('RGB')).reshape(ncolors, 3)
 
         indices = unpack_samples(data, width, height, 1, bpc)[:, :, 0]
-        return Image.fromarray(palette[np.minimum(indices, hival)], 'RGB')
+        rgb = palette[np.minimum(indices, hival)].astype(np.uint8)
+        return Image.frombytes('RGB', (width, height), rgb.tobytes())
 
     ncomp = get_components(colorspace[0] if len(colorspace) == 1 else colorspace)
     if ncomp is None:
@@ -238,7 +239,7 @@ def decode_image(image):
         samples = samples * 255 // ((1 << bpc) - 1)
     samples = samples.astype(np.uint8)
 
-    img = Image.fromarray(samples[:, :, 0] if ncomp == 1 else samples, PIL_MODES[ncomp])
+    img = Image.frombytes(PIL_MODES[ncomp], (width, height), samples.tobytes())
     return img.convert('RGB') if ncomp == 4 else img
 
 

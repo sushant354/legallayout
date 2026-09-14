@@ -1166,6 +1166,7 @@ class HTMLBuilder(TableBuilder):
         for idx, (tb, label) in enumerate(all_items):
             next_text = None
             next_text_tb = None
+            next_label = None
             if idx + 1 < len(all_items):
                 next_tb, next_label = all_items[idx + 1]
                 
