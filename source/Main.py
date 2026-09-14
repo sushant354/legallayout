@@ -8,6 +8,7 @@ import codecs
 import html
 import logging
 import shutil
+import uuid
 import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
 from .Page import Page, SectionState
@@ -325,11 +326,17 @@ FONT_DETECT_MIN_PROB = 0.5
 # --- the multi word names because a pdf spells them both ways (Book Antiqua and
 # --- BookAntiqua, Yu Gothic and YuGothic), and matched anywhere in the name,
 # --- case insensitively, exactly as the -fc and the built in font names are -
-# --- so a subset prefix or a style suffix (ABCDEF+TimesNewRoman,Bold) matches too
+# --- so a subset prefix or a style suffix (ABCDEF+TimesNewRoman,Bold) matches too.
+# --- The one exception is TeX's Computer Modern (CMR10, CMMI10, CMSY10, CMBX12,
+# --- CMTT10, CMEX10, CMCSC10, CMBXTI10, ...), named as a few letters and a design
+# --- size: two letters are far too short to match anywhere, so it is held to the
+# --- start of the name or to just behind the subset prefix. The model called the
+# --- CMR10 of test/test_pdfs/multicolumn.pdf krutidev at 0.69 and decoded it
 FONT_DETECT_SKIP_RE = re.compile(
     r'times|arial|calibri|cambria|courier|helvetica|verdana|tahoma|garamond'
     r'|book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro'
-    r'|minion[\s_-]*pro|segoe|malgun|yu[\s_-]*gothic',
+    r'|minion[\s_-]*pro|segoe|malgun|yu[\s_-]*gothic'
+    r'|(?:^|\+)cm[a-z]{1,6}\d+',
     re.IGNORECASE
 )
 
@@ -447,6 +454,9 @@ class Main:
                  ocr_engine="tesseract", font_model=None, font_lang=None,
                  font_detect=True, show_fonts=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
+        # names this run's files in the shared cache directories, see
+        # get_run_cache_pdf()
+        self.run_id = uuid.uuid4().hex[:12]
         if self.is_url_like(output_dir):
             raise ValueError(
                 f"output_dir ('{output_dir}') looks like a URL, not a local filesystem "
@@ -708,7 +718,7 @@ class Main:
 
             # the repaired copy keeps the name of the document, everything
             # that is written out is named after it
-            fixed_dir = os.path.join(self.get_path_cache_pdf(), 'tounicode')
+            fixed_dir = os.path.join(self.get_run_cache_pdf(), 'tounicode')
             os.makedirs(fixed_dir, exist_ok = True)
             fixed_path = os.path.join(fixed_dir, os.path.basename(self.pdf_path))
             doc.save(fixed_path)
@@ -2090,8 +2100,8 @@ class Main:
 
         # Initialize page objects first
         for pg in pages:
-            pdf_dir = self.get_path_cache_pdf()
             if not self.pdf_path.lower().endswith(".pdf"):
+                pdf_dir = self.get_run_cache_pdf()
                 base_name = os.path.basename(self.pdf_path) + ".pdf"
                 new_pdf_path = os.path.join(pdf_dir, base_name)
                 shutil.copy(self.pdf_path, new_pdf_path)
@@ -2970,7 +2980,9 @@ class Main:
                 return True
             
             cache_xml_path = self.get_path_cache_xml()
-            self.xml_path =  cache_xml_path / f"{base_name_of_file}.xml"
+            # named for this run as well as for the document, for the reason
+            # get_run_cache_pdf() gives
+            self.xml_path =  cache_xml_path / f"{base_name_of_file}-{self.run_id}.xml"
             self.logger.debug("Converting PDF to XML...")
             self.parserTool.convert_to_xml(self.pdf_path,self.xml_path, self.pdf_type, \
                                            char_margin, word_margin, line_margin)
@@ -3236,19 +3248,34 @@ class Main:
         cache_xml_dir.mkdir(parents=True, exist_ok=True)  
         return cache_xml_dir
 
+    def get_run_cache_pdf(self):
+        """This run's own directory under cache_pdf, created on first use.
+
+        Several runs can be converting at once (egazette's pdf2html runs a
+        pool of them in one tree) and two different documents often share a
+        file name - every issue of a weekly gazette has its 9.pdf - so a copy
+        named after the document alone was written over by the other run, and
+        deleted by it when that run finished, leaving each to read the other's
+        pdf or none at all. A copy is still named after the document, since
+        everything written out is named after it, but in a directory no other
+        run uses.
+        """
+        run_dir = self.get_path_cache_pdf() / self.run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+
     def clear_cache_pdf(self):
-        cache_dir = self.get_path_cache_pdf()
-        if not os.path.exists(self.pdf_path):
-            self.logger.warning("File was not created or already deleted: %s", self.pdf_path)
-        else:
-            if os.path.commonpath([os.path.abspath(self.pdf_path), os.path.abspath(cache_dir)]) == os.path.abspath(cache_dir):
-                try:
-                    os.remove(self.pdf_path)
-                    self.logger.info("Successfully removed cached_pdf: %s", self.pdf_path)
-                except OSError as e:
-                    self.logger.error("Error deleting cached file %s: %s", self.pdf_path, e)
-            else:
-                self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
+        # every pdf this run cached is in its own directory, and nothing of
+        # another run's is
+        run_dir = self.get_path_cache_pdf() / self.run_id
+        if not run_dir.exists():
+            self.logger.debug("No pdf was cached for this run: %s", run_dir)
+            return
+        try:
+            shutil.rmtree(run_dir)
+            self.logger.info("Successfully removed cached pdf(s): %s", run_dir)
+        except OSError as e:
+            self.logger.error("Error deleting cached pdf(s) %s: %s", run_dir, e)
 
     def clear_ocr_engines(self):
         if self.ocr_engine == "paddleocr":
