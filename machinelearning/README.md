@@ -28,7 +28,7 @@ For Hindi+English model
 python -m source.FontSurvey -i ~/public/gzdl/raw/bihar  ~/public/gzdl/raw/central_extraordinary ~/public/gzdl/raw/central_weekly  ~/public/gzdl/raw/uttarpradesh_extraordinary  ~/public/gzdl/raw/uttarpradesh_ordinary -r -tc union_bihar.csv -o central_ext.txt -tf nirmala="nirmala\s*ui" -tf arialuni="arial\s*unicode" -tf krutidev="chanakya|kruti\s*dev"  -nf "times|arial|calibri|cambria|courier|helvetica|verdana|tahoma|garamond" -nf "book antiqua|bookman|liberation|nimbus|myriadpro|minionpro" -nf "segoe|malgun|yu gothic" -tf mangal="mangal"
 ```
 
-For Hindi+Kannada model
+For English+Kannada model
 ```bash
 python -m source.FontSurvey -r -tc kannada_samples.csv -o kar_corpus_report.txt -i /home/sushant/public/gzdl/raw/karnataka /home/sushant/public/gzdl/raw/karnataka_daily /home/sushant/public/gzdl/raw/karnataka_weekly /home/sushant/public/gzdl/raw/karnataka_extraordinary -tf nudiuni='nudi\s*uni' -tf nudi='nudi(?!\s*uni)' -tf tunga='tunga' -tf aklite='aklite' -tf nirmala='nirmala' -tf arialuni='arial[\s_-]*unicode' -nf 'times|arial|calibri|cambria|courier|helvetica|verdana|tahoma|garamond' -nf 'book[\s_-]*antiqua|bookman|liberation|nimbus|myriad|minion|segoe|malgun|yu[\s_-]*gothic' -nf 'century|georgia|trebuchet|consolas|candara|corbel|constantia|franklin|gill[\s_-]*sans|lucida|palatino|sylfaen|impact|comic|dejavu|noto|roboto'
 ```
@@ -39,7 +39,7 @@ For Hindi+Tamil model
 python -m source.FontSurvey -i ~/public/gzdl/raw/tamilnadu -r -tc training_data/tamil_samples.csv -o tamil_corpus_report.txt -tf tamelango='tam[\s_-]*elango|tam[\s_-]*vanavil|reginet' -tf vanavil='(?<![a-z])(?<![a-z][\s_-])vanavil' -tf tommy='tommy' -tf tauelango='tau[\s_-]*elango[\s_-]*panchali(?![\s_-]*sc7)' -tf ilasundaram='uni[\s_.-]*ila[\s_.-]*sundaram' -tf marutham='tau[\s_-]*marutham' -nf 'times|arial(?![\s_-]*unicode)|calibri|cambria|courier|helvetica|verdana|tahoma|garamond' -nf 'book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro|minion[\s_-]*pro' -nf 'segoe|malgun|yu[\s_-]*gothic|trebuchet|century[\s_-]*gothic|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|aptos|rockwell|cgtimes|calisto|clarendon' -nf 'vijaya|tau[\s_-]*elango[\s_-]*valluvan|tau[\s_-]*elango[\s_-]*panchali[\s_-]*sc7'
 ```
 
-For Hindi+Marathi model
+For English+Marathi model
 ```bash
   nohup python -m source.FontSurvey -i ~/public/gzdl/raw/maharashtra -r \
       -tc training_data/marathi_samples.csv -o marathi_corpus_report.txt \
@@ -56,7 +56,7 @@ For Hindi+Marathi model
       -nf 'newcentury|century[\s_-]*schoolbook|century[\s_-]*gothic|bookman|book[\s_-]*antiqua|calisto|minion[\s_-]*pro|myriad[\s_-]*pro' \
       -nf 'segoe|malgun|yu[\s_-]*gothic|trebuchet|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|liberation|nimbus|symbol|aptos|consolas|candara|corbel'  &
 ```
-
+For English+Telugu model
 ```bash
 nohup python -m source.FontSurvey -r \
       -i ~/public/gzdl/raw/andhra ~/public/gzdl/raw/andhra_extraordinary \
@@ -71,6 +71,28 @@ nohup python -m source.FontSurvey -r \
       -nf 'segoe|malgun|yu[\s_-]*gothic|trebuchet|century[\s_-]*gothic|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|aptos|rockwell' \
       -nf 'consolas|constantia|corbel|candara|franklin|agency[\s_-]*fb|maiandra|algerian|batang|mingliu|simsun|ms[\s_-]*mincho|msgothic|sylfaen|symbol|wingdings|zdingbats|arimo|rupeeforadian|arabictransparent' &
 ```
+
+For English+Malayalam model
+```bash
+  nohup python -m source.FontSurvey -r \
+      -i ~/public/gzdl/raw/kerala ~/public/gzdl/raw/keralacompose \
+      -tc training_data/malayalam_samples.csv -o malayalam_corpus_report.txt \
+      -tf revathi='^ml[\s_-]*(?:revathi|karthika)' \
+      -tf ttrevathi='^(?:ml|mlw|fml)[\s_-]*tt' \
+      -tf tmchanakya='^tm[\s_-]*(?:chanakya|bharathi)' \
+      -tf kartika='kartika' \
+      -tf notoserif='(?:^|\+)noto[\s_-]*serif[\s_-]*malayalam(?![\s,_-]*regul)' \
+      -tf nirmala='nirmala[\s_-]*ui' \
+      -tf meera='meera' \
+      -tf freeserif='free[\s_-]*serif' \
+      -tf padmini='^kn[\s_-]*(?:padmini|nandi)' \
+      -nf '^(?!\*).*(?:times|arial(?![\s_-]*unicode)|calibri|cambria|helvetica|verdana|tahoma|garamond)' \
+      -nf '^(?!\*).*(?:book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro|minion[\s_-]*pro|calisto|carlito|caladea|tinos|arimo|charter|century)' \
+      -nf '^(?!\*).*(?:segoe|malgun|yu[\s_-]*gothic|trebuchet|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|aptos|rockwell|consolas|constantia|corbel|candara|franklin)' \
+      -nf 'anjali[\s_-]*old[\s_-]*lipi[\s_-]*regular' &
+
+```
+
 
 The whole corpus is the one csv `-tc/--training-csv` names, a row per sample:
 

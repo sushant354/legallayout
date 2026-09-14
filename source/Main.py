@@ -106,6 +106,12 @@ INDIC_FONT_NAME_ALIASES = {
     # --- TAMVanavilPandian and TAMVANAVILKanchiNormal - one alias for all
     # --- five, the separators spelled the way the elango one spells them
     'tamelango': [r'tam[\s_-]*elango', r'tam[\s_-]*vanavil'],
+    # --- the tamil TM-Chanakya of the Kerala gazette, which indic2unicode keys
+    # --- by its three faces and by the unseparated 'tmchanakya' - so a face it
+    # --- does not list ('TM-Chanakya-BoldItalic', 'TM-Chanakya,Bold') or a
+    # --- separator it does not spell ('TM Chanakya') still reaches it, rather
+    # --- than being matched by nothing tamil and falling to 'chanakya' below
+    'tmchanakya': [r'tm[\s_-]*chanakya'],
 }
 
 # --- the converter keys whose name is not the pattern to look for in a pdf
@@ -130,9 +136,46 @@ INDIC_FONT_NAME_ALIASES = {
 # --- at all. Only a name that *starts* with the family is this converter's,
 # --- so the key is held to one with no letter in front of it and none in
 # --- front of the separator a name spells that prefix with
+# --- ---
+# --- 'chanakya' is the devanagari Chanakya of the Kruti Dev family, and
+# --- TM-Chanakya is a tamil font of the Kerala gazette that shares nothing with
+# --- it but the name - its text is the tamil of fonts/tamil/tmchanakya.py, and
+# --- the devanagari decoder would turn it into devanagari rubbish. Keys are
+# --- tried longest first, so 'tmchanakya' and its faces win today anyway; the
+# --- guard is what keeps it that way for a spelling no longer key matches
+# --- ---
+# --- 'revathi' is the same guard for the same reason, one family over:
+# --- ML-Revathi-Normal is the Type 1 build of the font, whose glyphs the pdf
+# --- names by mac roman, and ML-TTRevathi is the TrueType build, whose text
+# --- is the windows 1252 characters of the same bytes - so the one byte comes
+# --- out of the two as two different characters (ര്‍ is ¿ in one and À in the
+# --- other) and each build has a converter of its own. Every spelling of the
+# --- TT build goes to 'ttrevathi', and 'revathi' is held to a name with no TT
+# --- in front of it
+# --- ---
+# --- 'notoserif' and its pdf font name 'NotoSerifMalayalam' are for the one
+# --- font, Noto Serif Malayalam, and not for every Noto Serif: matched
+# --- anywhere, 'notoserif' reaches the latin NotoSerif-Regular and every other
+# --- script's NotoSerif<Script>, none of which that decoder reads. So the name
+# --- has to start with the family - at the start or behind the six letter
+# --- subset prefix - in either spelling a pdf carries it in ('NotoSerifMalayalam',
+# --- 'Noto Serif Malayalam'), in any of its weights. Its Regular face is the one
+# --- exception: in the Kerala gazette that name is carried by other producers
+# --- than the one the converter was read off, with sound text
+# --- ('NotoSerifMalayalam-Regular', 'പരസ്യം നമ്പർ ... താലൂക്കിൽ') or
+# --- unembedded and garbled a different way ('NotoSerifMalayalam-Regul'), and
+# --- decoding sound text is the one outcome worth guarding against
+NOTO_SERIF_MALAYALAM_PATTERN = \
+    r'(?:^|\+)noto[\s_-]*serif[\s_-]*malayalam(?![\s,_-]*regul)'
+
 INDIC_FONT_NAME_PATTERNS = {
     'nudi': r'nudi(?![\s_-]*uni)',
     'vanavil': r'(?<![a-z])(?<![a-z][\s_-])vanavil',
+    'chanakya': r'(?<!tm)(?<!tm[\s_-])chanakya',
+    'revathi': r'(?<!tt)(?<!tt[\s_-])revathi',
+    'ttrevathi': r'tt[\s_-]*revathi',
+    'notoserif': NOTO_SERIF_MALAYALAM_PATTERN,
+    'NotoSerifMalayalam': NOTO_SERIF_MALAYALAM_PATTERN,
 }
 
 # --- what pdfminer writes for a glyph its font's ToUnicode map has no entry
@@ -341,6 +384,32 @@ FONT_CLASSES_INDIC_TEXT = {
 # --- a legacy encoding draws
 INDIC_SCRIPT_RE = re.compile(r'[\u0900-\u0DFF\uA8E0-\uA8FF]')
 
+# --- devanagari alone, the block and its extension
+DEVANAGARI_SCRIPT_RE = re.compile(r'[\u0900-\u097F\uA8E0-\uA8FF]')
+
+# --- the converters that read the text of one indic script only, as (the name
+# --- of the script, a regexp matching a char of it). A pdf font is matched to
+# --- a converter by its name, and a name says which font it is but not which
+# --- script it is drawing: Nirmala UI draws every indic script there is, and
+# --- the gazettes of Karnataka, Kerala, Andhra Pradesh and Odisha are set in it
+# --- as well as the Gazette of India. What reads the text of a Nirmala UI whose
+# --- map was repaired is nirmalaui_glyphs, which splits the text on its script
+# --- and hands each script to a pass of its own; but a Nirmala UI the repair
+# --- did not place is matched by name to 'nirmalaui', which is the lossy
+# --- decoder of the Gazette of India's devanagari and has no token for any
+# --- other script at all - '\u0D24\u0D3F\u0D30\u0D41\u0D24\u0D4D\u0D24\u0D7D \u0D2A\u0D30\u0D38\u0D4D\u0D2F\u0D02' comes out of it as spaces, and so
+# --- does every word of kannada and telugu. There is no converter of any
+# --- other script for such a font (its passes of those are for repaired text,
+# --- and reordering unrepaired text, whose map may be sound, would destroy
+# --- it), so the glyphs of another script are never handed to it and are left
+# --- as the pdf draws them, see convert_indic_font_runs(); and a font the
+# --- model calls 'nirmala' is only pointed at it when its text is devanagari,
+# --- see get_detected_font_key(). Every key of the same converter is held to
+# --- the same script, see get_converter_scripts()
+CONVERTER_SCRIPTS = {
+    'nirmalaui': ('devanagari', DEVANAGARI_SCRIPT_RE),
+}
+
 # --- and the share of a font's sampled characters that has to be in one of
 # --- those scripts before the model saying it is a legacy latin encoding is
 # --- read as the impossibility it is, see get_detected_font_key(). A little
@@ -467,6 +536,9 @@ class Main:
         # the keys of the converters that read a glyph with no ToUnicode entry
         # as the character of its cid, see get_indic_char_text()
         self.cid_fallback_font_keys = self.get_cid_fallback_font_keys()
+        # the keys of the converters that read one script only, see
+        # CONVERTER_SCRIPTS
+        self.converter_scripts = self.get_converter_scripts()
         # mappings given by the caller come first, so that a font can be pointed at
         # a converter its name does not name, or at a different one than it does
         self.font_conv_map_res = self.get_font_conv_map_res(font_conv_map)
@@ -750,18 +822,64 @@ class Main:
         of how the pdf happens to name it, so the fallback has to follow the
         converter object rather than the one spelling of it named above.
         """
+        return self.get_same_converter_keys(CID_FALLBACK_FONT_KEYS)
+
+    # --- func to get the keys of the converters that read one script only ---
+    def get_converter_scripts(self):
+        """{converter key: (script name, script regexp)}, see CONVERTER_SCRIPTS.
+
+        Widened to every key of the same converter, for the reason
+        get_cid_fallback_font_keys() is: 'Nirmala UI' is the same decoder as
+        'nirmalaui', and a font is matched by whichever of the two its name
+        happens to spell.
+        """
+        return {
+            key: script
+            for font_key, script in CONVERTER_SCRIPTS.items()
+            for key in self.get_same_converter_keys([font_key])
+        }
+
+    # --- func to widen converter keys to every key of the same converter ---
+    def get_same_converter_keys(self, font_keys):
+        """Every key in FontConv.converters naming one of font_keys' converters."""
         if self.font_conv is None:
-            return set(CID_FALLBACK_FONT_KEYS)
+            return set(font_keys)
 
         converters = self.font_conv.converters
-        fallback_convs = [
-            converters[key] for key in CID_FALLBACK_FONT_KEYS if key in converters
-        ]
+        wanted_convs = [converters[key] for key in font_keys if key in converters]
 
         return {
             key for key, converter in converters.items()
-            if any(converter is fallback for fallback in fallback_convs)
+            if any(converter is wanted for wanted in wanted_convs)
         }
+
+    # --- func to tell whether a converter reads the text of a glyph ---
+    def is_converter_script(self, font_key, text):
+        """False when text is in an indic script the font_key converter does not read.
+
+        Text in no indic script at all - latin, digits, punctuation, a (cid:N)
+        placeholder - is the converter's to pass through, as it always was.
+        """
+        script = self.converter_scripts.get(font_key)
+
+        if script is None or not text:
+            return True
+
+        _, script_re = script
+
+        return all(script_re.match(char) for char in INDIC_SCRIPT_RE.findall(text))
+
+    # --- func to get the share of a text in an indic script a converter does not read ---
+    def get_other_script_ratio(self, text, script_re):
+        """How much of text is in an indic script other than script_re's, ignoring whitespace."""
+        chars = ''.join(text.split())
+
+        if not chars:
+            return 0.0
+
+        others = [c for c in INDIC_SCRIPT_RE.findall(chars) if not script_re.match(c)]
+
+        return len(others) / len(chars)
 
     # --- func to get the regexps that match a pdf font to a legacy indic font ---
     def get_indic_font_res(self):
@@ -1159,6 +1277,26 @@ class Main:
             )
             return None
 
+        # a class can be the same font drawing more than one script (nirmala is
+        # Nirmala UI whichever gazette it sets) while its converter reads just
+        # one of them - so the text decides, not the class, see CONVERTER_SCRIPTS
+        script = self.converter_scripts.get(font_key)
+
+        if script is not None:
+            script_name, script_re = script
+            other_ratio = self.get_other_script_ratio(text, script_re)
+
+            if other_ratio > FONT_DETECT_MAX_INDIC_RATIO:
+                self.logger.warning(
+                    "[!] Text in font %s was detected as %s (%.2f), but %.0f%% of "
+                    "it is in an indic script other than %s, the only one %s "
+                    "reads, and there is no converter of that script for an "
+                    "unrepaired %s, so the text is left as it is",
+                    font_name, label, probability, other_ratio * 100,
+                    script_name, font_key, label
+                )
+                return None
+
         self.logger.info(
             "Text in font %s will be converted to unicode using %s, detected from "
             "the text it draws with a probability of %.2f",
@@ -1365,7 +1503,7 @@ class Main:
         # conversion is contextual - matras get reordered and glyph pairs get
         # composed - so it is applied to the longest run of consecutive chars
         # sharing the same font instead of one char at a time
-        get_font = accessors[0]
+        get_font, get_text, _ = accessors
 
         run = []
         run_font_key = None
@@ -1376,6 +1514,11 @@ class Main:
             font_name = get_font(char)
 
             font_key = self.get_indic_font_key(font_name) if font_name else None
+
+            # and so does a glyph of a script its font's converter does not
+            # read, which is left as the pdf draws it (see CONVERTER_SCRIPTS)
+            if font_key and not self.is_converter_script(font_key, get_text(char)):
+                font_key = None
 
             if font_key != run_font_key:
                 self.convert_indic_font_run(run, run_font_key, accessors)
