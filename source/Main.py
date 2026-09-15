@@ -226,6 +226,7 @@ FONT_LANG_MODELS = {
     'tam': 'eng_tam_fonts.pkl',
     'kan': 'eng_kan_fonts.pkl',
     'mar': 'eng_mar_fonts.pkl',
+    'mal': 'eng_mal_fonts.pkl',
     'tel': 'eng_tel_fonts.pkl',
 }
 DEFAULT_FONT_LANG = 'hin'
