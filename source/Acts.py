@@ -958,7 +958,7 @@ class Acts(TableBuilder, SentenceMaker):
                 else:
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
                 value = row[col]
-                value = str(value)
+                value = "" if pd.isna(value) or str(value).strip().lower() == "nan" else str(value)
                 text = self.normalize_text(value)
                 text = self.clean_text(text)
                 value_tab = cell_tab + 1

@@ -1379,7 +1379,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 else:
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
                 value = row[col]
-                value = str(value)
+                value = "" if pd.isna(value) or str(value).strip().lower() == "nan" else str(value)
                 text = self.normalize_text(value)
                 for src_text, replacement_txt in footnote_map.items():
                     if src_text and src_text in text:

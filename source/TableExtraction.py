@@ -1328,7 +1328,8 @@ class BorderlessTableExtraction:
                 (c0 * self.page_width, c1 * self.page_width)
                 for c0, c1 in inherited.get("columns_norm", [])
             ]
-            cols = self._merge_column_ranges(cols + inherited_abs)
+            merged = self._merge_column_ranges(cols + inherited_abs)
+            cols = inherited_abs if len(merged) < len(inherited_abs) else merged
 
         columns_norm = [(x0 / self.page_width, x1 / self.page_width) for (x0, x1) in cols]
         n_cols_out = len(cols)

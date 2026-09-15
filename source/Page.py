@@ -51,6 +51,7 @@ class Page:
         self.ocr_language = ocr_language
         self.ocr_engine = ocr_engine
         self.is_amendment_pdf = is_amendment_pdf
+        self.scanned_copy = scanned_copy
         figure_text = figure_text or pdf_type in ('acts', 'sebi_circulars')
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file,
                                 output_dir, unique_images, min_img_size,
@@ -932,6 +933,18 @@ class Page:
         if narrower_width > 0 and (overlap / narrower_width) > max_overlap_ratio:
             return
 
+        band_items = [
+            tb for tb in all_candidates
+            if min(tb.coords[3], band_top) - max(tb.coords[1], band_bottom) > 0
+        ]
+        n_narrow_cols = self._count_narrow_columns(band_items)
+        if not self.scanned_copy and n_narrow_cols >= 2:
+            self.logger.debug(
+                f"Page {self.pg_num}: rejecting multicolumn, looks like a table "
+                f"({n_narrow_cols} aligned narrow columns)"
+            )
+            return
+
         self.is_multicolumn = True
         self.column_bounds = [(left_x0, left_x1), (right_x0, right_x1)]
         self.column_split_x = (left_x1 + right_x0) / 2.0
@@ -939,6 +952,35 @@ class Page:
             f"Page {self.pg_num}: detected multicolumn layout, "
             f"column_bounds={self.column_bounds}, split_x={self.column_split_x}"
         )
+
+    def _count_narrow_columns(self, band_items, min_stack=2):
+        if len(band_items) < 2:
+            return 0
+        widths = sorted(tb.coords[2] - tb.coords[0] for tb in band_items)
+        split_w, best_gap = None, 0.0
+        for i in range(len(widths) - 1):
+            gap = widths[i + 1] - widths[i]
+            if gap > best_gap:
+                best_gap = gap
+                split_w = (widths[i] + widths[i + 1]) / 2.0
+        if split_w is None:
+            return 0
+        narrow = [tb for tb in band_items if (tb.coords[2] - tb.coords[0]) < split_w]
+        if not narrow:
+            return 0
+        heights = [tb.coords[3] - tb.coords[1] for tb in band_items if tb.coords[3] > tb.coords[1]]
+        tol = float(np.median(heights)) if heights else 0.0
+        centers = sorted(((tb.coords[0] + tb.coords[2]) / 2.0) for tb in narrow)
+        groups = []
+        current = [centers[0]]
+        for c in centers[1:]:
+            if c - current[-1] <= tol:
+                current.append(c)
+            else:
+                groups.append(current)
+                current = [c]
+        groups.append(current)
+        return sum(1 for g in groups if len(g) >= min_stack)
 
     # --- band-based reading-order reorder shared by apply_column_reading_order and sort_all_boxes ---
     def _reorder_by_columns(self, items, full_width_ratio=0.6):
@@ -2101,22 +2143,29 @@ class Page:
             self.logger.error(f"Error in get_hierarchy: {e}")
             return False
     
-    def reclaim_header_footer_for_continuation(self, continuation_template, top_band_ratio=0.30, x_tol_ratio=0.03):
+    def reclaim_header_footer_for_continuation(self, continuation_template, top_band_ratio=0.30,
+                                               x_tol_ratio=0.03, protected_boxes=None,
+                                               protect_margin_ratio=0.10):
         if not continuation_template:
             return
 
         cols = continuation_template.get("columns_norm", [])
         if not cols:
             return
+        protected_boxes = protected_boxes or set()
         tmpl_x0 = min(c0 for c0, _ in cols) * self.pg_width - self.pg_width * x_tol_ratio
         tmpl_x1 = max(c1 for _, c1 in cols) * self.pg_width + self.pg_width * x_tol_ratio
         top_cut = self.pg_height * (1.0 - top_band_ratio)
+        top_margin = self.pg_height * (1.0 - protect_margin_ratio)
+        bottom_margin = self.pg_height * protect_margin_ratio
 
         reclaimable = {"header", "footer", "side notes"}
         for tb, label in list(self.all_tbs.items()):
             if label not in reclaimable:
                 continue
             x0, y0, x1, y1 = tb.coords
+            if id(tb) in protected_boxes and (y0 >= top_margin or y1 <= bottom_margin):
+                continue
             if y1 < top_cut:
                 continue
             center_x = (x0 + x1) / 2.0

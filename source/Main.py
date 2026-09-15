@@ -1752,8 +1752,10 @@ class Main:
         if self.table_extract and self.pdf_type != 'judgments':
             self.logger.info("Detecting borderless tables...")
             self.pending_continuation = None
+            protected_running_hf = self.get_protected_running_headers_footers()
             for page in self.all_pgs.values():
-                page.reclaim_header_footer_for_continuation(self.pending_continuation)
+                page.reclaim_header_footer_for_continuation(
+                    self.pending_continuation, protected_boxes=protected_running_hf)
                 self.pending_continuation = page.get_borderless_table(
                     self.pdf_type, self.header_classifier, self.region_merge_classifier,
                     continuation_template=self.pending_continuation,
@@ -2521,6 +2523,22 @@ class Main:
                     return True
                     
         return False
+
+    def get_protected_running_headers_footers(self, min_pages=2):
+        protected = set()
+        try:
+            for group in getattr(self, 'adaptive_headers', []) + getattr(self, 'adaptive_footers', []):
+                elements = group.get('elements', [])
+                pages_seen = set(e.get('page_num') for e in elements)
+                if len(pages_seen) < min_pages:
+                    continue
+                for e in elements:
+                    tb = e.get('textbox')
+                    if tb is not None:
+                        protected.add(id(tb))
+        except Exception as e:
+            self.logger.debug("Could not build protected running header/footer set: %s", e)
+        return protected
 
     def _apply_adaptive_headers_footers(self):
         try:
