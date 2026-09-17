@@ -657,12 +657,36 @@ class BorderlessTableExtraction:
                 cluster_vals.append([val])
         return clusters
 
+    def _row_local_eps(self, items, fallback):
+        row_eps = max(self._estimate_line_height(items) * 0.5, self.py(0.002))
+        rows = self._rows_by_top(items, row_eps)
+
+        start_gaps = []
+        for row in rows:
+            row_sorted = sorted(row, key=lambda it: it.x0)
+            for a, b in zip(row_sorted, row_sorted[1:]):
+                gap = b.x0 - a.x0
+                if gap > 0:
+                    start_gaps.append(gap)
+
+        if not start_gaps:
+            return None
+
+        return max(min(start_gaps) * 0.6, fallback * 0.25)
+
     def _cluster_columns(self, items):
         sorted_items = sorted(items, key=lambda it: it.x0)
         xs = [it.x0 for it in sorted_items]
-        eps_x = self._auto_eps(xs, k=2, fallback=self.px(0.015))
-
+        fallback = self.px(0.015)
+        eps_x = self._auto_eps(xs, k=2, fallback=fallback)
         raw_clusters = self._sequential_cluster_1d(list(zip(xs, sorted_items)), eps_x)
+
+        dominant_share = max((len(c) for c in raw_clusters), default=0) / len(items) if items else 0.0
+        if len(raw_clusters) < 2 or dominant_share > 0.7:
+            row_eps = self._row_local_eps(items, fallback)
+            if row_eps is not None and row_eps < eps_x:
+                eps_x = row_eps
+                raw_clusters = self._sequential_cluster_1d(list(zip(xs, sorted_items)), eps_x)
 
         median_item_width = statistics.median([it.width for it in items]) if items else self.px(0.01)
 
@@ -765,6 +789,9 @@ class BorderlessTableExtraction:
         ]
 
         if len(valid_clusters) < self.min_cols:
+            return [], {}
+
+        if len(valid_clusters) == 2 and not any(c["is_narrow"] for c in valid_clusters):
             return [], {}
 
         item_col_id = {}
@@ -951,7 +978,18 @@ class BorderlessTableExtraction:
             })
 
         min_overlap = -max(line_height * 0.5, self.py(0.003))
+        row_tol = min(line_height * 0.1, self.py(0.002))
         for it in other_items:
+            top_band = None
+            adj_y1 = it.y1 - row_tol
+            for i, band in enumerate(bands):
+                if band["bottom"] < adj_y1 <= band["top"]:
+                    top_band = i
+                    break
+            if top_band is not None:
+                bands[top_band]["items"].append(it)
+                continue
+
             best_i, best_overlap = None, -1.0
             for i, band in enumerate(bands):
                 overlap = min(band["top"], it.y1) - max(band["bottom"], it.y0)

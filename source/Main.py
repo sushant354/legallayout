@@ -1528,11 +1528,7 @@ class Main:
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.print_tbs()
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
-            page.find_sidenote_leftend_rightstart_coords()
-            page.get_side_notes() #self.section_start_page,self.section_end_page)
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             if self.is_amendment_pdf:
@@ -1555,8 +1551,6 @@ class Main:
 
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -1574,8 +1568,6 @@ class Main:
     def process_pages_sebi(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -1598,8 +1590,6 @@ class Main:
     def process_pages_judgments(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -1662,8 +1652,6 @@ class Main:
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -1744,6 +1732,13 @@ class Main:
 
         if not self.is_scanned_copy:
             self.finalize_adaptive_header_footer_detection()
+
+        for page in self.all_pgs.values():
+            page.get_width_ofTB_moreThan_Half_of_pg()
+            page.get_body_width_by_binning()
+            if self.has_side_notes:
+                page.find_sidenote_leftend_rightstart_coords()
+                page.get_side_notes()
 
         self.logger.info("Detecting multicolumn page layouts...")
         for page in self.all_pgs.values():

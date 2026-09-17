@@ -620,9 +620,26 @@ def update_golden_files(actual_dir, expected_dir):
             copied_files += 1
             print(f"[UPDATED] {target_file}")
         elif actual_file.is_dir():
-            shutil.copytree(actual_file, target_file, dirs_exist_ok=True)
-            copied_files += 1
-            print(f"[UPDATED] {target_file}/")
+            # mirror each immediate child (e.g. manifest/<pdfname>) individually
+            # rather than one merge-copytree over the whole directory, so a
+            # child's stale files/subfolders (renamed or dropped images, a
+            # pdf that no longer produces a manifest) are actually removed
+            # instead of accumulating forever; untouched siblings under
+            # target_file are left alone, so a partial --cases run only
+            # updates the goldens for the cases it actually regenerated
+            target_file.mkdir(parents=True, exist_ok=True)
+            for child in actual_file.iterdir():
+                target_child = target_file / child.name
+                if target_child.is_dir():
+                    shutil.rmtree(target_child)
+                elif target_child.exists():
+                    target_child.unlink()
+                if child.is_dir():
+                    shutil.copytree(child, target_child)
+                else:
+                    shutil.copy2(child, target_child)
+                copied_files += 1
+                print(f"[UPDATED] {target_child}")
 
     print(f"\n✅ Updated {copied_files} golden file(s) in {expected_dir}")
 

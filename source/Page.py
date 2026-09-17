@@ -938,7 +938,8 @@ class Page:
             if min(tb.coords[3], band_top) - max(tb.coords[1], band_bottom) > 0
         ]
         n_narrow_cols = self._count_narrow_columns(band_items)
-        if not self.scanned_copy and n_narrow_cols >= 2:
+        if not self.scanned_copy and n_narrow_cols >= 2 and \
+           not self._columns_have_stacked_paragraphs(left_cluster, right_cluster):
             self.logger.debug(
                 f"Page {self.pg_num}: rejecting multicolumn, looks like a table "
                 f"({n_narrow_cols} aligned narrow columns)"
@@ -952,6 +953,21 @@ class Page:
             f"Page {self.pg_num}: detected multicolumn layout, "
             f"column_bounds={self.column_bounds}, split_x={self.column_split_x}"
         )
+
+    def _columns_have_stacked_paragraphs(self, left_cluster, right_cluster, min_stack=2, full_width_ratio=0.85):
+        for cluster in (left_cluster, right_cluster):
+            if len(cluster) < min_stack:
+                return False
+            col_x0 = min(tb.coords[0] for tb in cluster)
+            col_x1 = max(tb.coords[2] for tb in cluster)
+            col_width = col_x1 - col_x0
+            if col_width <= 0:
+                return False
+            full = sum(1 for tb in cluster
+                       if (tb.coords[2] - tb.coords[0]) >= full_width_ratio * col_width)
+            if full < min_stack:
+                return False
+        return True
 
     def _count_narrow_columns(self, band_items, min_stack=2):
         if len(band_items) < 2:
