@@ -11,6 +11,7 @@ from sklearn.cluster import DBSCAN
 from .Table import TableBuilder
 from .NormalizeText import NormalizeText
 from .SentenceEndDetector import SentenceMaker
+from .Utils import INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS, INDIC_LETTER_CHARS
 
 COMBINED_RE = re.compile(
                 r"""
@@ -549,7 +550,7 @@ class Acts(TableBuilder, SentenceMaker):
         #     re.IGNORECASE
         # )
         group_re = re.compile(
-                r'^\s*(\(\s*(?:[1-9]\d{0,2}|[A-Z]{1,3}|(?:CM|CD|D?C{0,3})?'
+                r'^\s*(\(\s*(?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}|[A-Z' + INDIC_LETTER_CHARS + r']{1,3}|(?:CM|CD|D?C{0,3})?'
                 r'(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3}))\s*\))\s*(.*)',
                 re.IGNORECASE
             )
@@ -565,7 +566,7 @@ class Acts(TableBuilder, SentenceMaker):
     def find_value_and_text(self,text):
         group_re = re.compile(
                 r'^\s*('
-                r'(?:\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'   # section: 1. , 2A. , 3A-B.
+                r'(?:\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)'   # section: 1. , 2A. , 3A-B.
                 r'|'
                 r'(?:\(\s*[^\s\)]+\s*\))'           # group: (A), (1), (B1)
                 r')\s*(.*)$',                       # group 2 = remaining text
@@ -602,7 +603,7 @@ class Acts(TableBuilder, SentenceMaker):
             side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
             self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
             if not has_side_notes:
-                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 prefix = match.group(1)
                 rest_text = match.group(2).strip()
                 rest_text_type, value, remain_text = self.findType(rest_text)
@@ -621,7 +622,7 @@ class Acts(TableBuilder, SentenceMaker):
                         self.previous_sentence_end_status = True
                 return
             if side_note_text:
-                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
                     short_title = self.normalize_text((side_note_text or "").strip()) or ""
@@ -653,7 +654,7 @@ class Acts(TableBuilder, SentenceMaker):
 
                 check_re = re.compile(
                         r'^'
-                        r'(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)'   # Group 1: Number/marker like '13.'
+                        r'(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)'   # Group 1: Number/marker like '13.'
                         r'(?!\s*\([^)]+\))'                       # Negative lookahead: fail if second group starts with anything in parentheses
                         r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'   # Group 2: Text up to first . or : optionally followed by -/—
                         r'(.*)$',                                 # Group 3: Rest of text
@@ -675,7 +676,7 @@ class Acts(TableBuilder, SentenceMaker):
                         self.builder  += "\n" + ("\t" * (self.curr_tab_level+1))+f"{remain_text}"
                     return
                 
-                # match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                # match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 # if match:
                 #     prefix = match.group(1)
                 #     short_title = match.group(2).strip()
@@ -687,7 +688,7 @@ class Acts(TableBuilder, SentenceMaker):
                 #         self.section_shorttitle_notend_status = True
 
                 match = re.match(
-                                r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)',
+                                r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)',
                                 text.strip()
                             )
 
@@ -1025,14 +1026,15 @@ class Acts(TableBuilder, SentenceMaker):
             self.logger.warning("Exception while adding section amendment [%s]: %s",text, e)
     
     def is_section_amended(self, text):
-        match = re.match(
-                r'''^\s*['"]?              # optional leading ' or "
-                    (\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)   # your numbering token
+        section_letter_class = 'A-Z' + INDIC_LETTER_CHARS
+        pattern = (
+            r'''^\s*['"]?              # optional leading ' or "'''
+            rf'''
+                    (\d{{1,3}}[{section_letter_class}]*(?:-[{section_letter_class}]+)?\.\s*)   # your numbering token
                     (.*)                   # rest of the text
-                ''',
-                text.strip(),
-                re.VERBOSE
-            )
+                '''
+        )
+        match = re.match(pattern, text.strip(), re.VERBOSE)
         return match
 
     def remove_unwanted_sidenotes(self, side_note_datas):
@@ -1234,7 +1236,7 @@ class Acts(TableBuilder, SentenceMaker):
       cleaned = raw.lower()
 
       # --- Reject common bullet forms: 'i.', 'ii)', '1.' followed by text ---
-      if re.match(r"^\(?[ivxlcdm0-9]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
+      if re.match(r"^\(?[ivxlcdm0-9" + INDIC_DIGIT_CHARS + r"]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
           return False
 
       # Remove enclosing brackets/parentheses/braces only if whole thing is wrapped

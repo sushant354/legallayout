@@ -5,8 +5,12 @@ import html as html_lib
 from difflib import SequenceMatcher
 import logging
 
+from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS
+
 TABLE_FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
 BOLD_FONT_RE = re.compile(r'bold', re.IGNORECASE)
+PRE_KEEP_SPAN_RE = re.compile(
+    r'<span[^>]*class="(?:header-text|footer-text|table-header-text|table-footer-text)"')
 
 
 def table_dataframe_signature(df):
@@ -44,7 +48,7 @@ TOC_TAG_OPEN_RES = {t: re.compile(r'<' + t + r'(?![a-zA-Z])[^>]*>') for t in TOC
 TOC_TAG_CLOSE_RES = {t: re.compile(r'</' + t + r'>') for t in TOC_TAG_NAMES}
 TOC_TAG_STRIP_RE = re.compile(r'<[^>]+>')
 TOC_LEADING_ENUM_RE = re.compile(
-    r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9]{1,4}\)?[.\):])+\s*',
+    r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)?[.\):])+\s*',
     re.IGNORECASE
 )
 TOC_MATCH_THRESHOLD = 0.6
@@ -142,12 +146,12 @@ class TableBuilder:
         self.logger = logging.getLogger(__name__)
         
         self.serial_patterns = [
-            r"^(\(?[1-9]\d*[\)\)]?[\.\)]?)$",  # Numbers with brackets/dots: (1), 1., 1)
-            r"^([a-zA-Z][\)\.]?)$",           # Single letters with brackets/dots: a), A.
+            r"^(\(?[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"]\d*[\)\)]?[\.\)]?)$",  # Numbers with brackets/dots: (1), 1., 1)
+            r"^([a-zA-Z" + INDIC_LETTER_CHARS + r"][\)\.]?)$",           # Single letters with brackets/dots: a), A.
             r"^([ivxlcdmIVXLCDM]+[\)\.]?)$",   # Roman numerals with brackets/dots: i), ii.
-            r"^(\(?[1-9]\d*\)[\.\:]?)",       # (1). or (1):
-            r"^([a-zA-Z]\d+(\.\d+)?)$",       # Alphanumeric: a1, a2.1
-            r"^(\d+(\.\d+)?[a-zA-Z])$",       # Numeric-letter: 1a, 2.1b
+            r"^(\(?[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"]\d*\)[\.\:]?)",       # (1). or (1):
+            r"^([a-zA-Z" + INDIC_LETTER_CHARS + r"]\d+(\.\d+)?)$",       # Alphanumeric: a1, a2.1
+            r"^(\d+(\.\d+)?[a-zA-Z" + INDIC_LETTER_CHARS + r"])$",       # Numeric-letter: 1a, 2.1b
             r"^(sec|art|clause|section)\s*[\-\:]?\s*\d+",  # Legal references
             r"^(\d+\s*of\s*\d+)$",            # "1 of 10" pattern
         ]
@@ -549,7 +553,7 @@ class TableBuilder:
             return True
             
         # Check for alphanumeric serial patterns
-        if re.fullmatch(r'[a-z]\d+|[a-z]+\d+', clean_text):
+        if re.fullmatch(r'[a-z' + INDIC_LETTER_CHARS + r']\d+|[a-z' + INDIC_LETTER_CHARS + r']+\d+', clean_text):
             return True
             
         return False
@@ -939,6 +943,65 @@ class TableBuilder:
             return False
         return (bold / total) > 0.5
 
+    def line_cells_from_chars(self, tb, textline):
+        chars = []
+        pending_superscript = []
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+            cx0 = cx1 = None
+            char_bbox = None
+            if 'bbox' in text_el.attrib:
+                try:
+                    char_bbox = tuple(map(float, text_el.attrib['bbox'].split(',')))
+                    cx0, cx1 = char_bbox[0], char_bbox[2]
+                except Exception:
+                    char_bbox = None
+            if char_bbox is not None and char_bbox in tb.footnotes_superscript:
+                pending_superscript.append(tb.footnotes_superscript[char_bbox])
+                continue
+            if pending_superscript:
+                marker = '{{^{{FOOTNOTE ' + ''.join(pending_superscript) + '}}}}'
+                chars.append((cx0, cx1, marker, False))
+                pending_superscript = []
+            chars.append((cx0, cx1, raw, raw.isspace()))
+        if pending_superscript:
+            marker = '{{^{{FOOTNOTE ' + ''.join(pending_superscript) + '}}}}'
+            chars.append((None, None, marker, False))
+
+        widths = [c[1] - c[0] for c in chars
+                  if not c[3] and c[0] is not None and c[1] is not None and c[1] > c[0]]
+        char_width = sorted(widths)[len(widths) // 2] if widths else 1.0
+        threshold = char_width * 2.0
+
+        cells = []
+        current = None
+        prev_x1 = None
+        for cx0, cx1, raw, is_space in chars:
+            if is_space:
+                if current is not None:
+                    current['text'] += raw
+                continue
+            if (current is not None and prev_x1 is not None and cx0 is not None
+                    and cx0 - prev_x1 > threshold):
+                if current['text'].strip():
+                    cells.append(current)
+                current = None
+            if current is None:
+                current = {'x0': cx0, 'x1': cx1, 'text': raw}
+            else:
+                current['text'] += raw
+                if cx1 is not None:
+                    current['x1'] = cx1
+            if cx1 is not None:
+                prev_x1 = cx1
+        if current is not None and current['text'].strip():
+            cells.append(current)
+        for cell in cells:
+            cell['text'] = cell['text'].strip()
+        return cells, char_width
+
     def extract_textlines(self, tb):
         lines = []
         for textline in tb.tbox.findall('.//textline'):
@@ -954,9 +1017,19 @@ class TableBuilder:
             if not text:
                 continue
 
+            cells, char_width = self.line_cells_from_chars(tb, textline)
+            for cell in cells:
+                cell['y0'] = y0
+                cell['y1'] = y1
+                if cell['x0'] is None:
+                    cell['x0'] = x0
+                if cell['x1'] is None:
+                    cell['x1'] = x1
+
             lines.append({
                 'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text,
                 'lead_bold': self.leading_token_is_bold(textline),
+                'cells': cells, 'char_width': char_width,
             })
         return lines
 
@@ -994,6 +1067,12 @@ class TableBuilder:
             line += text
         return line
 
+    def pre_line_cells(self, item):
+        cells = item.get('cells')
+        if cells:
+            return cells
+        return [item]
+
     def render_pre_block(self, lines):
         ordered = []
         current_chunk = []
@@ -1008,21 +1087,27 @@ class TableBuilder:
         if current_chunk:
             ordered.append(('text', current_chunk))
 
-        all_text_items = [item for kind, chunk in ordered if kind == 'text' for item in chunk]
+        all_text_items = [cell for kind, chunk in ordered if kind == 'text'
+                          for item in chunk for cell in self.pre_line_cells(item)]
         if not all_text_items:
             return
 
         base_x0 = min(item['x0'] for item in all_text_items)
-        total_width = sum(item['x1'] - item['x0'] for item in all_text_items)
-        total_chars = sum(len(item['text']) for item in all_text_items)
-        char_width = total_width / total_chars
+        total_width = sum(max(item['x1'] - item['x0'], 0.0) for item in all_text_items)
+        total_chars = sum(len(item['text']) for item in all_text_items) or 1
+        char_width = total_width / total_chars or 1.0
 
         body_lines = []
         for kind, chunk in ordered:
             if kind == 'raw':
-                body_lines.append(chunk['raw'])
+                raw = chunk['raw']
+                if not PRE_KEEP_SPAN_RE.search(raw):
+                    raw = re.sub(r'</?span[^>]*>', '', raw)
+                if raw.strip():
+                    body_lines.append(raw)
                 continue
-            for row in self.cluster_rows_by_position(chunk):
+            chunk_cells = [cell for item in chunk for cell in self.pre_line_cells(item)]
+            for row in self.cluster_rows_by_position(chunk_cells):
                 line = self.build_row_text(row, base_x0, char_width)
                 if line.strip():
                     body_lines.append(line)

@@ -530,7 +530,7 @@ class Page:
         for tb, label in self.all_tbs.items():
             if label is not None:
                 continue
-            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9]+\)?[.)]', tb.extract_text_from_tb().strip()):
+            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)?[.)]', tb.extract_text_from_tb().strip()):
                 self.all_tbs[tb] = ('italic', 'blockquote')
 
     # def detect_pre(self):
@@ -1082,7 +1082,7 @@ class Page:
             return False
         
     def find_sidenote_leftend_rightstart_coords(self):
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         left_sidenote_end_coords = []
         right_sidenote_start_coords = []
         for tb, label in self.all_tbs.items():
@@ -1190,9 +1190,9 @@ class Page:
     #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,sectionState, main):  #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         group_re = re.compile(
-            r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+            r'^\(\s*((?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2})|(?:[A-Z' + INDIC_LETTER_CHARS + r']{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
             re.IGNORECASE
         )
         try:
@@ -1316,7 +1316,7 @@ class Page:
         group_re = re.compile(
             r'^\s*'
             r'(?:'
-                r'(?P<marker>\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'
+                r'(?P<marker>\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)'
                 r'|'
                 r'\(\s*(?P<marker_paren>[^\s\)]+)\s*\)'
             r')\s*(?P<text>.*)$',
@@ -1514,15 +1514,15 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[a-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([a-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+                r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
         )
 
@@ -1543,7 +1543,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1586,15 +1586,15 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z]{1,2}[.\)]|\([A-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+                r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
         )
 
@@ -1620,7 +1620,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1856,7 +1856,7 @@ class Page:
             if footnote_started and current_footnote_font_size is None:
 
                 is_bare_number = bool(
-                    re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
+                    re.fullmatch(r'\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?', text.strip())
                 )
 
                 if not is_bare_number and self.all_tbs[tb] is None and tb not in protected_tbs:
@@ -1890,7 +1890,7 @@ class Page:
                 )
 
                 is_bare_number = bool(
-                    re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
+                    re.fullmatch(r'\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?', text.strip())
                 )
 
                 if same_font and not is_bare_number:
@@ -1937,7 +1937,7 @@ class Page:
                 return
 
             leading_marker_re = re.compile(r'^\s*\(?([0-9*†‡]{1,3})\)?[.\s]')
-            bare_number_re = re.compile(r'^\(?[0-9]{1,4}\)?$')
+            bare_number_re = re.compile(r'^\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?$')
             dotted_clause_re = re.compile(r'^\d+\.\d+(\.\d+)*[.\s]')
             embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9*†‡]{1,3})\}\}\}\}')
 
@@ -2007,7 +2007,7 @@ class Page:
         if protected_tbs is None:
             protected_tbs = set()
 
-        bare_number_re = re.compile(r'^\(?([0-9]{1,3})\)?$')
+        bare_number_re = re.compile(r'^\(?([0-9' + INDIC_DIGIT_CHARS + r']{1,3})\)?$')
         tbs_in_order = list(self.all_tbs.keys())
 
         for idx, tb in enumerate(tbs_in_order):
@@ -2095,9 +2095,9 @@ class Page:
         hierarchy_type = ("level0","level1","level2","level3","level4")
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z]{1,2}[.\)]|\([A-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+                r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
         )
         try:

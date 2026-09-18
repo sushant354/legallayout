@@ -20,6 +20,7 @@ from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
 from .Table import table_dataframe_signature
+from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS, INDIC_SEMICOLON_CHARS
 
 from contextlib import contextmanager
 
@@ -1476,28 +1477,32 @@ class Main:
     
     def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
-            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
+                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
-                                                '.”', '.’', ';”' , ';’', ':-')
+                                                '.”', '.’', ';”' , ';’', ':-') \
+                                                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return Acts(self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
         elif pdf_type in set(['sebi_circulars']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-', '.]',
-                                                ',-', ':-', ';-', '--')
+                                                ',-', ':-', ';-', '--') \
+                                                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return SebiCirculars(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
 
         elif pdf_type == 'judgments':
-            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";')
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
+                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         else:
-            sentence_completion_punctutation = ('.', ':')
+            sentence_completion_punctutation = ('.', ':') + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
@@ -1547,7 +1552,8 @@ class Main:
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-', '.]',
-                                                ',-', ':-', ';-', '--')
+                                                ',-', ':-', ';-', '--') \
+                                                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
 
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
@@ -1573,7 +1579,7 @@ class Main:
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
             # self.amendment.check_for_blockquotes(page)
-            self.amendment.check_for_blockquotes_judgments(page)
+            self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
             page.detect_sparse_pre()
             # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
@@ -1594,7 +1600,7 @@ class Main:
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
-            self.amendment.check_for_blockquotes_judgments(page)
+            self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
             page.detect_sparse_pre()
             # page.detect_pre()
 
@@ -3542,7 +3548,7 @@ class Main:
 
     def detect_sebi_header_pre(self, pages):
         body_start_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
         )
 
         rows = []
@@ -3606,7 +3612,7 @@ class Main:
         PAGE_NO_HEADER_RE = re.compile(r'^\s*PAGE\s*(?:NO\.?|NUMBER)\s*$', re.I)
         ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.I)
         TOC_PAGE_REF_RE = re.compile(
-            r'[.․…\s]*[.․…]{2,}[.․…\s]*(\(?[A-Za-z0-9]{1,7}\)?)\.?(?=\s|$)'
+            r'[.․…\s]*[.․…]{2,}[.․…\s]*(\(?[A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,7}\)?)\.?(?=\s|$)'
         )
         MAX_MISS_STREAK = 3
         MAX_CONTINUATION_LEN = 160

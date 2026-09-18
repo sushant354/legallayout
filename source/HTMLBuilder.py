@@ -1,5 +1,6 @@
 import re
 import math
+from collections import Counter
 import numpy as np
 import logging
 import pandas as pd
@@ -7,11 +8,23 @@ from difflib import SequenceMatcher
 import copy
 from pathlib import Path
 from .Table import TableBuilder, TOC_PLACEHOLDER
-from .SentenceEndDetector import LegalSentenceDetector
+from .SentenceEndDetector import LegalSentenceDetector, SENTENCE_END_CHAR_CLASS
+from .Utils import INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS
 from .NormalizeText import NormalizeText
 
 
 HTML_PARA_GAP_FACTOR = 1.15
+
+PRE_GRID_COLUMN_GAP_FACTOR = 2.0
+PRE_GRID_ALIGN_FACTOR = 0.5
+PRE_GRID_COLUMN_SUPPORT = 0.5
+PRE_GRID_MIN_COVERAGE = 0.85
+PRE_GRID_MIN_COLCOUNT_CONSISTENCY = 0.5
+PRE_GRID_MIN_ROWS = 2
+PRE_GRID_MIN_ROW_COLUMNS = 2
+PRE_GRID_MIN_MULTICOL_ROWS = 2
+PRE_GRID_MIN_INTERIOR_COLUMNS = 2
+PRE_GRID_MULTICOL_FRACTION = 0.5
 
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
@@ -281,7 +294,7 @@ class HTMLBuilder(TableBuilder):
     def check_for_last_token(self, html):
       last_token, last_tag = self.get_last_token(html)
       if last_tag and last_token: 
-          if not last_token.endswith(('.','?','!',';',':',":-", "---", "...", '—',':','."', ".'",';"',";'", '…')): #, '-'
+          if not last_token.endswith((":-", "---", "...", '—', '."', ".'", ';"', ";'", '…') + tuple(SENTENCE_END_CHAR_CLASS)):
              return True, last_tag
       return False, last_tag 
     
@@ -678,7 +691,7 @@ class HTMLBuilder(TableBuilder):
           side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
           self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
           if side_note_text:
-            match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+            match = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
             if match:
               prefix = match.group(1)
               short_title = self.normalize_text(side_note_text.strip())
@@ -702,7 +715,7 @@ class HTMLBuilder(TableBuilder):
                       self.stack_for_section.append(hierarchy_index+1)
                   
           else:
-            match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+            match = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
             if match:
               prefix = match.group(1)
               rest_text = match.group(2).strip()
@@ -888,7 +901,7 @@ class HTMLBuilder(TableBuilder):
         side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
         self.logger.debug("Side note matched for the amendments [%s]: %s",text, side_note_text)
         if side_note_text:
-          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
           if match:
             prefix = match.group(1)
             short_title = self.normalize_text(side_note_text.strip())
@@ -925,7 +938,7 @@ class HTMLBuilder(TableBuilder):
         self.logger.exception("Error in add_amendment_section [%s]: %s",text, e)
        
     def is_section(self,texts):
-      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE) # 
+      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.\s*\S*', re.IGNORECASE) #
       texts = texts.strip()
       texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
       if section_re.match(texts):
@@ -1005,7 +1018,7 @@ class HTMLBuilder(TableBuilder):
         )
 
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1]\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             # re.IGNORECASE
         )
 
@@ -1200,6 +1213,152 @@ class HTMLBuilder(TableBuilder):
             return (parts[0], label)
         return (RowMergedTextBox(self, parts), label)
 
+    def _line_cell_starts(self, tb, textline):
+        chars = []
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw or raw.isspace():
+                continue
+            bbox = text_el.attrib.get('bbox')
+            if not bbox:
+                continue
+            try:
+                cx0, cy0, cx1, cy1 = map(float, bbox.split(','))
+            except ValueError:
+                continue
+            chars.append((cx0, cx1))
+        if not chars:
+            return [], None
+        chars.sort(key=lambda c: c[0])
+        widths = [x1 - x0 for x0, x1 in chars if x1 > x0]
+        char_width = sorted(widths)[len(widths) // 2] if widths else 1.0
+        threshold = char_width * PRE_GRID_COLUMN_GAP_FACTOR
+        starts = [chars[0][0]]
+        prev_x1 = chars[0][1]
+        for x0, x1 in chars[1:]:
+            if x0 - prev_x1 > threshold:
+                starts.append(x0)
+            prev_x1 = max(prev_x1, x1)
+        return starts, char_width
+
+    def _collect_grid_lines(self, tbs):
+        lines = []
+        for tb in tbs:
+            for textline in tb.tbox.findall('.//textline'):
+                bbox = textline.attrib.get('bbox')
+                if not bbox:
+                    continue
+                try:
+                    x0, y0, x1, y1 = map(float, bbox.split(','))
+                except ValueError:
+                    continue
+                text = self.build_line_text(tb, textline)
+                if not text.strip():
+                    continue
+                starts, char_width = self._line_cell_starts(tb, textline)
+                if not starts:
+                    continue
+                lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                              'starts': starts, 'char_width': char_width})
+        return lines
+
+    def _cluster_values(self, values, tol):
+        clusters = []
+        for v in sorted(values):
+            if clusters and v - clusters[-1][-1] <= tol:
+                clusters[-1].append(v)
+            else:
+                clusters.append([v])
+        return clusters
+
+    def pre_grid_span(self, tbs):
+        lines = self._collect_grid_lines(tbs)
+        if len(lines) < PRE_GRID_MIN_ROWS:
+            return None
+        rows = self.cluster_rows_by_position(lines)
+        if len(rows) < PRE_GRID_MIN_ROWS:
+            return None
+
+        heights = [l['y1'] - l['y0'] for l in lines if l['y1'] > l['y0']]
+        med_h = sorted(heights)[len(heights) // 2] if heights else 1.0
+        tol = max(med_h * PRE_GRID_ALIGN_FACTOR, 1.0)
+
+        row_starts = []
+        for row in rows:
+            starts = sorted({s for line in row for s in line['starts']})
+            row_starts.append(starts)
+
+        multicol_idx = [i for i, s in enumerate(row_starts)
+                        if len(s) >= PRE_GRID_MIN_ROW_COLUMNS]
+        if len(multicol_idx) < PRE_GRID_MIN_MULTICOL_ROWS:
+            return None
+        if len(multicol_idx) < len(rows) * PRE_GRID_MULTICOL_FRACTION:
+            return None
+
+        col_counts = [len(row_starts[i]) for i in multicol_idx]
+        mode_count = Counter(col_counts).most_common(1)[0][0]
+        consistent = sum(1 for c in col_counts if abs(c - mode_count) <= 1)
+        if consistent < len(col_counts) * PRE_GRID_MIN_COLCOUNT_CONSISTENCY:
+            return None
+
+        pairs = [(s, i) for i in multicol_idx for s in row_starts[i]]
+        clusters = self._cluster_values([p[0] for p in pairs], tol)
+        left_edge = min(c[0] for c in clusters)
+        min_support = max(2, math.ceil(len(multicol_idx) * PRE_GRID_COLUMN_SUPPORT))
+
+        aligned_bands = []
+        aligned_interior = []
+        for cluster in clusters:
+            lo, hi = cluster[0], cluster[-1]
+            support = {i for s, i in pairs if lo - tol <= s <= hi + tol}
+            if len(support) < min_support:
+                continue
+            band = (lo - tol, hi + tol)
+            aligned_bands.append(band)
+            if (lo + hi) / 2.0 > left_edge + tol:
+                aligned_interior.append(band)
+        if len(aligned_interior) < PRE_GRID_MIN_INTERIOR_COLUMNS:
+            return None
+
+        covered = sum(1 for s, _ in pairs
+                      if any(lo <= s <= hi for lo, hi in aligned_bands))
+        if not pairs or covered / len(pairs) < PRE_GRID_MIN_COVERAGE:
+            return None
+
+        grid_rows = []
+        for i in multicol_idx:
+            if any(any(lo <= s <= hi for lo, hi in aligned_interior)
+                   for s in row_starts[i]):
+                grid_rows.append(rows[i])
+        if len(grid_rows) < PRE_GRID_MIN_MULTICOL_ROWS:
+            return None
+
+        y_bottom = min(line['y0'] for row in grid_rows for line in row)
+        y_top = max(line['y1'] for row in grid_rows for line in row)
+        return (y_bottom - med_h, y_top + med_h)
+
+    def apply_pre_grid_labels(self, all_items):
+        result = list(all_items)
+        total = len(result)
+        i = 0
+        while i < total:
+            if result[i][1] is not None:
+                i += 1
+                continue
+            j = i
+            while j < total and result[j][1] is None:
+                j += 1
+            span = self.pre_grid_span([result[k][0] for k in range(i, j)])
+            if span is not None:
+                y_bottom, y_top = span
+                for k in range(i, j):
+                    tb = result[k][0]
+                    cy = (tb.coords[1] + tb.coords[3]) / 2.0
+                    if y_bottom <= cy <= y_top:
+                        result[k] = (tb, "pre")
+            i = j
+        return result
+
     def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
         self.current_page_num = int(page.pg_num)
@@ -1213,7 +1372,7 @@ class HTMLBuilder(TableBuilder):
         # except Exception as e:
         #     self.logger.warning(f'when closing sections tag after section end page - {e}')
               
-        all_items = list(page.all_tbs.items())
+        all_items = self.apply_pre_grid_labels(list(page.all_tbs.items()))
         self._page_line_gap = self.page_normal_line_gap(
             [tb for tb, label in all_items if label is None])
         for idx, (tb, label) in enumerate(all_items):
@@ -1242,6 +1401,10 @@ class HTMLBuilder(TableBuilder):
                 self.flush_pre_lines()
 
             if label in ("pre", "pre_header"):
+                if self.pending_table is not None and len(self.pending_table) <= 2:
+                    self.addTable(self.pending_table[0])
+                    self.pending_table = None
+                    self.flush_pending_header_footer()
                 self.pending_pre_lines.extend(self.extract_textlines(tb))
                 continue
 
@@ -1372,7 +1535,7 @@ class HTMLBuilder(TableBuilder):
       cleaned = raw.lower()
 
       # --- Reject common bullet forms: 'i.', 'ii)', '1.' followed by text ---
-      if re.match(r"^\(?[ivxlcdm0-9]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
+      if re.match(r"^\(?[ivxlcdm0-9" + INDIC_DIGIT_CHARS + r"]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
           return False
 
       # Remove enclosing brackets/parentheses/braces only if whole thing is wrapped

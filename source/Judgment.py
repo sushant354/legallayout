@@ -5,7 +5,14 @@ from pathlib import Path
 
 from .Table import TableBuilder, TOC_PLACEHOLDER
 from .NormalizeText import NormalizeText
-from .SentenceEndDetector import LEGAL_ABBREVIATIONS, EXTENDED_LEGAL_ABBREVIATIONS, is_abbreviation_like_token
+from .SentenceEndDetector import (
+    LEGAL_ABBREVIATIONS,
+    EXTENDED_LEGAL_ABBREVIATIONS,
+    is_abbreviation_like_token,
+    INDIC_SENTENCE_END_CHARS,
+    INDIC_SEMICOLON_CHARS,
+)
+from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS
 
 
 TAG_FOR_LABEL = {
@@ -15,23 +22,24 @@ TAG_FOR_LABEL = {
     "title": "title",
 }
 
-SENTENCE_END = ('.', '?', '!', ';', ':', '."', ".'", ';"', ";'", ':-', '—', '...', '…')
+SENTENCE_END = ('.', '?', '!', ';', ':', '."', ".'", ';"', ";'", ':-', '—', '...', '…') \
+    + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
 
 ABBREVIATIONS = {abbr.lower() for abbr in LEGAL_ABBREVIATIONS} | EXTENDED_LEGAL_ABBREVIATIONS
 
-LAST_TOKEN_RE = re.compile(r'(\S+?)([.?!:;]+)\s*$')
+LAST_TOKEN_RE = re.compile(r'(\S+?)([.?!:;' + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r']+)\s*$')
 
-BULLET_TOKEN_RE = re.compile(r'^\s*(\()?([A-Za-z0-9]{1,4})(?(1)\)|[.\):-])\s+\S')
+BULLET_TOKEN_RE = re.compile(r'^\s*(\()?([A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4})(?(1)\)|[.\):-])\s+\S')
 NUMERIC_PARA_MARKER_RE = re.compile(r'^\s*\d{1,3}(?:\.\d{1,3}){0,4}\.?\s+\S')
 STRICT_ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.IGNORECASE)
 
 PARA_GAP_FACTOR = 1.15
 FULL_LINE_WIDTH_RATIO = 0.92
-PARA_END_RE = re.compile(r'[.?!।॥][\)\'"”’\]›»】」』]*\s*$')
-MERGE_BOUNDARY_RE = re.compile(r'[.?!।॥:;][\)\'"”’\]›»】」』]*\s*$')
+PARA_END_RE = re.compile(r'[.?!' + INDIC_SENTENCE_END_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
+MERGE_BOUNDARY_RE = re.compile(r'[.?!:;' + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
 QUOTE_OPEN_RE = re.compile(r'^["\'“‘«‹「『]')
 LEADING_WRAP_RE = re.compile(r'^[\(\[\{"\'“‘«‹「『]+')
-TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z])\.\s+\S|^Re:\s+\S')
+TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_LETTER_CHARS + r'])\.\s+\S|^Re:\s+\S')
 QUOTE_ANNOTATION_RE = re.compile(r'^[\(\[（［][^\(\[\)\]（）［］]+[\)\]）］]$')
 BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
 

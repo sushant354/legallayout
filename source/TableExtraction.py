@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 from camelot.utils import TemporaryDirectory as _CamelotTempDir
 
+from .Utils import INDIC_DIGIT_CHARS
+
 _camelot_temp_dirs = []
 
 
@@ -1381,7 +1383,7 @@ class BorderlessTableExtraction:
             "reason": reason,
         }
 
-    _RULER_CELL_RE = re.compile(r'^\(?\s*(?:[0-9]{1,2}|[ivxIVX]{1,4})\s*\)?[.)]?$')
+    _RULER_CELL_RE = re.compile(r'^\(?\s*(?:[0-9' + INDIC_DIGIT_CHARS + r']{1,2}|[ivxIVX]{1,4})\s*\)?[.)]?$')
 
     def _table_has_column_ruler(self, df):
         if df is None or getattr(df, "empty", True):
