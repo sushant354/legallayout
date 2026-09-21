@@ -9,11 +9,15 @@ test/
 ├── TestPdfToHtmlDiff.py      # Main test script
 ├── test_cases.csv            # Test configuration file
 ├── test_pdfs/                # Place your test PDF files here
+├── test_judgment_cases.csv   # Test configuration file for judgment PDFs
+├── test_judgment_pdfs/       # Place your judgment PDF files here
 ├── expected_html/            # Baseline HTML outputs (auto-generated)
 ├── actual_html/              # Generated HTML outputs during tests
 ├── diff_results/             # Diff files when outputs don't match
 └── README_diff_test.md       # This file
 ```
+
+`test_cases.csv`/`test_pdfs/` and `test_judgment_cases.csv`/`test_judgment_pdfs/` are two independent, equally-weighted CSVs registered together (`TestPdfToHtmlDiff.csv_registry`) and run together by default - `--csv test_cases.csv` (repeatable) runs only one of them by filename. They share the same column schema (see below) with one exception: `test_judgment_cases.csv` has no `font_names` column, since `-fn`'s font-name spans are html-only and have nowhere to attach in the judgment pipeline's output (`JudgmentBuilder`, a class of its own rather than a subclass of `HTMLBuilder`).
 
 ## How to Use
 
@@ -61,7 +65,9 @@ regulations.pdf,sebi,false,3,
   moved when they were switched to it
 - **font_names**: Whether the pdf font each run of text is drawn in is named in
   the output, i.e. `-fn` (optional, default false). Html output only, so it does
-  nothing for the `acts`/`sebi_circulars` rows, which are written as bluebell.
+  nothing for the `acts`/`sebi_circulars` rows, which are written as bluebell,
+  and the column does not exist at all in `test_judgment_cases.csv` for the
+  same reason - judgments go through `JudgmentBuilder`, not `HTMLBuilder`.
   `lsdebate.pdf` is the case that covers it, and it covers `data-detected-font`
   with it: it leaves `font_detect` blank (i.e. on), so the fonts detection is
   run on carry the model's verdict in the baseline beside their pdf font name
@@ -73,14 +79,14 @@ regulations.pdf,sebi,false,3,
   makes the case fail everywhere else (`output_dir is not located within
   server_root`)
 - **ocr_engine_pdf_parser**: `-op` — which engine parses a `scanned_copy` row's
-  page text, `chromelens` or `tesseract` (optional). Blank leaves the pipeline's
-  own default in place (`chromelens` for `egazette`/`acts`/`sebi_circulars`,
-  `tesseract` otherwise); a value forces that engine regardless of `pdf_type`.
-  Two rows for the same PDF that differ only in this column get distinct
-  reported names (`_op-<value>` appended to the base name) so their baselines
-  don't collide - see `csl1.pdf` in `test_cases.csv` for an example (one row
-  left blank to exercise the default `chromelens` path, one forcing
-  `tesseract`)
+  page text, `chromelens` or `tesseract` (optional; present in both csvs).
+  Blank leaves the pipeline's own default in place (`chromelens` for
+  `egazette`/`acts`/`sebi_circulars`, `tesseract` otherwise); a value forces
+  that engine regardless of `pdf_type`. Two rows for the same PDF that differ
+  only in this column get distinct reported names (`_op-<value>` appended to
+  the base name) so their baselines don't collide - see `csl1.pdf` in
+  `test_cases.csv` for an example (one row left blank to exercise the default
+  `chromelens` path, one forcing `tesseract`)
 
 ### 3. Run the Diff Test
 ```bash
@@ -129,7 +135,21 @@ Nothing selected means the whole CSV runs, so the default is unchanged. If a
 name matches nothing, the run prints the list of available case names instead
 of quietly doing nothing.
 
-### 5. Control How Many PDFs Convert at Once
+### 5. Run Only Some of the CSVs
+
+`--cases` picks rows; `--csv` (repeatable) picks whole CSVs by filename, out of
+the registered set (`test_cases.csv`, `test_judgment_cases.csv`). Default is
+every registered CSV:
+
+```bash
+python test/TestPdfToHtmlDiff.py --csv test_judgment_cases.csv
+python test/TestPdfToHtmlDiff.py --csv test_cases.csv --csv test_judgment_cases.csv
+```
+
+Output for both always goes to the same `actual_html/`/`expected_html/`/
+`diff_results/` directories regardless of which CSV(s) are selected.
+
+### 6. Control How Many PDFs Convert at Once
 
 PDFs are converted in parallel worker processes, 4 at a time by default. Use
 `--workers` (or the `DIFF_TEST_WORKERS` environment variable) to change that:

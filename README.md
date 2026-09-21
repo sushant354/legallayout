@@ -76,6 +76,22 @@ python -m source.Main -i test/test_pdfs/act1.pdf -o output/ -t acts
 | `-g, --logfile` | Log file path |
 | `-x, --keep-xml` | Keep intermediate XML in `cache_xml/` instead of deleting it |
 
+### Cache cleanup and interrupts
+
+Each run writes intermediate files under `cache_pdf/<run_id>/` (the `ToUnicode`-repaired copy, `.pdf`-suffixed input copies) and `cache_xml/<pdfname>-<run_id>.xml`, where `run_id` is unique per `Main` instance so concurrent runs over same-named PDFs never collide. On exit these are removed, along with any `camelot` temp directories and held OCR models — **except** the XML, which is kept when `-x/--keep-xml` is given. The keep-or-delete choice is per `Main` object, so several runs in flight at once can each decide independently.
+
+Cleanup fires on **every** exit path — normal completion, exceptions, and interrupts (`Ctrl-C`/`SIGINT`, `kill`/`SIGTERM`) — so a cancelled run doesn't leave temp files or held resources behind:
+
+- Every `Main` registers itself (by weak reference, so finished runs stay garbage-collectable) in a process-wide registry that an `atexit` hook sweeps at interpreter shutdown. This covers normal exit and `Ctrl-C` in any process, whether the CLI is run directly or `Main` is imported.
+- For the `SIGTERM` case (which by default terminates without running `atexit`), call `install_cleanup_signal_handlers()` once per process. The CLI (`python -m source.Main`) does this itself. Multiprocessing callers that run a pool of `Main`s (e.g. eGazette's `pdf2html`) should pass it as the pool **initializer** so each worker cleans its own run when the pool terminates it:
+
+  ```python
+  from source.Main import install_cleanup_signal_handlers
+  ProcessPoolExecutor(max_workers=n, initializer=install_cleanup_signal_handlers)
+  ```
+
+  `SIGKILL` (`kill -9`) can never be trapped by any process, so it is the one case that can still leave temp files behind.
+
 ### Borderless-table detection
 
 `-te/--table-extract` enables detection of tables that have no ruling lines (bordered tables are already found by `camelot-py`'s lattice mode). Several decisions in that pipeline — whether a candidate region's first row is a header, whether two adjacent regions should be merged into one table, and whether a page continues a table from the previous page — are made by small logistic-regression classifiers (`source/TableExtraction.py`) that start from fixed default weights and adapt online via reinforcement learning as pages are processed:
@@ -136,6 +152,7 @@ model/
 
 test/
 ├── TestPdfToHtmlDiff.py     # Diff-based end-to-end tests
+├── TestCleanup.py           # Cache/interrupt cleanup mechanism tests (no PDF parsing)
 ├── test_cases.csv           # Test case configuration
 ├── test_pdfs/                # Sample input PDFs
 └── expected_html/            # Baseline HTML outputs
@@ -149,6 +166,9 @@ cache_pdf/   # Temporary PDF storage (gitignored)
 ```bash
 # Diff-based end-to-end tests against baseline HTML
 python -m unittest test.TestPdfToHtmlDiff
+
+# Cache/interrupt cleanup mechanism (fast, no PDF parsing)
+python -m unittest test.TestCleanup
 ```
 
 See [`test/README_diff_test.md`](test/README_diff_test.md) for details on configuring test cases.

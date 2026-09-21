@@ -8,6 +8,9 @@ import codecs
 import logging
 import shutil
 import uuid
+import signal
+import atexit
+import weakref
 import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
 from .Page import Page, SectionState
@@ -447,18 +450,70 @@ SPACE_OVERLAP_RATIO = 0.95
 NEIGHBOUR_OVERLAP_RATIO = 0.1
 
 
+_active_runs = {}
+
+
+def _register_run(main, keep_xml):
+    run_id = main.run_id
+
+    def _on_dead(ref, rid=run_id):
+        _active_runs.pop(rid, None)
+
+    _active_runs[run_id] = (weakref.ref(main, _on_dead), keep_xml)
+
+
+def _unregister_run(run_id):
+    _active_runs.pop(run_id, None)
+
+
+def cleanup_active_runs():
+    for run_id, (ref, keep_xml) in list(_active_runs.items()):
+        main = ref()
+        if main is not None:
+            try:
+                main.cleanup_run(keep_xml=keep_xml)
+            except Exception:
+                pass
+        _active_runs.pop(run_id, None)
+
+
+def install_cleanup_signal_handlers(signals=None):
+    if signals is None:
+        signals = (signal.SIGTERM,)
+
+    def handler(signum, frame):
+        logging.getLogger('source.Main').warning(
+            "Interrupt (%s) received - clearing cache and stopping",
+            signal.Signals(signum).name)
+        cleanup_active_runs()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for sig in signals:
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, OSError):
+            pass
+
+
+atexit.register(cleanup_active_runs)
+
+
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
                  table_extract, public_base_url=None, server_root=None,
                  rights=None, provider_id=None, provider_name=None, 
                  attribution=None, figure_text=False, font_conv_map=None,
-                 ocr_engine_image_text="tesseract", font_model=None,
-                 font_detect=True, show_fonts=False, ocr_engine_pdf_parser=None): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 ocr_engine_image_text="tesseract", font_model=None, font_lang=None,
+                 font_detect=True, show_fonts=False, ocr_engine_pdf_parser=None,
+                 keep_xml=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         # names this run's files in the shared cache directories, see
         # get_run_cache_pdf()
         self.run_id = uuid.uuid4().hex[:12]
+        self.keep_xml = keep_xml
+        _register_run(self, self.keep_xml)
         if self.is_url_like(output_dir):
             raise ValueError(
                 f"output_dir ('{output_dir}') looks like a URL, not a local filesystem "
@@ -3468,6 +3523,28 @@ class Main:
             clear_paddle_ocr_engines()
             self.logger.info("Released paddleocr model(s) held by this run")
 
+    def cleanup_run(self, keep_xml=None):
+        if keep_xml is None:
+            keep_xml = getattr(self, "keep_xml", False)
+        try:
+            self.clear_cache_pdf()
+        except Exception as e:
+            self.logger.debug("cache_pdf cleanup failed: %s", e)
+        if not keep_xml:
+            try:
+                self.clear_xml_cache()
+            except Exception as e:
+                self.logger.debug("cache_xml cleanup failed: %s", e)
+        try:
+            self.clear_camelot_cache()
+        except Exception as e:
+            self.logger.debug("camelot temp cleanup failed: %s", e)
+        try:
+            self.clear_ocr_engines()
+        except Exception as e:
+            self.logger.debug("ocr engine cleanup failed: %s", e)
+        _unregister_run(self.run_id)
+
 
     def detect_header_pre(self, pages):
 
@@ -4498,20 +4575,20 @@ if __name__ == "__main__":
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
                 figure_text, args.font_conv_map, ocr_engine_image_text,
-                args.font_model, args.font_detect, args.show_fonts, ocr_engine_pdf_parser)
+                args.font_model, args.font_lang, args.font_detect, args.show_fonts,
+                ocr_engine_pdf_parser, args.keep_xml)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
     line_margin = args.line_margin # str(margins['line_margin'])
     logger.info(f'char_margin : {char_margin}, word_margin: {word_margin}, line_margin: {line_margin}')
+
+    install_cleanup_signal_handlers((signal.SIGINT, signal.SIGTERM))
+
     try:
         is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin, \
                                    start_page, end_page)
         if is_success:
             main.buildHTML(start_page, end_page) #end)
     finally:
-        main.clear_cache_pdf()
-        if not args.keep_xml:
-            main.clear_xml_cache()
-        main.clear_camelot_cache()
-        main.clear_ocr_engines()
+        main.cleanup_run(keep_xml=args.keep_xml)

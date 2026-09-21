@@ -15,7 +15,7 @@ import csv
 # 'python -m unittest' from the project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from source.Main import Main
+from source.Main import Main, install_cleanup_signal_handlers
 
 
 def process_case(job):
@@ -38,6 +38,7 @@ def process_case(job):
     result = {'pdf_name': job['pdf_name'], 'success': False,
               'filename': None, 'error': None}
 
+    main = None
     try:
         main = Main(
             pdfPath=pdf_path_for_main,
@@ -82,10 +83,6 @@ def process_case(job):
             main.total_pgs, job['suffix']
         )
 
-        # Clean up cache
-        main.clear_cache_pdf()
-        main.clear_xml_cache()
-
         result['success'] = True
         return result
 
@@ -95,11 +92,14 @@ def process_case(job):
         return result
 
     finally:
-        try:
-            from source.TableExtraction import cleanup_camelot_temp_dirs
-            cleanup_camelot_temp_dirs()
-        except Exception:
-            pass
+        if main is not None:
+            main.cleanup_run()
+        else:
+            try:
+                from source.TableExtraction import cleanup_camelot_temp_dirs
+                cleanup_camelot_temp_dirs()
+            except Exception:
+                pass
         if renamed_copy and renamed_copy.exists():
             renamed_copy.unlink()
 
@@ -308,7 +308,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         results = [None] * len(jobs)
         done = 0
 
-        with ProcessPoolExecutor(max_workers=workers) as executor:
+        with ProcessPoolExecutor(max_workers=workers,
+                                 initializer=install_cleanup_signal_handlers) as executor:
             futures = {
                 executor.submit(process_case, job): idx
                 for idx, job in enumerate(jobs)
