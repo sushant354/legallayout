@@ -1,8 +1,8 @@
 """Turn the FontSurvey training corpus into a feature table for Orange3.
 
-The corpus is one csv, training_data/samples.csv, written by
+The corpus is one csv, named on the command line, written by
 
-    python -m source.FontSurvey -i pdfs/ -r -td training_data \\
+    python -m source.FontSurvey -i pdfs/ -r -tc training_data/samples.csv \\
         -tf nirmala='nirmala\\s*ui' -tf krutidev='kruti\\s*dev'
 
 with a row per sample: the class it belongs to (nirmala, krutidev, and
@@ -10,10 +10,6 @@ not_required for the fonts needing no decoding), the font it was drawn in,
 the pdf it came from, and the text itself. Only the label and the text are
 learned from; the font and pdf are there to say where a sample came from when
 a class looks polluted, which the label alone cannot.
-
-A directory of per-class <label>.txt files - the corpus layout FontSurvey
-wrote before the csv - is still read when there is no samples.csv in it, so a
-corpus built by an older run does not have to be surveyed again.
 
 Features are phrases: every 1 to 5 word sequence in the corpus is counted and
 the most frequent 10,000 become the feature set. A sample is then the count
@@ -25,6 +21,7 @@ for chanakya/kruti-dev), which is exactly what a phrase feature set captures.
 import csv
 import json
 import codecs
+import random
 import logging
 from pathlib import Path
 from collections import Counter
@@ -40,16 +37,17 @@ DEFAULT_MAX_N = 5
 DEFAULT_TOP_K = 10000
 
 # the corpus: one row per sample, its class in the 'label' column
-CORPUS_CSV    = 'samples.csv'
 LABEL_FIELD   = 'label'
 TEXT_FIELD    = 'text'
-
-# the older layout, one file per class, the class being the file name
-CORPUS_GLOB   = '*.txt'
 
 # a sample is one field of one row, and -tw/--training-words has no ceiling,
 # so the 128k default is not necessarily enough
 CSV_FIELD_LIMIT = 64 * 1024 * 1024
+
+# the cap on a class is a random sample of that class rather than its first
+# rows, and a fixed seed is what keeps two runs over one corpus comparable -
+# the same seed CrossValidation is given
+CORPUS_SAMPLE_SEED = 42
 
 logger = logging.getLogger('fontml.features')
 
@@ -74,84 +72,68 @@ def iter_phrases(tokens, min_n = DEFAULT_MIN_N, max_n = DEFAULT_MAX_N):
             yield ' '.join(tokens[start:start + size])
 
 
-def get_class_labels(data_dir):
-    """The legacy per-class files: (label, path), the label being the name."""
-    paths = sorted(Path(data_dir).glob(CORPUS_GLOB))
-    if not paths:
-        raise ValueError(f'no {CORPUS_GLOB} corpus files in {data_dir}')
-    return [(p.stem, p) for p in paths]
-
-
-def read_corpus_csv(path, max_per_class = 0, lowercase = False):
+def read_corpus(path, max_per_class = 0, lowercase = False, \
+                seed = CORPUS_SAMPLE_SEED):
     """[(label, [token, ...]), ...] for every row of the corpus csv.
 
-    The cap is per class and the classes are interleaved (the rows are in the
-    order the pdfs drew them), so a class that has filled its quota is skipped
-    over rather than stopping the read.
+    The cap is per class and is a *random* sample of that class rather than
+    its first rows: the corpus is written pdf by pdf, so the head of a class
+    is whichever documents FontSurvey happened to read first and a class
+    capped there can be one font, one producer or one gazette out of hundreds
+    - which the model then learns as the whole class. Held by reservoir
+    sampling, so a class is capped in one pass without reading all of it into
+    memory, and the reservoir is drawn from a seeded rng so two runs over one
+    corpus still train on the same rows. The rows kept are returned in the
+    order the file has them, exactly as an uncapped read returns them.
     """
+    path = Path(path)
+    if not path.is_file():
+        raise ValueError(f'no corpus csv at {path} - is it the file '
+                         f'FontSurvey -tc wrote?')
+
     csv.field_size_limit(CSV_FIELD_LIMIT)
-    samples = []
-    counts  = Counter()
+    rng     = random.Random(seed)
+    kept    = {}          # label -> [(row number, (label, tokens)), ...]
+    counts  = Counter()   # label -> rows of it in the file, capped or not
     with codecs.open(str(path), 'r', encoding = 'utf8') as f:
         reader  = csv.DictReader(f)
         missing = {LABEL_FIELD, TEXT_FIELD}.difference(reader.fieldnames or [])
         if missing:
             raise ValueError(f'{path} has no {", ".join(sorted(missing))} '
-                             f'column - is it a FontSurvey -td corpus?')
-        for row in reader:
+                             f'column - is it a FontSurvey -tc corpus?')
+        for num, row in enumerate(reader):
             label = (row.get(LABEL_FIELD) or '').strip()
             if not label:
-                continue
-            if max_per_class and counts[label] >= max_per_class:
                 continue
             tokens = tokenize((row.get(TEXT_FIELD) or '').strip(), lowercase)
             if not tokens:
                 continue
-            samples.append((label, tokens))
             counts[label] += 1
+            reservoir = kept.setdefault(label, [])
+            if not max_per_class or len(reservoir) < max_per_class:
+                reservoir.append((num, (label, tokens)))
+                continue
+            # counts[label] rows of this class have been seen, so this one
+            # belongs in the sample with probability max_per_class/that
+            pos = rng.randrange(counts[label])
+            if pos < max_per_class:
+                reservoir[pos] = (num, (label, tokens))
+
+    samples = [sample for _num, sample in \
+               sorted((row for reservoir in kept.values() \
+                           for row in reservoir), key = lambda r: r[0])]
 
     for label in sorted(counts):
-        logger.info(f'{label}: {counts[label]} sample(s)')
-    return samples, counts
-
-
-def read_corpus_files(data_dir, max_per_class = 0, lowercase = False):
-    """The same, from the older one-file-per-class layout."""
-    samples = []
-    counts  = Counter()
-    for label, path in get_class_labels(data_dir):
-        taken = 0
-        with codecs.open(str(path), 'r', encoding = 'utf8') as f:
-            for line in f:
-                if max_per_class and taken >= max_per_class:
-                    break
-                tokens = tokenize(line.strip(), lowercase)
-                if not tokens:
-                    continue
-                samples.append((label, tokens))
-                taken += 1
-        counts[label] = taken
-        logger.info(f'{path.name}: {taken} sample(s)')
-    return samples, counts
-
-
-def read_corpus(data_dir, max_per_class = 0, lowercase = False):
-    """[(label, [token, ...]), ...] for every sample of the corpus."""
-    data_dir = Path(data_dir)
-    path     = data_dir.joinpath(CORPUS_CSV)
-    if path.is_file():
-        samples, counts = read_corpus_csv(path, max_per_class, lowercase)
-        source = path
-    else:
-        # nothing to convert an old corpus with, so it is simply still read
-        logger.warning(f'no {CORPUS_CSV} in {data_dir}, reading the older '
-                       f'per-class {CORPUS_GLOB} files instead')
-        samples, counts = read_corpus_files(data_dir, max_per_class, lowercase)
-        source = data_dir
+        num = len(kept[label])
+        if num < counts[label]:
+            logger.info(f'{label}: {num} sample(s), a random sample of the '
+                        f'{counts[label]} in the corpus')
+        else:
+            logger.info(f'{label}: {num} sample(s)')
 
     if not samples:
-        raise ValueError(f'no samples in {source}')
-    return samples, counts
+        raise ValueError(f'no samples in {path}')
+    return samples, Counter({l: len(r) for l, r in kept.items()})
 
 
 def drop_small_classes(samples, min_samples):
@@ -246,11 +228,11 @@ def build_table(samples, vocab, min_n = DEFAULT_MIN_N, max_n = DEFAULT_MAX_N):
     return Table.from_numpy(domain, X, y)
 
 
-def build_dataset(data_dir, top_k = DEFAULT_TOP_K, min_n = DEFAULT_MIN_N, \
+def build_dataset(corpus, top_k = DEFAULT_TOP_K, min_n = DEFAULT_MIN_N, \
                   max_n = DEFAULT_MAX_N, max_per_class = 0, \
                   min_samples = 10, lowercase = False, prune_at = 2000000):
-    """Corpus directory -> (Orange Table, vocabulary)."""
-    samples, _counts = read_corpus(data_dir, max_per_class, lowercase)
+    """Corpus csv -> (Orange Table, vocabulary)."""
+    samples, _counts = read_corpus(corpus, max_per_class, lowercase)
     samples = drop_small_classes(samples, min_samples)
     vocab   = build_vocabulary(samples, top_k, min_n, max_n, prune_at)
     logger.info(f'{len(samples)} sample(s), {len(vocab)} feature(s)')

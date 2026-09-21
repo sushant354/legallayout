@@ -3,6 +3,101 @@ import string
 import logging
 
 
+# The font a piece of text is drawn in is carried through the html builder as a
+# mark in the text itself rather than as real <span> markup: the builder reads
+# the text it is given (a label's number, a sentence's last token, the
+# punctuation a paragraph ends on) to decide what to emit, and a tag in the
+# middle of it would change those decisions - i.e. the document's structure -
+# rather than just annotate the result. The marks are turned into
+# <span data-font="..."> only once the whole html is built
+# (HTMLBuilder.render_font_spans).
+#
+# The two delimiters are unicode *noncharacters*: permanently unassigned, never
+# interchanged, so no pdf can draw one and nothing on the way to the html can
+# have an opinion about them. The private use area is not usable here even
+# though nothing draws from it either - NormalizeText.NORMALIZE_MAP deletes
+# U+E000..U+E003 outright as OCR junk, and every piece of text the builder
+# emits goes through it.
+FONT_MARK_START = '\ufdd0'
+FONT_MARK_END = '\ufdd1'
+FONT_MARK_RE = re.compile('%s([^%s]*)%s' % (FONT_MARK_START, FONT_MARK_END,
+                                            FONT_MARK_END))
+
+
+def font_mark(font):
+    return FONT_MARK_START + font + FONT_MARK_END
+
+
+def strip_font_marks(text):
+    """The text as it would have been without the font marks in it."""
+    if not isinstance(text, str) or FONT_MARK_START not in text:
+        return text
+
+    return FONT_MARK_RE.sub('', text)
+
+
+def mark_font_runs(chars):
+    """(character, font) pairs -> that text with a mark at every font change.
+
+    A character with no font of its own - whitespace, and the text this tool
+    inserts itself, e.g. a footnote placeholder - carries on in the run around
+    it. A mark therefore always sits immediately before a non-space character,
+    which is what makes str.strip() (used all over the html builder) unable to
+    separate a run of text from the mark that names its font.
+    """
+    out = []
+    current = None
+
+    for char, font in chars:
+        if font is not None and font != current:
+            out.append(font_mark(font))
+            current = font
+
+        out.append(char)
+
+    return ''.join(out)
+
+
+def split_marked_text(text, index):
+    """Split marked text at an index of its *plain* text, into (head, tail).
+
+    The tail is given the mark that was in force at the split, so that either
+    half can be emitted on its own. This is how a regexp that has to run on the
+    plain text (a section number, say) still yields marked halves.
+    """
+    head = []
+    current = None
+    plain_count = 0
+    pos = 0
+
+    while pos < len(text) and plain_count < index:
+        match = FONT_MARK_RE.match(text, pos)
+
+        if match:
+            current = match.group(1)
+            head.append(match.group(0))
+            pos = match.end()
+            continue
+
+        head.append(text[pos])
+        pos += 1
+        plain_count += 1
+
+    tail = text[pos:]
+
+    if current is not None and tail:
+        # the inherited mark goes in front of the tail's first non-space
+        # character, keeping the invariant mark_font_runs() establishes
+        start = 0
+        while start < len(tail) and tail[start].isspace():
+            start += 1
+
+        if not FONT_MARK_RE.match(tail, start):
+            tail = tail[:start] + font_mark(current) + tail[start:]
+
+    return ''.join(head), tail
+
+
 class TextBox:
 
     def __init__(self, tb, pdf_type, font_mapper):
@@ -215,6 +310,121 @@ class TextBox:
             self.logger.error(f"Failed to extract text: {e}")
             return ""
     
+    # --- the same text these two return, with the font of every character ---
+    def get_char_lines(self, use_footnotes=None):
+        r"""One list of (character, font) per textline, as extract_text_from_tb()
+        assembles them: '\n' turned into a space, the line stripped and dropped
+        when nothing is left of it.
+
+        Whitespace and the footnote placeholder carry no font of their own (see
+        mark_font_runs), so they never break a run in two.
+        """
+        if use_footnotes is None:
+            use_footnotes = bool(self.footnotes_superscript)
+
+        all_lines = []
+
+        try:
+            for textline in self.tbox.findall(".//textline"):
+                line = []
+                pending_superscript = []
+
+                for text in textline.findall(".//text"):
+                    raw = text.text or ""
+
+                    if not raw:
+                        continue
+
+                    if use_footnotes:
+                        if self.is_superscript_char(text):
+                            pending_superscript.append(
+                                self.footnotes_superscript[
+                                    tuple(map(float, text.attrib["bbox"].split(",")))
+                                ]
+                            )
+                            continue
+
+                        if pending_superscript:
+                            line.extend(
+                                self.get_footnote_placeholder_chars(pending_superscript)
+                            )
+                            pending_superscript = []
+
+                    font = text.attrib.get("font") or None
+
+                    for char in raw:
+                        char = " " if char == "\n" else char
+                        line.append((char, font if not char.isspace() else None))
+
+                if pending_superscript:
+                    line.extend(
+                        self.get_footnote_placeholder_chars(pending_superscript)
+                    )
+
+                line = self.strip_chars(line)
+
+                if line:
+                    all_lines.append(line)
+
+        except Exception as e:
+            self.logger.error(f"Failed to extract the fonts of the text: {e}")
+            return []
+
+        return all_lines
+
+    def is_superscript_char(self, text):
+        if "bbox" not in text.attrib:
+            return False
+
+        try:
+            bbox = tuple(map(float, text.attrib["bbox"].split(",")))
+        except Exception:
+            return False
+
+        return bbox in self.footnotes_superscript
+
+    @staticmethod
+    def get_footnote_placeholder_chars(pending_superscript):
+        placeholder = "{{^{{FOOTNOTE " + "".join(pending_superscript) + "}}}}"
+
+        return [(char, None) for char in placeholder]
+
+    @staticmethod
+    def strip_chars(chars):
+        start = 0
+        end = len(chars)
+
+        while start < end and chars[start][0].isspace():
+            start += 1
+
+        while end > start and chars[end - 1][0].isspace():
+            end -= 1
+
+        return chars[start:end]
+
+    def extract_text_with_fonts(self):
+        """extract_text_from_tb()'s text with a font mark at every font change."""
+        lines = self.get_char_lines()
+
+        chars = []
+
+        for line in lines:
+            if chars:
+                chars.append((" ", None))
+
+            chars.extend(line)
+
+        return mark_font_runs(chars)
+
+    def extract_lines_with_fonts(self):
+        """The textbox's lines, each with the font marks of its own text.
+
+        The footnote placeholder is deliberately left out, matching the line by
+        line extraction the title path does inline.
+        """
+        return [mark_font_runs(line)
+                for line in self.get_char_lines(use_footnotes=False)]
+
     # --- func to detect the textbox having texts font in bold for heading/title detection ---
     def textFont_is_bold(self, pdf_type = None):
         bold_font_re = re.compile(r'bold', re.IGNORECASE)

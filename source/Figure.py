@@ -105,11 +105,161 @@ def patch_png_predictor():
 
 patch_png_predictor()
 
+
+# filters pdfminer's get_data() undoes completely, leaving raw samples behind -
+# DCT/JPX/JBIG2 streams are left encoded and CCITT is 1-bit, which pdfminer
+# already writes out itself
+RAW_SAMPLE_FILTERS = (
+    pdftypes.LITERALS_FLATE_DECODE + pdftypes.LITERALS_LZW_DECODE +
+    pdftypes.LITERALS_ASCII85_DECODE + pdftypes.LITERALS_ASCIIHEX_DECODE +
+    pdftypes.LITERALS_RUNLENGTH_DECODE
+)
+
+COLORSPACE_COMPONENTS = {
+    'DeviceGray': 1, 'G': 1, 'CalGray': 1,
+    'DeviceRGB': 3, 'RGB': 3, 'CalRGB': 3,
+    'DeviceCMYK': 4, 'CMYK': 4,
+}
+
+PIL_MODES = {1: 'L', 3: 'RGB', 4: 'CMYK'}
+
+
+def literal_name(obj):
+    name = getattr(pdftypes.resolve1(obj), 'name', None)
+    return name.decode('latin-1') if isinstance(name, bytes) else name
+
+
+def get_colorspace(image):
+    """The image's colorspace as a flat list, with its references resolved.
+
+    LTImage wraps a bare name in a list but leaves an indirect array as it is,
+    so an /Indexed colorspace can arrive as [/Indexed, /DeviceRGB, 3, lut] or
+    as [<PDFObjRef>] pointing at that array.
+    """
+    colorspace = [pdftypes.resolve1(c) for c in image.colorspace]
+    if len(colorspace) == 1 and isinstance(colorspace[0], list):
+        colorspace = [pdftypes.resolve1(c) for c in colorspace[0]]
+    return colorspace
+
+
+def get_components(colorspace):
+    """Number of components of a device-like colorspace, None for any other."""
+    if isinstance(colorspace, list):
+        if not colorspace:
+            return None
+        name = literal_name(colorspace[0])
+        if name == 'ICCBased' and len(colorspace) > 1:
+            profile = pdftypes.resolve1(colorspace[1])
+            ncomp = pdftypes.resolve1(profile.get('N')) if isinstance(profile, pdftypes.PDFStream) else None
+            return ncomp if ncomp in PIL_MODES else None
+        return COLORSPACE_COMPONENTS.get(name)
+    return COLORSPACE_COMPONENTS.get(literal_name(colorspace))
+
+
+def unpack_samples(data, width, height, ncomp, bpc):
+    """(height, width, ncomp) array of the image's samples as integers.
+
+    Each row starts on a byte boundary, as PDF stores them. A stream that runs
+    short is padded out with zeros rather than refused.
+    """
+    row_bytes = (width * ncomp * bpc + 7) // 8
+    size = row_bytes * height
+    buf = np.frombuffer(data[:size], dtype=np.uint8)
+    if len(buf) < size:
+        buf = np.concatenate([buf, np.zeros(size - len(buf), dtype=np.uint8)])
+    rows = buf.reshape(height, row_bytes)
+
+    nsamples = width * ncomp
+    if bpc == 8:
+        samples = rows[:, :nsamples]
+    elif bpc == 16:
+        samples = np.ascontiguousarray(rows[:, :nsamples * 2]).view('>u2')
+    else:
+        bits = np.unpackbits(rows, axis=1)[:, :nsamples * bpc]
+        bits = bits.reshape(height, nsamples, bpc).astype(np.uint16)
+        weights = 1 << np.arange(bpc - 1, -1, -1, dtype=np.uint16)
+        samples = (bits * weights).sum(axis=2)
+
+    return samples.reshape(height, width, ncomp)
+
+
+def decode_image(image):
+    """An RGB/L PIL image of an LTImage pdfminer's ImageWriter cannot write.
+
+    ImageWriter reads only 1-bit and 8-bit samples - a 2-, 4- or 16-bit image
+    raises UnboundLocalError from _save_bytes - and knows nothing of /Indexed,
+    writing the palette indices out as though they were the colour itself (as
+    grey, inverted, or as three bytes a pixel that are really one). Returns
+    None for an image it should be left to write, or one this cannot read
+    either (a Lab or DeviceN image, a DCT/JPX/JBIG2/CCITT stream).
+    """
+    filters = image.stream.get_filters()
+    if any(f not in RAW_SAMPLE_FILTERS for f, _ in filters):
+        return None
+
+    colorspace = get_colorspace(image)
+    bpc = pdftypes.resolve1(image.bits)
+    width, height = (pdftypes.resolve1(v) for v in image.srcsize)
+    indexed = bool(colorspace) and literal_name(colorspace[0]) in ('Indexed', 'I')
+
+    if not indexed and bpc in (1, 8):
+        return None
+    if bpc not in (1, 2, 4, 8, 16) or not width or not height:
+        return None
+
+    data = image.stream.get_data()
+
+    if indexed:
+        if len(colorspace) < 4:
+            return None
+        base_ncomp = get_components(colorspace[1])
+        hival = pdftypes.resolve1(colorspace[2])
+        lookup = pdftypes.resolve1(colorspace[3])
+        if isinstance(lookup, pdftypes.PDFStream):
+            lookup = lookup.get_data()
+        if base_ncomp is None or not isinstance(hival, int) or not isinstance(lookup, bytes):
+            return None
+
+        # the palette as a one-row image in the base colorspace, so a CMYK
+        # palette goes through the same conversion a CMYK image would
+        ncolors = hival + 1
+        lookup = lookup[:ncolors * base_ncomp].ljust(ncolors * base_ncomp, b'\x00')
+        palette = Image.frombytes(PIL_MODES[base_ncomp], (ncolors, 1), lookup)
+        palette = np.asarray(palette.convert('RGB')).reshape(ncolors, 3)
+
+        indices = unpack_samples(data, width, height, 1, bpc)[:, :, 0]
+        rgb = palette[np.minimum(indices, hival)].astype(np.uint8)
+        return Image.frombytes('RGB', (width, height), rgb.tobytes())
+
+    ncomp = get_components(colorspace[0] if len(colorspace) == 1 else colorspace)
+    if ncomp is None:
+        return None
+
+    samples = unpack_samples(data, width, height, ncomp, bpc)
+    if bpc == 16:
+        samples = samples >> 8
+    else:
+        samples = samples * 255 // ((1 << bpc) - 1)
+    samples = samples.astype(np.uint8)
+
+    img = Image.frombytes(PIL_MODES[ncomp], (width, height), samples.tobytes())
+    return img.convert('RGB') if ncomp == 4 else img
+
+
 class StableImageWriter(ImageWriter):
     def _create_unique_image_name(self, image, ext):
         name = image.name + ext
         path = os.path.join(self.outdir, name)
         return name, path
+
+    def export_image(self, image):
+        img = decode_image(image)
+        if img is None:
+            return super().export_image(image)
+
+        name, path = self._create_unique_image_name(image, '.png')
+        img.save(path, 'PNG')
+        return name
 
 
 class Figure:
@@ -131,6 +281,69 @@ class Figure:
     def has_figure(self, fig):
         return fig.find("image") is not None
 
+class PageImages:
+    """The image-bearing pages of one pdf, extracted in a single pass.
+
+    pdfminer reparses the whole document to reach a page, so an
+    ``extract_pages()`` call per page walks the file as many times as it has
+    pages - 140 of the 297 seconds a 323-page gazette took, on a document
+    where exactly one page draws an image.  The parsed xml already says which
+    pages carry one (pdfminer writes an ``<image>`` for every image it lays
+    out), so the rest are never extracted at all and those that are come off
+    one generator advanced in page order rather than one call each.
+
+    ``page_nums`` are the xml's own page ids, which are the pdf's 1-based page
+    numbers - the same numbering ``Pictures.get_images`` already indexes by.
+    """
+
+    def __init__(self, pdf_path, page_nums):
+        self.logger = logging.getLogger(__name__)
+        self.pdf_path = pdf_path
+        self.image_pages = set(page_nums)
+        self.pending = sorted(self.image_pages)
+        self.layouts = None
+
+    def get_layout(self, page_num):
+        """The layout of page_num, or None when that page draws no image."""
+        if page_num not in self.image_pages:
+            return None
+
+        if page_num not in self.pending:
+            # asked for out of the order the pages are built in, so the single
+            # pass has already gone past it - read that one page on its own
+            return self.extract_one(page_num)
+
+        if self.layouts is None:
+            self.layouts = extract_pages(
+                self.pdf_path,
+                page_numbers=[num - 1 for num in self.pending]
+            )
+
+        # the pages come off the generator in the order they were asked for,
+        # so walk it forward to the one wanted and drop what it passes
+        while self.pending:
+            num = self.pending.pop(0)
+
+            try:
+                layout = next(self.layouts)
+            except StopIteration:
+                self.logger.warning(
+                    "Ran out of pages looking for page %s of %s",
+                    page_num, self.pdf_path
+                )
+                return self.extract_one(page_num)
+
+            if num == page_num:
+                return layout
+
+        return self.extract_one(page_num)
+
+    def extract_one(self, page_num):
+        for layout in extract_pages(self.pdf_path, page_numbers=[page_num - 1]):
+            return layout
+
+        return None
+
 class Pictures:
     
     def __init__(
@@ -146,11 +359,13 @@ class Pictures:
         figure_text=False,
         image_base_dir="manifest",
         pdf_type=None,
-        ocr_engine="tesseract"
+        ocr_engine="tesseract",
+        page_images=None
     ):
         self.logger = logging.getLogger(__name__)
 
         self.pg_num = pg_num
+        self.page_images = page_images
         self.ocr_language = ocr_language
         self.ocr_engine = ocr_engine
         self.unique_images = unique_images
@@ -385,10 +600,16 @@ class Pictures:
             return
         saved_images = {}
 
-        page_layouts = extract_pages(
-            pdf_path,
-            page_numbers=[int(page_num) - 1]
-        )
+        if self.page_images is not None:
+            # one pass over the document for the whole pdf, and nothing at all
+            # for a page the xml says draws no image
+            page_layout = self.page_images.get_layout(int(page_num))
+            page_layouts = [] if page_layout is None else [page_layout]
+        else:
+            page_layouts = extract_pages(
+                pdf_path,
+                page_numbers=[int(page_num) - 1]
+            )
 
         file_dir = os.path.join(
             output_dir,

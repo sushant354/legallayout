@@ -7,6 +7,7 @@ import re
 import codecs
 import logging
 import shutil
+import uuid
 import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
 from .Page import Page, SectionState
@@ -18,6 +19,7 @@ from .Amendment import Amendment
 from .Utils import *
 from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
+from .Figure import PageImages
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
 from .Table import table_dataframe_signature
 from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS, INDIC_SEMICOLON_CHARS
@@ -87,8 +89,95 @@ LT_CHAR_ACCESSORS = (get_lt_char_font, get_lt_char_text, set_lt_char_text)
 # --- points its own 'vivek'/'devlys' keys at the very same converter object,
 # --- so naming them here only makes the equivalence hold on a build that
 # --- predates those keys
+# --- 'tamelango' is the whole TAM_ELANGO family, whose faces a pdf names with
+# --- and without the separators ('TAM_ELANGO_Panchali', 'B067TAMElangoPanchali'
+# --- and 'B068TAMElangoPanchaliBol' are all in one document of the Tamil Nadu
+# --- gazette) and whose display faces (Kapilan) draw the same TAM layout the
+# --- text face does. It matches no other family of that corpus: the TAU faces
+# --- ('TAUElangoPanchali') are the unicode fonts of the same foundry and need
+# --- no decoder, and 'tam' alone would sweep in TAMVANAVILAvvaiyar, a font
+# --- this converter was never read against
 INDIC_FONT_NAME_ALIASES = {
     'krutidev': [r'kruti[\s_-]*dev', r'vivek', r'dev[\s_-]*lys'],
+    # --- the TAM layout is a layout and not a typeface, so a font of any
+    # --- family can be cut in it and names itself with the layout in front of
+    # --- the face: the Vanavil typing package's own faces are carried in the
+    # --- Tamil Nadu gazette both as themselves (VANAVILAvvaiyar, which
+    # --- fonts/tamil/vanavil.py reads) and in this one, as
+    # --- TAMVANAVILAvvaiyar, TAM-VANAVIL-Avvaiyar, TAMVanavilAvvaiyar,
+    # --- TAMVanavilPandian and TAMVANAVILKanchiNormal - one alias for all
+    # --- five, the separators spelled the way the elango one spells them
+    'tamelango': [r'tam[\s_-]*elango', r'tam[\s_-]*vanavil'],
+    # --- the tamil TM-Chanakya of the Kerala gazette, which indic2unicode keys
+    # --- by its three faces and by the unseparated 'tmchanakya' - so a face it
+    # --- does not list ('TM-Chanakya-BoldItalic', 'TM-Chanakya,Bold') or a
+    # --- separator it does not spell ('TM Chanakya') still reaches it, rather
+    # --- than being matched by nothing tamil and falling to 'chanakya' below
+    'tmchanakya': [r'tm[\s_-]*chanakya'],
+}
+
+# --- the converter keys whose name is not the pattern to look for in a pdf
+# --- font name. 'nudi' is the legacy 8 bit Nudi, whose text is the keys the
+# --- typist pressed, and NudiUni is the unicode font of the same family,
+# --- whose text is real kannada - but '.*nudi.*' matches 'NudiUni01e' too and
+# --- takes it first, since no longer key matches that name at all. Handing
+# --- real kannada to a decoder that reads latin is the one outcome worth
+# --- guarding against, so the key is held to a name that is not NudiUni.
+# --- The unicode font needs its glyphs reordered rather than decoded and has
+# --- a converter of its own, nudiuni_glyphs, which is reached through
+# --- get_repaired_font_res() and never by name - like every *_glyphs
+# --- converter it is for the text of a pdf that has already been repaired.
+# --- ---
+# --- 'vanavil' is the same guard, and the thing it guards against is the same
+# --- one thing: handing text to a decoder that reads a different layout. The
+# --- Vanavil typing package's faces are carried in the Tamil Nadu gazette in
+# --- three layouts, and a font of one of the other two says so by putting
+# --- that layout in front of the face - TAMVANAVILAvvaiyar and
+# --- TAM-VANAVIL-Avvaiyar are the TAM layout, which fonts/tamil/tamelango.py
+# --- reads, and TABVanavilAvvaiyar is the TAB one, which nothing here reads
+# --- at all. Only a name that *starts* with the family is this converter's,
+# --- so the key is held to one with no letter in front of it and none in
+# --- front of the separator a name spells that prefix with
+# --- ---
+# --- 'chanakya' is the devanagari Chanakya of the Kruti Dev family, and
+# --- TM-Chanakya is a tamil font of the Kerala gazette that shares nothing with
+# --- it but the name - its text is the tamil of fonts/tamil/tmchanakya.py, and
+# --- the devanagari decoder would turn it into devanagari rubbish. Keys are
+# --- tried longest first, so 'tmchanakya' and its faces win today anyway; the
+# --- guard is what keeps it that way for a spelling no longer key matches
+# --- ---
+# --- 'revathi' is the same guard for the same reason, one family over:
+# --- ML-Revathi-Normal is the Type 1 build of the font, whose glyphs the pdf
+# --- names by mac roman, and ML-TTRevathi is the TrueType build, whose text
+# --- is the windows 1252 characters of the same bytes - so the one byte comes
+# --- out of the two as two different characters (ര്‍ is ¿ in one and À in the
+# --- other) and each build has a converter of its own. Every spelling of the
+# --- TT build goes to 'ttrevathi', and 'revathi' is held to a name with no TT
+# --- in front of it
+# --- ---
+# --- 'notoserif' and its pdf font name 'NotoSerifMalayalam' are for the one
+# --- font, Noto Serif Malayalam, and not for every Noto Serif: matched
+# --- anywhere, 'notoserif' reaches the latin NotoSerif-Regular and every other
+# --- script's NotoSerif<Script>, none of which that decoder reads. So the name
+# --- has to start with the family - at the start or behind the six letter
+# --- subset prefix - in either spelling a pdf carries it in ('NotoSerifMalayalam',
+# --- 'Noto Serif Malayalam'), in any of its weights. Its Regular face is the one
+# --- exception: in the Kerala gazette that name is carried by other producers
+# --- than the one the converter was read off, with sound text
+# --- ('NotoSerifMalayalam-Regular', 'പരസ്യം നമ്പർ ... താലൂക്കിൽ') or
+# --- unembedded and garbled a different way ('NotoSerifMalayalam-Regul'), and
+# --- decoding sound text is the one outcome worth guarding against
+NOTO_SERIF_MALAYALAM_PATTERN = \
+    r'(?:^|\+)noto[\s_-]*serif[\s_-]*malayalam(?![\s,_-]*regul)'
+
+INDIC_FONT_NAME_PATTERNS = {
+    'nudi': r'nudi(?![\s_-]*uni)',
+    'vanavil': r'(?<![a-z])(?<![a-z][\s_-])vanavil',
+    'chanakya': r'(?<!tm)(?<!tm[\s_-])chanakya',
+    'revathi': r'(?<!tt)(?<!tt[\s_-])revathi',
+    'ttrevathi': r'tt[\s_-]*revathi',
+    'notoserif': NOTO_SERIF_MALAYALAM_PATTERN,
+    'NotoSerifMalayalam': NOTO_SERIF_MALAYALAM_PATTERN,
 }
 
 # --- what pdfminer writes for a glyph its font's ToUnicode map has no entry
@@ -125,7 +214,32 @@ CID_FALLBACK_FONT_KEYS = {'tunga'}
 
 # --- the model machinelearning/training.py writes, which says what a font is
 # --- drawing from the text extracted from it, see detect_unknown_fonts()
-FONT_MODEL_PATH = PROJECT_ROOT / 'model' / 'eng_hin_fonts.pkl'
+FONT_MODEL_DIR = PROJECT_ROOT / 'model'
+
+# --- one model per language of the text a font draws: a class is a way of
+# --- encoding a script, so a model trained on the devanagari fonts knows
+# --- nothing of the kannada ones and calling either from the other's classes
+# --- is exactly the wrong-decoder-on-correct-text failure detection is tuned
+# --- to avoid. -fl/--font-lang picks between them, -fm/--font-model names a
+# --- model outright and wins over it
+FONT_LANG_MODELS = {
+    'hin': 'eng_hin_fonts.pkl',
+    'tam': 'eng_tam_fonts.pkl',
+    'kan': 'eng_kan_fonts.pkl',
+    'mar': 'eng_mar_fonts.pkl',
+    'mal': 'eng_mal_fonts.pkl',
+    'tel': 'eng_tel_fonts.pkl',
+}
+DEFAULT_FONT_LANG = 'hin'
+FONT_MODEL_PATH = FONT_MODEL_DIR / FONT_LANG_MODELS[DEFAULT_FONT_LANG]
+
+
+def get_font_model_path(font_lang=None):
+    """the model -fl/--font-lang names, the devanagari one when it names none"""
+    return FONT_MODEL_DIR / FONT_LANG_MODELS[font_lang or DEFAULT_FONT_LANG]
+
+# the types whose output is bluebell rather than html (see buildHTML)
+BLUEBELL_PDF_TYPES = frozenset(['acts', 'sebi_circulars'])
 
 # --- the classes that model is trained on, mapped to the converter the text of
 # --- such a font needs. A class already named after its converter needs no
@@ -149,8 +263,48 @@ FONT_CLASS_NOT_REQUIRED = 'not_required'
 # --- characters are simply not in the text and no decoder can put back what
 # --- was never extracted, so the only correct thing to do with such a font is
 # --- to leave it alone. mangal_glyphs is a reordering pass for text the repair
-# --- did place, and is reached through get_repaired_font_res(), never here
-FONT_CLASSES_WITHOUT_CONVERTER = {'type3', 'mangal'}
+# --- did place, and is reached through get_repaired_font_res(), never here.
+# ---
+# --- The rest of the set is every other class of that kind, one per font whose
+# --- converter in indic2unicode is a *_glyphs pass registered under no bare
+# --- font name: nudiuni, tauelango, ilasundaram, marutham, meera, freeserif
+# --- and nats. Each of those is a real unicode font that repair_tounicode()
+# --- puts right and whose converter only reorders the text the repair wrote,
+# --- so a font of one of them that reaches detection at all is - exactly as
+# --- with Mangal - one the repair could not place, whose text is not merely
+# --- out of order: NudiUni's shaped glyphs and Meera's reordered ones are
+# --- missing from it outright, FreeSerif's clusters and syllables are missing
+# --- from it too (mPDF hands each of those a private use codepoint rather
+# --- than a character), and TAU Elango Panchali's and Uni-Ila.Sundaram's
+# --- carry the wrong characters, so reordering it would only move wrong text
+# --- about. The model naming one of these is therefore right and still says
+# --- nothing that can be acted on. meera, freeserif and nats are named here
+# --- before any model is trained on their scripts, for the reason the comment
+# --- on FONT_CLASSES_INDIC_TEXT gives: this table is a statement about which
+# --- converters exist under which name, not about which classes a model
+# --- happens to have today
+FONT_CLASSES_WITHOUT_CONVERTER = {
+    'type3', 'mangal', 'nudiuni', 'tauelango', 'ilasundaram', 'marutham',
+    'meera', 'freeserif', 'nats',
+}
+
+# --- the fonts whose name already places them in one of the two classes above, and
+# --- which are therefore never handed to the model either: whatever it answers
+# --- about such a font, the only thing that can be done with its text is to
+# --- take it as it is, so classifying it can add nothing and can only get it
+# --- wrong. This is the name-based half of FONT_CLASSES_WITHOUT_CONVERTER; the
+# --- type3 half of it is not a name at all and is read off the pdf instead,
+# --- see get_type3_font_names(). Matched anywhere in the name, case
+# --- insensitively, exactly as FONT_DETECT_SKIP_RE and the -fc names are - bar
+# --- nats, which is spelt with a lookbehind for the reason the vanavil pattern in
+# --- INDIC_FONT_NAME_PATTERNS is: four letters match inside too many words to
+# --- be taken anywhere in a name, so a font is this one only where the name
+# --- starts with it or a separator does
+FONT_DETECT_NO_CONVERTER_RE = re.compile(
+    r'mangal|nudi[\s_-]*uni|tau[\s_-]*elango|ila[\s._-]*sundaram'
+    r'|marutham|meera|free[\s_-]*serif|(?<![a-z])nats',
+    re.IGNORECASE
+)
 
 # --- how much text drawn in one font is enough to say what it is. The model is
 # --- trained on samples of 50 words and its confidence falls apart well below
@@ -174,11 +328,17 @@ FONT_DETECT_MIN_PROB = 0.5
 # --- the multi word names because a pdf spells them both ways (Book Antiqua and
 # --- BookAntiqua, Yu Gothic and YuGothic), and matched anywhere in the name,
 # --- case insensitively, exactly as the -fc and the built in font names are -
-# --- so a subset prefix or a style suffix (ABCDEF+TimesNewRoman,Bold) matches too
+# --- so a subset prefix or a style suffix (ABCDEF+TimesNewRoman,Bold) matches too.
+# --- The one exception is TeX's Computer Modern (CMR10, CMMI10, CMSY10, CMBX12,
+# --- CMTT10, CMEX10, CMCSC10, CMBXTI10, ...), named as a few letters and a design
+# --- size: two letters are far too short to match anywhere, so it is held to the
+# --- start of the name or to just behind the subset prefix. The model called the
+# --- CMR10 of test/test_pdfs/multicolumn.pdf krutidev at 0.69 and decoded it
 FONT_DETECT_SKIP_RE = re.compile(
     r'times|arial|calibri|cambria|courier|helvetica|verdana|tahoma|garamond'
     r'|book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro'
-    r'|minion[\s_-]*pro|segoe|malgun|yu[\s_-]*gothic',
+    r'|minion[\s_-]*pro|segoe|malgun|yu[\s_-]*gothic'
+    r'|(?:^|\+)cm[a-z]{1,6}\d+',
     re.IGNORECASE
 )
 
@@ -203,13 +363,29 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- the classes whose text is already drawn in an indic script by the time it
 # --- is extracted: a font whose ToUnicode map is broken draws real devanagari,
 # --- it is just the wrong devanagari ('निर्माण' as 'जिमावण'), and type3 text was
-# --- put right by repair_tounicode() before anything read the pdf. Every other
-# --- class is a legacy 8-bit encoding that overloads the latin codepoints, so
-# --- its text extracts as latin and cannot contain an indic character at all -
-# --- which is what makes the check in get_detected_font_key() possible, and
-# --- what makes assuming it of a class not named here the safe default
+# --- put right by repair_tounicode() before anything read the pdf. tunga is
+# --- here for a third reason - it is a real unicode font whose map is sound, so
+# --- its text extracts as correct kannada characters and what is wrong is only
+# --- the order they are in ('ಪರ್ಸಾತ್ವನೆ' for 'ಪ್ರಸ್ತಾವನೆ'), the converter
+# --- reordering rather than decoding, and the seven classes on the second and
+# --- third lines below are here for that same third reason: nudiuni,
+# --- tauelango, ilasundaram, marutham, meera, freeserif and nats are all real
+# --- unicode fonts drawing
+# --- real kannada, tamil, malayalam and telugu, whose maps are broken in ways
+# --- repair_tounicode() is what answers (see FONT_CLASSES_WITHOUT_CONVERTER,
+# --- which names them all again for the second half of the same fact - none of
+# --- them has a converter to point at either). Every other class is a legacy
+# --- 8-bit encoding that overloads the latin codepoints, so its text extracts
+# --- as latin and cannot contain an indic character at all - which is what
+# --- makes the check in get_detected_font_key() possible, and what makes
+# --- assuming it of a class not named here the safe default. A class is named
+# --- here as soon as its font is known, not as soon as a model is trained on
+# --- it: the wrong half of this table is the half that names too few classes,
+# --- since that is the half that rejects a true verdict as an impossible one
 FONT_CLASSES_INDIC_TEXT = {
-    'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal',
+    'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal', 'tunga',
+    'nudiuni', 'tauelango', 'ilasundaram', 'marutham', 'meera', 'freeserif',
+    'nats',
     FONT_CLASS_NOT_REQUIRED,
 }
 
@@ -217,6 +393,32 @@ FONT_CLASSES_INDIC_TEXT = {
 # --- extended block, used to tell text that is already decoded from the latin
 # --- a legacy encoding draws
 INDIC_SCRIPT_RE = re.compile(r'[\u0900-\u0DFF\uA8E0-\uA8FF]')
+
+# --- devanagari alone, the block and its extension
+DEVANAGARI_SCRIPT_RE = re.compile(r'[\u0900-\u097F\uA8E0-\uA8FF]')
+
+# --- the converters that read the text of one indic script only, as (the name
+# --- of the script, a regexp matching a char of it). A pdf font is matched to
+# --- a converter by its name, and a name says which font it is but not which
+# --- script it is drawing: Nirmala UI draws every indic script there is, and
+# --- the gazettes of Karnataka, Kerala, Andhra Pradesh and Odisha are set in it
+# --- as well as the Gazette of India. What reads the text of a Nirmala UI whose
+# --- map was repaired is nirmalaui_glyphs, which splits the text on its script
+# --- and hands each script to a pass of its own; but a Nirmala UI the repair
+# --- did not place is matched by name to 'nirmalaui', which is the lossy
+# --- decoder of the Gazette of India's devanagari and has no token for any
+# --- other script at all - '\u0D24\u0D3F\u0D30\u0D41\u0D24\u0D4D\u0D24\u0D7D \u0D2A\u0D30\u0D38\u0D4D\u0D2F\u0D02' comes out of it as spaces, and so
+# --- does every word of kannada and telugu. There is no converter of any
+# --- other script for such a font (its passes of those are for repaired text,
+# --- and reordering unrepaired text, whose map may be sound, would destroy
+# --- it), so the glyphs of another script are never handed to it and are left
+# --- as the pdf draws them, see convert_indic_font_runs(); and a font the
+# --- model calls 'nirmala' is only pointed at it when its text is devanagari,
+# --- see get_detected_font_key(). Every key of the same converter is held to
+# --- the same script, see get_converter_scripts()
+CONVERTER_SCRIPTS = {
+    'nirmalaui': ('devanagari', DEVANAGARI_SCRIPT_RE),
+}
 
 # --- and the share of a font's sampled characters that has to be in one of
 # --- those scripts before the model saying it is a legacy latin encoding is
@@ -252,8 +454,11 @@ class Main:
                  rights=None, provider_id=None, provider_name=None, 
                  attribution=None, figure_text=False, font_conv_map=None,
                  ocr_engine_image_text="tesseract", font_model=None,
-                 font_detect=True, ocr_engine_pdf_parser=None): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 font_detect=True, show_fonts=False, ocr_engine_pdf_parser=None): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
+        # names this run's files in the shared cache directories, see
+        # get_run_cache_pdf()
+        self.run_id = uuid.uuid4().hex[:12]
         if self.is_url_like(output_dir):
             raise ValueError(
                 f"output_dir ('{output_dir}') looks like a URL, not a local filesystem "
@@ -376,6 +581,9 @@ class Main:
         # the keys of the converters that read a glyph with no ToUnicode entry
         # as the character of its cid, see get_indic_char_text()
         self.cid_fallback_font_keys = self.get_cid_fallback_font_keys()
+        # the keys of the converters that read one script only, see
+        # CONVERTER_SCRIPTS
+        self.converter_scripts = self.get_converter_scripts()
         # mappings given by the caller come first, so that a font can be pointed at
         # a converter its name does not name, or at a different one than it does
         self.font_conv_map_res = self.get_font_conv_map_res(font_conv_map)
@@ -387,10 +595,40 @@ class Main:
         # The fonts none of the above can place are identified from the text they
         # draw instead, with the model of machinelearning/, see detect_unknown_fonts()
         self.font_detect = font_detect
-        self.font_model = font_model or FONT_MODEL_PATH
+        # a model named outright says which model to use; a language only says
+        # which of the ones shipped here to pick, so -fm wins over -fl
+        if font_lang and font_lang not in FONT_LANG_MODELS:
+            raise ValueError(
+                f"font_lang ('{font_lang}') names no font model. The languages a "
+                f"model is shipped for are: {', '.join(sorted(FONT_LANG_MODELS))}. "
+                f"Name a model of your own with font_model/-fm instead."
+            )
+        if font_model and font_lang:
+            self.logger.warning(
+                'both a font model (%s) and a font language (%s) were given, '
+                'going with the model', font_model, font_lang
+            )
+        self.font_model = font_model or get_font_model_path(font_lang)
         # loaded when a document first has a font that needs it: None means not
         # tried yet, False means tried and failed (so it is reported just once)
         self.font_classifier = None
+        # the names pdfminer gives the type3 fonts of the document, read off the
+        # pdf when detection first needs them, see get_type3_font_names()
+        self.type3_font_names = None
+        # {pdf font name: what the model called it}, for every font detection was
+        # actually run on, whether or not the answer was acted on. Reported in the
+        # html as data-detected-font when -fn/--font-names is given
+        self.detected_font_classes = {}
+        # -fn/--font-names: name the pdf font of every run of text in the output,
+        # as <span data-font="...">. It is markup of the html output itself, so
+        # it means nothing for the types that are written as bluebell instead
+        self.show_fonts = show_fonts
+        if show_fonts and pdf_type in BLUEBELL_PDF_TYPES:
+            self.logger.warning(
+                f"[!] font names (-fn) are html markup and the '{pdf_type}' type "
+                f"is written as bluebell, not html - ignoring the option."
+            )
+            self.show_fonts = False
         # self.fontmapper.extract_fonts()
 
     # --- func to get the indic2unicode font convertor, None if unavailable ---
@@ -514,7 +752,7 @@ class Main:
 
             # the repaired copy keeps the name of the document, everything
             # that is written out is named after it
-            fixed_dir = os.path.join(self.get_path_cache_pdf(), 'tounicode')
+            fixed_dir = os.path.join(self.get_run_cache_pdf(), 'tounicode')
             os.makedirs(fixed_dir, exist_ok = True)
             fixed_path = os.path.join(fixed_dir, os.path.basename(self.pdf_path))
             doc.save(fixed_path)
@@ -537,21 +775,41 @@ class Main:
         if self.fontmapper is not None:
             self.fontmapper.pdf_path = fixed_path
 
+        # the name a font was repaired *as* is not always the name the pdf
+        # carries for it - a producer that writes no font name at all is
+        # looked up under the name the font program gives itself - and it is
+        # the pdf's own name that pdfminer will report, so the two are kept
+        # apart. An indic2unicode that predates fixed_font_names knows of no
+        # such font and the two names are always one
+        fixed_font_names = getattr(fixer, 'fixed_font_names', None) or \
+                           {name: name for name in fixer.fixed_fonts}
+
         self.indic_font_res = self.font_conv_map_res + \
-                              self.get_repaired_font_res(fixer.fixed_fonts) + \
+                              self.get_repaired_font_res(fixed_font_names) + \
                               self.get_indic_font_res()
         # a font may already have been looked up while the map was broken
         self.indic_font_keys = {}
         self.indic_text_cache = {}
 
     # --- func to get the regexps for the fonts whose map was repaired ---
-    def get_repaired_font_res(self, fixed_fonts):
+    def get_repaired_font_res(self, fixed_font_names):
+        """The reordering converters for the fonts repair_tounicode() repaired.
+
+        fixed_font_names is {the name the pdf carries: the name the font was
+        repaired as}. The two are the same for every font a pdf names itself,
+        and differ where the pdf named the font nothing at all and
+        ToUnicodeFixer read its name out of the embedded font program instead
+        (recover_font_names()). Which one is wanted differs by line: the
+        converter is looked up by the name the font really is, and the regexp
+        is built on the name the pdf carries, since that is the one pdfminer
+        will report and so the one this has to match.
+        """
         if self.font_conv is None:
             return []
 
         font_res = []
 
-        for font_name in sorted(fixed_fonts):
+        for pdf_name, font_name in sorted(fixed_font_names.items()):
             # the name is the one the pdf carries, which is not always the
             # spelling the converter is listed under: Arial Unicode MS is
             # embedded as ArialUnicodeMS too and Nirmala UI carries its bold
@@ -568,12 +826,33 @@ class Main:
                 )
                 continue
 
-            self.logger.info(
-                "Text in the repaired font %s will be reordered using %s",
-                font_name, font_key
-            )
+            if pdf_name == font_name:
+                self.logger.info(
+                    "Text in the repaired font %s will be reordered using %s",
+                    font_name, font_key
+                )
+            else:
+                self.logger.info(
+                    "Text in the repaired font %s, which this pdf carries as "
+                    "%s, will be reordered using %s", font_name, pdf_name,
+                    font_key
+                )
+
+            # the *whole* name, unlike the name-based regexps of
+            # get_indic_font_res, which match anywhere: this one says "this
+            # font, in this document, was really repaired", and a font whose
+            # name merely contains it was not. A .* here would reorder the
+            # text of a font that is already in the order unicode wants and
+            # so destroy it - the Tamil Nadu gazette carries
+            # TAUElangoPanchali-SC700 beside TAUElangoPanchali, only the
+            # second of which is repaired (font_lookup_key keeps them apart),
+            # and reordering the first turns செய்ய into சய்ெய. Everything
+            # around the name is what a pdf adds to it and fixed_font_names
+            # has already dropped: the six letter subset prefix, which
+            # ToUnicodeFixer.base_font strips the same way
             font_res.append(
-                (re.compile('.*%s.*' % re.escape(font_name), re.IGNORECASE), font_key)
+                (re.compile('^(?:.{6}\\+)?%s$' % re.escape(pdf_name),
+                            re.IGNORECASE), font_key)
             )
 
         return font_res
@@ -588,18 +867,64 @@ class Main:
         of how the pdf happens to name it, so the fallback has to follow the
         converter object rather than the one spelling of it named above.
         """
+        return self.get_same_converter_keys(CID_FALLBACK_FONT_KEYS)
+
+    # --- func to get the keys of the converters that read one script only ---
+    def get_converter_scripts(self):
+        """{converter key: (script name, script regexp)}, see CONVERTER_SCRIPTS.
+
+        Widened to every key of the same converter, for the reason
+        get_cid_fallback_font_keys() is: 'Nirmala UI' is the same decoder as
+        'nirmalaui', and a font is matched by whichever of the two its name
+        happens to spell.
+        """
+        return {
+            key: script
+            for font_key, script in CONVERTER_SCRIPTS.items()
+            for key in self.get_same_converter_keys([font_key])
+        }
+
+    # --- func to widen converter keys to every key of the same converter ---
+    def get_same_converter_keys(self, font_keys):
+        """Every key in FontConv.converters naming one of font_keys' converters."""
         if self.font_conv is None:
-            return set(CID_FALLBACK_FONT_KEYS)
+            return set(font_keys)
 
         converters = self.font_conv.converters
-        fallback_convs = [
-            converters[key] for key in CID_FALLBACK_FONT_KEYS if key in converters
-        ]
+        wanted_convs = [converters[key] for key in font_keys if key in converters]
 
         return {
             key for key, converter in converters.items()
-            if any(converter is fallback for fallback in fallback_convs)
+            if any(converter is wanted for wanted in wanted_convs)
         }
+
+    # --- func to tell whether a converter reads the text of a glyph ---
+    def is_converter_script(self, font_key, text):
+        """False when text is in an indic script the font_key converter does not read.
+
+        Text in no indic script at all - latin, digits, punctuation, a (cid:N)
+        placeholder - is the converter's to pass through, as it always was.
+        """
+        script = self.converter_scripts.get(font_key)
+
+        if script is None or not text:
+            return True
+
+        _, script_re = script
+
+        return all(script_re.match(char) for char in INDIC_SCRIPT_RE.findall(text))
+
+    # --- func to get the share of a text in an indic script a converter does not read ---
+    def get_other_script_ratio(self, text, script_re):
+        """How much of text is in an indic script other than script_re's, ignoring whitespace."""
+        chars = ''.join(text.split())
+
+        if not chars:
+            return 0.0
+
+        others = [c for c in INDIC_SCRIPT_RE.findall(chars) if not script_re.match(c)]
+
+        return len(others) / len(chars)
 
     # --- func to get the regexps that match a pdf font to a legacy indic font ---
     def get_indic_font_res(self):
@@ -619,7 +944,10 @@ class Main:
         # all (Tunga/Tunga-Bold, both the same converter object anyway), so
         # nothing else moves
         for font_key in sorted(self.font_conv.converters, key=len, reverse=True):
-            patterns = [re.escape(font_key)]
+            # a key that must not be looked for as itself (nudi, which
+            # would swallow NudiUni), and failing that the key itself
+            patterns = [INDIC_FONT_NAME_PATTERNS.get(font_key)
+                        or re.escape(font_key)]
             # a font whose pdf name is not its converter's name (Kruti Dev)
             patterns.extend(INDIC_FONT_NAME_ALIASES.get(font_key, []))
 
@@ -750,6 +1078,11 @@ class Main:
         font_res = []
 
         for font_name, (label, probability) in zip(font_names, results):
+            # what the model said, kept whether or not it is acted on below: a
+            # verdict that was rejected (too unsure, or impossible for the text
+            # it was reached on) is exactly what someone reading the html to see
+            # how detection went needs to be told, see get_detected_font_key()
+            self.detected_font_classes[font_name] = label
             font_key = self.get_detected_font_key(
                 font_name, label, probability, font_texts[font_name]
             )
@@ -774,6 +1107,69 @@ class Main:
             for font_name, font_key in self.indic_font_keys.items() if font_key
         }
 
+    # --- func to get the names pdfminer gives the type3 fonts of the document ---
+    def get_type3_font_names(self):
+        """The names the type3 fonts of the document are known by here.
+
+        type3 is one of FONT_CLASSES_WITHOUT_CONVERTER: repair_tounicode() is
+        what puts a type3 font's text right, before anything reads the pdf, and
+        no converter of indic2unicode's decodes such a font. So the one answer
+        the model can give about one that is true - type3 - is also the one
+        answer that changes nothing, while every other answer runs a decoder
+        over text that is already correct. There is nothing to gain by
+        classifying a type3 font and a document to lose, so they are left out of
+        detection altogether rather than classified and then discarded.
+
+        A type3 font carries no BaseFont, so pdfminer names it after the
+        FontName of its FontDescriptor and calls it 'unknown' when it has none.
+        ToUnicodeFixer gives every type3 font it repairs a descriptor naming the
+        font whose glyphs it read, which is what points that font at a
+        reordering converter, so this is read off the same repaired copy the
+        rest of the run reads: the ones it named are placed by
+        get_repaired_font_res() long before detection and never reach it, and
+        what is left to be skipped here are the type3 fonts it found nothing to
+        repair - whose maps were already sound, and whose text is therefore
+        already correct. Five of the eight type3 fonts of
+        test/test_pdfs/union_hindi5.pdf are exactly those, and the model calls
+        the clean devanagari they draw arialuni at a probability of 1.00.
+        """
+        if self.type3_font_names is not None:
+            return self.type3_font_names
+
+        self.type3_font_names = set()
+
+        if not os.path.exists(self.pdf_path) or not self.is_pdf_file(self.pdf_path):
+            return self.type3_font_names
+
+        try:
+            doc = pymupdf.open(self.pdf_path)
+
+            try:
+                for pagenum in range(doc.page_count):
+                    for font in doc[pagenum].get_fonts(full = True):
+                        xref, ftype = font[0], font[2]
+
+                        if ftype != 'Type3':
+                            continue
+
+                        # pymupdf resolves the path and writes the name out as
+                        # the characters it stands for, '/Arial#20Unicode#20MS'
+                        # coming back as '/Arial Unicode MS', which is the
+                        # spelling pdfminer reports too
+                        key, name = doc.xref_get_key(xref, 'FontDescriptor/FontName')
+                        self.type3_font_names.add(
+                            name.lstrip('/') if key == 'name' else 'unknown'
+                        )
+            finally:
+                doc.close()
+        except Exception as e:
+            self.logger.warning(
+                "[!] Could not read the type3 fonts of %s, so they are classified "
+                "like any other font: %s", self.pdf_path, e
+            )
+
+        return self.type3_font_names
+
     # --- func to get the text drawn in each font that nothing else identifies ---
     def get_unknown_font_texts(self, pages):
         """{font name: the text the pdf draws in it}, for the unplaced fonts.
@@ -787,6 +1183,14 @@ class Main:
         all, and the model cannot improve on that, only get it wrong. Arial
         Unicode MS is named like one of them but is not one of them
         (FONT_DETECT_SKIP_EXCEPT_RE), so it is classified like anything else.
+
+        Left out too are the fonts of FONT_CLASSES_WITHOUT_CONVERTER that can be
+        recognised without asking the model - the type3 fonts of the document
+        (get_type3_font_names()) and the ones named in FONT_DETECT_NO_CONVERTER_RE.
+        This tool corrects those itself, in repair_tounicode(), and no converter
+        decodes them, so the true answer about one of them is the answer that
+        changes nothing and every other answer corrupts text that is already
+        correct - which makes classifying them all risk and no gain.
 
         The text of a font is collected as the runs of consecutive chars drawn
         in it joined with a space, and not as one string of every char it draws:
@@ -833,6 +1237,22 @@ class Main:
                 self.logger.debug(
                     "Font %s is one of the standard latin faces, whose text needs "
                     "no decoder, so it is not classified at all", font_name
+                )
+                continue
+
+            if font_name in self.get_type3_font_names():
+                self.logger.debug(
+                    "Font %s is a type3 font, whose text repair_tounicode() is "
+                    "what puts right and which no converter decodes, so it is "
+                    "not classified at all", font_name
+                )
+                continue
+
+            if FONT_DETECT_NO_CONVERTER_RE.search(font_name):
+                self.logger.debug(
+                    "Font %s is named as one of the fonts that have no converter "
+                    "to point their text at, so it is not classified at all",
+                    font_name
                 )
                 continue
 
@@ -901,6 +1321,26 @@ class Main:
                 font_name, label
             )
             return None
+
+        # a class can be the same font drawing more than one script (nirmala is
+        # Nirmala UI whichever gazette it sets) while its converter reads just
+        # one of them - so the text decides, not the class, see CONVERTER_SCRIPTS
+        script = self.converter_scripts.get(font_key)
+
+        if script is not None:
+            script_name, script_re = script
+            other_ratio = self.get_other_script_ratio(text, script_re)
+
+            if other_ratio > FONT_DETECT_MAX_INDIC_RATIO:
+                self.logger.warning(
+                    "[!] Text in font %s was detected as %s (%.2f), but %.0f%% of "
+                    "it is in an indic script other than %s, the only one %s "
+                    "reads, and there is no converter of that script for an "
+                    "unrepaired %s, so the text is left as it is",
+                    font_name, label, probability, other_ratio * 100,
+                    script_name, font_key, label
+                )
+                return None
 
         self.logger.info(
             "Text in font %s will be converted to unicode using %s, detected from "
@@ -1108,7 +1548,7 @@ class Main:
         # conversion is contextual - matras get reordered and glyph pairs get
         # composed - so it is applied to the longest run of consecutive chars
         # sharing the same font instead of one char at a time
-        get_font = accessors[0]
+        get_font, get_text, _ = accessors
 
         run = []
         run_font_key = None
@@ -1119,6 +1559,11 @@ class Main:
             font_name = get_font(char)
 
             font_key = self.get_indic_font_key(font_name) if font_name else None
+
+            # and so does a glyph of a script its font's converter does not
+            # read, which is left as the pdf draws it (see CONVERTER_SCRIPTS)
+            if font_key and not self.is_converter_script(font_key, get_text(char)):
+                font_key = None
 
             if font_key != run_font_key:
                 self.convert_indic_font_run(run, run_font_key, accessors)
@@ -1475,6 +1920,15 @@ class Main:
                 f"Failed removing directory for: {file_path}"
             )
     
+    def warn_font_names_unsupported(self, what):
+        if not self.show_fonts:
+            return
+
+        self.logger.warning(
+            f"[!] font names (-fn) are not carried through {what} - "
+            f"the output has no data-font markup in it."
+        )
+
     def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
@@ -1682,23 +2136,55 @@ class Main:
             # self.bq_layout.print_sections()
         pass
 
+    def get_image_page_nums(self, pages):
+        """The page numbers of the parsed xml that draw an image.
+
+        pdf2txt writes an <image> element for every image pdfminer lays out, so
+        a page carrying none of them has nothing for Figure.get_images to find
+        and need never be extracted from the pdf at all.
+        """
+        nums = []
+
+        for pg in pages:
+            if pg.find(".//image") is None:
+                continue
+
+            try:
+                nums.append(int(pg.attrib["id"]))
+            except (KeyError, ValueError):
+                self.logger.warning(
+                    "Page with no usable id in the xml, its images will be "
+                    "extracted on their own: %s", pg.attrib
+                )
+
+        return nums
+
     # --- NEW ADAPTIVE HEADER/FOOTER DETECTION ---
     def get_page_header_footer(self, pages, base_name_of_file, output_dir):
+        image_page_nums = self.get_image_page_nums(pages)
+        page_images = None
+
         # Initialize page objects first
         for pg in pages:
-            pdf_dir = self.get_path_cache_pdf()
             if not self.pdf_path.lower().endswith(".pdf"):
+                pdf_dir = self.get_run_cache_pdf()
                 base_name = os.path.basename(self.pdf_path) + ".pdf"
                 new_pdf_path = os.path.join(pdf_dir, base_name)
                 shutil.copy(self.pdf_path, new_pdf_path)
                 self.logger.debug(f"Copied input file to cache dir as: {new_pdf_path}")
                 self.pdf_path = new_pdf_path
 
+            if page_images is None:
+                # built here rather than before the loop so it is anchored on
+                # the path the copy above may just have moved the pdf to
+                page_images = PageImages(self.pdf_path, image_page_nums)
+
             page = Page(pg, self.pdf_path, base_name_of_file, output_dir,
                         self.pdf_type, self.has_side_notes, self.is_amendment_pdf,
                         self.fontmapper, self.unique_images, self.min_img_pixels,
                         self.ocr_language_image_text,
-                        self.is_scanned_copy, self.figure_text, self.ocr_engine_image_text)
+                        self.is_scanned_copy, self.figure_text, self.ocr_engine_image_text,
+                        page_images=page_images)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes()#pg)
@@ -2671,7 +3157,9 @@ class Main:
                 return True
             
             cache_xml_path = self.get_path_cache_xml()
-            self.xml_path =  cache_xml_path / f"{base_name_of_file}.xml"
+            # named for this run as well as for the document, for the reason
+            # get_run_cache_pdf() gives
+            self.xml_path =  cache_xml_path / f"{base_name_of_file}-{self.run_id}.xml"
             self.logger.debug("Converting PDF to XML...")
             self.parserTool.convert_to_xml(self.pdf_path,self.xml_path, self.pdf_type, \
                                            char_margin, word_margin, line_margin)
@@ -2939,19 +3427,34 @@ class Main:
         cache_xml_dir.mkdir(parents=True, exist_ok=True)  
         return cache_xml_dir
 
+    def get_run_cache_pdf(self):
+        """This run's own directory under cache_pdf, created on first use.
+
+        Several runs can be converting at once (egazette's pdf2html runs a
+        pool of them in one tree) and two different documents often share a
+        file name - every issue of a weekly gazette has its 9.pdf - so a copy
+        named after the document alone was written over by the other run, and
+        deleted by it when that run finished, leaving each to read the other's
+        pdf or none at all. A copy is still named after the document, since
+        everything written out is named after it, but in a directory no other
+        run uses.
+        """
+        run_dir = self.get_path_cache_pdf() / self.run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        return run_dir
+
     def clear_cache_pdf(self):
-        cache_dir = self.get_path_cache_pdf()
-        if not os.path.exists(self.pdf_path):
-            self.logger.warning("File was not created or already deleted: %s", self.pdf_path)
-        else:
-            if os.path.commonpath([os.path.abspath(self.pdf_path), os.path.abspath(cache_dir)]) == os.path.abspath(cache_dir):
-                try:
-                    os.remove(self.pdf_path)
-                    self.logger.info("Successfully removed cached_pdf: %s", self.pdf_path)
-                except OSError as e:
-                    self.logger.error("Error deleting cached file %s: %s", self.pdf_path, e)
-            else:
-                self.logger.debug("Skipping delete, file not in cache_pdf: %s", self.pdf_path)
+        # every pdf this run cached is in its own directory, and nothing of
+        # another run's is
+        run_dir = self.get_path_cache_pdf() / self.run_id
+        if not run_dir.exists():
+            self.logger.debug("No pdf was cached for this run: %s", run_dir)
+            return
+        try:
+            shutil.rmtree(run_dir)
+            self.logger.info("Successfully removed cached pdf(s): %s", run_dir)
+        except OSError as e:
+            self.logger.error("Error deleting cached pdf(s) %s: %s", run_dir, e)
 
     def clear_camelot_cache(self):
         try:
@@ -3893,11 +4396,30 @@ def get_arg_parser():
                                'is simply skipped when there is no model there). A font '
                                'the model places needs no -fc mapping; a -fc mapping '
                                'wins over the model for the font it names.')
+    parser.add_argument('-fl', '--font-lang', dest = 'font_lang', action = 'store',
+                        required = False, default = None, metavar = 'LANG',
+                        choices = sorted(FONT_LANG_MODELS),
+                        help = 'Language of the text the fonts of this pdf draw, which '
+                               'picks the model that says what a font whose name '
+                               'identifies no encoding is drawing: '
+                               + ', '.join('%s -> %s' % (lang, FONT_LANG_MODELS[lang])
+                                           for lang in sorted(FONT_LANG_MODELS))
+                               + f' (default {DEFAULT_FONT_LANG}). A model named with '
+                               '-fm wins over this.')
     parser.add_argument('-nfd', '--no-font-detect', dest = 'font_detect',
                         action = 'store_false',
                         help = 'Do not detect the encoding of the fonts whose name does '
                                'not give it away, i.e. use nothing but the font names '
                                'and the -fc mappings, as before the model existed.')
+    parser.add_argument('-fn', '--font-names', dest = 'show_fonts',
+                        action = 'store_true', required = False, default = False,
+                        help = 'Name the pdf font every run of text is drawn in, in the '
+                               'output itself: each contiguous piece of text drawn in one '
+                               'font is wrapped in <span data-font="FONT">...</span>, and '
+                               'a font the detector was run on also carries what the model '
+                               'made of it, as data-detected-font="CLASS". '
+                               'Html output only, so it does nothing for the types written '
+                               'as bluebell (%s).' % ' | '.join(sorted(BLUEBELL_PDF_TYPES)))
     return parser
 
 
@@ -3976,7 +4498,7 @@ if __name__ == "__main__":
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
                 figure_text, args.font_conv_map, ocr_engine_image_text,
-                args.font_model, args.font_detect, ocr_engine_pdf_parser)
+                args.font_model, args.font_detect, args.show_fonts, ocr_engine_pdf_parser)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])

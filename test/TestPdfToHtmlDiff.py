@@ -61,7 +61,9 @@ def process_case(job):
             provider_name=job['provider_name'],
             attribution=job['attribution'],
             font_conv_map=job['font_conv'],
-            font_detect=job['font_detect']
+            font_lang=job['font_lang'],
+            font_detect=job['font_detect'],
+            show_fonts=job['font_names']
         )
 
         # Parse PDF
@@ -274,11 +276,12 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         for key in ('pdf_type', 'char_margin', 'word_margin', 'line_margin',
                     'start_page', 'end_page', 'server_root', 'public_base_url',
                     'rights', 'provider_id', 'provider_name', 'attribution',
-                    'font_conv'):
+                    'font_conv', 'font_lang'):
             job[key] = params.get(key)
 
         for key in ('is_amendment', 'has_sidenotes', 'scanned_copy', 'table_extract',
-                    'figure_text', 'has_doc_end', 'is_footnote_continuation'):
+                    'figure_text', 'has_doc_end', 'is_footnote_continuation',
+                    'font_names'):
             job[key] = bool(params.get(key))
 
         return job
@@ -409,8 +412,10 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     provider_name = row.get('provider_name', '').strip() or None
                     attribution = row.get('attribution', '').strip() or None
                     font_conv = row.get('font_conv', '').strip() or None
+                    font_lang = row.get('font_lang', '').strip() or None
                     font_detect = cls._parse_bool(row.get('font_detect', ''),
                                                   default=True)
+                    font_names = cls._parse_bool(row.get('font_names', ''))
 
                     base_name = pdf_path.stem
                     if scanned_copy:
@@ -453,7 +458,9 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'provider_name': provider_name,
                         'attribution': attribution,
                         'font_conv': font_conv,
+                        'font_lang': font_lang,
                         'font_detect': font_detect,
+                        'font_names': font_names,
                         'expected_html': cls.expected_output_dir / f"{base_name}.{expected_file}",
                         'actual_html': cls.actual_output_dir / f"{base_name}.{expected_file}"
                     })
@@ -477,7 +484,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      ocr_engine = 'tesseract', ocr_engine_pdf_parser = None,
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None,
-                     font_conv = None, font_detect = True):
+                     font_conv = None, font_lang = None, font_detect = True,
+                     font_names = False):
         """Process a single PDF file and generate HTML output, in this process."""
         job = self._build_job(test_case, {
             'pdf_type': pdf_type, 'is_amendment': is_amendment,
@@ -493,7 +501,9 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'server_root': server_root, 'public_base_url': public_base_url,
             'rights': rights, 'provider_id': provider_id,
             'provider_name': provider_name, 'attribution': attribution,
-            'font_conv': font_conv, 'font_detect': font_detect
+            'font_conv': font_conv, 'font_lang': font_lang,
+            'font_detect': font_detect,
+            'font_names': font_names
         })
 
         return self._apply_case_result(test_case, process_case(job))
