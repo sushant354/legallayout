@@ -1,6 +1,6 @@
 {
   "@context": "http://iiif.io/api/image/3/context.json",
-  "id": "https://gazettes.servantsofknowledge.in/legallayout/test/actual_html/manifest/gazette1/images/Image103",
+  "id": "https://gazettes.servantsofknowledge.in/test/actual_html/manifest/gazette1/images/Image103",
   "type": "ImageService3",
   "protocol": "http://iiif.io/api/image",
   "profile": "level0",

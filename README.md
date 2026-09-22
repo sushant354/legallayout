@@ -12,7 +12,7 @@ It extracts text and layout information from PDFs, classifies content into heade
 - Document-type-specific processing for `acts`, `sebi`/`sebi_circulars`, and `egazette`
 - Amendment detection and structuring for legal amendment documents
 - Table extraction, including borderless-table detection with cross-page continuation (`camelot-py` for bordered tables, plus lightweight logistic-regression classifiers trained online via reinforcement learning for header-row, region-merge, and continuation decisions on borderless tables — see [Borderless-table detection](#borderless-table-detection))
-- OCR-based extraction: Chrome-Lens for the scanned-copy (`-sc`) page-text path; Tesseract (default) or PaddleOCR (`-oe/--ocr-engine paddleocr`) for optional per-image figure-text extraction (`-ftx`), supporting English plus 15 Indian regional languages via `-ol/--ocr-language` (PaddleOCR covers a 7-language subset of these)
+- OCR-based extraction: Chrome-Lens (default for `egazette`/`acts`/`sebi_circulars`) or Tesseract (default for other types) for the scanned-copy (`-sc`) page-text path, either forceable via `-op/--ocr-engine-pdf-parser`; separately, Tesseract (default) or PaddleOCR (`-oe/--ocr-engine-image-text paddleocr`) for optional per-image figure-text extraction (`-ftx`), supporting English plus 15 Indian regional languages via `-ol/--ocr-language`, with tesseract additionally supporting `+`-joined multi-language OCR (e.g. `hin+eng`) that PaddleOCR degrades gracefully to a single supported language from (PaddleOCR covers a 7-language subset of these)
 - IIIF Presentation API 3.0 manifest generation for `egazette`/`sebi` image documents — configurable public URL and server-root-relative URLs, an IIIF Image API Level 0 service per image, OCR text surfaced as searchable annotations, and optional rights/attribution/provider metadata (see [IIIF manifest generation](#iiif-manifest-generation))
 - XML caching of intermediate pdfminer output for faster iteration
 
@@ -20,8 +20,8 @@ It extracts text and layout information from PDFs, classifies content into heade
 
 - Python 3
 - [Git LFS](https://git-lfs.com/) (the fastText language model `model/lid.176.bin` and the font classifier `model/eng_hin_fonts.pkl` are tracked via LFS)
-- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) system binary, with language data for whichever `-ol/--ocr-language` codes you plan to use (e.g. on Debian/Ubuntu: `apt install tesseract-ocr tesseract-ocr-all`). Without it, `-ftx/--figure-text` OCR silently produces no text rather than failing loudly. Only needed for the default `-oe tesseract` engine.
-- `paddlepaddle`/`paddleocr` Python packages (in `requirements.txt`) if you plan to use `-oe/--ocr-engine paddleocr` instead of the default Tesseract engine. Not installed automatically at import time — lazily imported only when `-oe paddleocr` is actually used.
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) system binary, with language data for whichever `-ol/--ocr-language` codes you plan to use (e.g. on Debian/Ubuntu: `apt install tesseract-ocr tesseract-ocr-all`). Without it, `-ftx/--figure-text` OCR silently produces no text rather than failing loudly. Also needed for the scanned-copy page-text path whenever it resolves to Tesseract (the default for non-`egazette`/`acts`/`sebi_circulars` types, or any type via `-op tesseract`).
+- `paddlepaddle`/`paddleocr` Python packages (in `requirements.txt`) if you plan to use `-oe/--ocr-engine-image-text paddleocr` instead of the default Tesseract engine. Not installed automatically at import time — lazily imported only when `-oe paddleocr` is actually used.
 
 ## Installation
 
@@ -57,10 +57,11 @@ python -m source.Main -i test/test_pdfs/act1.pdf -o output/ -t acts
 | `-a, --amendments` | PDF contains amendments |
 | `-de, --doc-end` | PDF has a document-end symbol (`---`) |
 | `-fnc, --footnote-continuation` | Footnotes continue across pages |
-| `-sc, --scanned-copy` | PDF is a scanned copy (routes through OCR) |
+| `-sc, --scanned-copy` | PDF is a scanned copy (routes through OCR page-text parsing — see `-op` below) |
 | `-ftx, --figure-text` | Enable OCR-based per-image figure-text extraction and include it in the output; images without confident text are dropped. Default: off, figures kept as-is with no OCR. Always on regardless of this flag for `acts`/`sebi_circulars`. **`-oe`/`-ol` only have an effect when this is on** |
-| `-oe, --ocr-engine` | OCR engine for figure-text extraction (`-ftx`): `tesseract` (default) or `paddleocr`. Has no effect on the `-sc` scanned-copy page-text path (that always uses Chrome-Lens) |
-| `-ol, --ocr-language` | Language code for figure-text OCR (default: `eng`); one of `eng`, `asm`, `ben`, `guj`, `hin`, `kan`, `mal`, `mar`, `nep`, `ori`, `pan`, `san`, `snd`, `tam`, `tel`, `urd`. With `-oe paddleocr`, only `eng`, `hin`, `mar`, `nep`, `san`, `tam`, `tel` are supported (mapped to PaddleOCR's own codes) — an unsupported code logs a warning and falls back to `eng` |
+| `-oe, --ocr-engine-image-text` | OCR engine for figure/image-text extraction (`-ftx`): `tesseract` (default) or `paddleocr`. Has no effect on the `-sc` scanned-copy page-text path — see `-op` below for that |
+| `-op, --ocr-engine-pdf-parser` | OCR engine for the scanned-copy page-text path (`-sc`, or an `egazette` PDF with no text layer): `chromelens` or `tesseract`. Left unset, defaults to `chromelens` for `egazette`/`acts`/`sebi_circulars` and `tesseract` for every other type; pass explicitly to force one or the other regardless of type. Independent of `-oe`, which is figure-text only |
+| `-ol, --ocr-language` | Language code for OCR (default: `eng`); one of `eng`, `asm`, `ben`, `guj`, `hin`, `kan`, `mal`, `mar`, `nep`, `ori`, `pan`, `san`, `snd`, `tam`, `tel`, `urd`, or several joined with `+` (tesseract's own multi-language syntax, e.g. `hin+eng`) — each `+`-separated code is validated individually, so `hin+xyz` is rejected naming `xyz` as the invalid one. Used both for figure-text OCR and for the `-op tesseract` scanned-copy page-text path — only the tesseract engine honours a `+` combination (passed straight to the tesseract binary, which supports it natively); chromelens takes no language at all. With `-oe paddleocr`, only `eng`, `hin`, `mar`, `nep`, `san`, `tam`, `tel` are supported (mapped to PaddleOCR's own codes) as single codes — a `+` combination isn't matched as a whole, so paddleocr picks the first supported *non-English* code within it instead (`hin+eng` → `hin`, `eng+hin` → `hin` too — English is deliberately deprioritized), only falling back to plain `eng` if nothing in the combination is supported at all. This degradation is scoped to figure-text only (`-oe`) and never affects the `-op tesseract` page-text path even in the same run — e.g. `-oe paddleocr -op tesseract -ol hin+eng` still parses page text with the full `hin+eng` combination, only figure-text OCR gets narrowed to `hin` |
 | `-te, --table-extract` | Enable borderless-table extraction |
 | `-mip, --min-img-pixels` | Minimum pixel area threshold for image filtering |
 | `-pu, --public-base-url` | Public URL the output directory will be served from (e.g. `https://gazettes.servantsofknowledge.in/gzdl/html/andhra_extraordinary/2025-01-01`); used as the base for every URI in the IIIF manifest (`egazette`/`sebi` types only). Falls back to the `PUBLIC_BASE_URL` env var, then `http://localhost:8000` |
@@ -74,6 +75,22 @@ python -m source.Main -i test/test_pdfs/act1.pdf -o output/ -t acts
 | `-l, --loglevel` | Log level: `error`\|`warning`\|`info`\|`debug` (default: `info`) |
 | `-g, --logfile` | Log file path |
 | `-x, --keep-xml` | Keep intermediate XML in `cache_xml/` instead of deleting it |
+
+### Cache cleanup and interrupts
+
+Each run writes intermediate files under `cache_pdf/<run_id>/` (the `ToUnicode`-repaired copy, `.pdf`-suffixed input copies) and `cache_xml/<pdfname>-<run_id>.xml`, where `run_id` is unique per `Main` instance so concurrent runs over same-named PDFs never collide. On exit these are removed, along with any `camelot` temp directories and held OCR models — **except** the XML, which is kept when `-x/--keep-xml` is given. The keep-or-delete choice is per `Main` object, so several runs in flight at once can each decide independently.
+
+Cleanup fires on **every** exit path — normal completion, exceptions, and interrupts (`Ctrl-C`/`SIGINT`, `kill`/`SIGTERM`) — so a cancelled run doesn't leave temp files or held resources behind:
+
+- Every `Main` registers itself (by weak reference, so finished runs stay garbage-collectable) in a process-wide registry that an `atexit` hook sweeps at interpreter shutdown. This covers normal exit and `Ctrl-C` in any process, whether the CLI is run directly or `Main` is imported.
+- For the `SIGTERM` case (which by default terminates without running `atexit`), call `install_cleanup_signal_handlers()` once per process. The CLI (`python -m source.Main`) does this itself. Multiprocessing callers that run a pool of `Main`s (e.g. eGazette's `pdf2html`) should pass it as the pool **initializer** so each worker cleans its own run when the pool terminates it:
+
+  ```python
+  from source.Main import install_cleanup_signal_handlers
+  ProcessPoolExecutor(max_workers=n, initializer=install_cleanup_signal_handlers)
+  ```
+
+  `SIGKILL` (`kill -9`) can never be trapped by any process, so it is the one case that can still leave temp files behind.
 
 ### Borderless-table detection
 
@@ -135,6 +152,7 @@ model/
 
 test/
 ├── TestPdfToHtmlDiff.py     # Diff-based end-to-end tests
+├── TestCleanup.py           # Cache/interrupt cleanup mechanism tests (no PDF parsing)
 ├── test_cases.csv           # Test case configuration
 ├── test_pdfs/                # Sample input PDFs
 └── expected_html/            # Baseline HTML outputs
@@ -148,6 +166,9 @@ cache_pdf/   # Temporary PDF storage (gitignored)
 ```bash
 # Diff-based end-to-end tests against baseline HTML
 python -m unittest test.TestPdfToHtmlDiff
+
+# Cache/interrupt cleanup mechanism (fast, no PDF parsing)
+python -m unittest test.TestCleanup
 ```
 
 See [`test/README_diff_test.md`](test/README_diff_test.md) for details on configuring test cases.

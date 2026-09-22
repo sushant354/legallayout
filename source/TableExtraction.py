@@ -2,8 +2,36 @@ import camelot
 import logging
 import re
 import statistics
+import atexit
+import shutil
+import tempfile
 import numpy as np
 import pandas as pd
+from camelot.utils import TemporaryDirectory as _CamelotTempDir
+
+from .Utils import INDIC_DIGIT_CHARS
+
+_camelot_temp_dirs = []
+
+
+def _tracking_camelot_tempdir_enter(self):
+    self.name = tempfile.mkdtemp()
+    _camelot_temp_dirs.append(self.name)
+    return self.name
+
+
+def cleanup_camelot_temp_dirs():
+    while _camelot_temp_dirs:
+        shutil.rmtree(_camelot_temp_dirs.pop(), ignore_errors=True)
+
+
+def patch_camelot_tempdir():
+    _CamelotTempDir.__enter__ = _tracking_camelot_tempdir_enter
+    atexit.register(cleanup_camelot_temp_dirs)
+
+
+patch_camelot_tempdir()
+
 
 class TableExtraction:
     def __init__(self,pdf_path,pg_num, pdf_type, scanned_copy):
@@ -248,6 +276,7 @@ class BorderlessTableExtraction:
                  continuation_classifier=None,
                  continuation_probability_threshold=0.5,
                  continuation_template=None,
+                 column_bounds=None,
                  continuation_page_coverage=0.30,
                  continuation_bottom_margin_ratio=0.15,
                  continuation_top_band_ratio=0.30,
@@ -285,6 +314,7 @@ class BorderlessTableExtraction:
         self.continuation_classifier = self._resolve_classifier(continuation_classifier, ContinuationClassifier)
         self.continuation_probability_threshold = continuation_probability_threshold
         self.continuation_template = continuation_template
+        self.column_bounds = column_bounds or []
         self.continuation_page_coverage = continuation_page_coverage
         self.continuation_bottom_margin_ratio = continuation_bottom_margin_ratio
         self.continuation_top_band_ratio = continuation_top_band_ratio
@@ -340,7 +370,9 @@ class BorderlessTableExtraction:
 
             remaining = [it for it in items if id(it) not in claimed_ids]
             if len(remaining) >= self.min_rows:
-                self._detect_page_tables(remaining, table, bbox, start_idx=len(table))
+                for group in self._partition_items_by_column(remaining):
+                    if len(group) >= self.min_rows:
+                        self._detect_page_tables(group, table, bbox, start_idx=len(table))
 
             cont_indices = [i for i, c in self.table_is_continuation.items() if c and i in bbox]
             for cont_idx in cont_indices:
@@ -356,6 +388,26 @@ class BorderlessTableExtraction:
             )
 
         return table, bbox
+
+    def _partition_items_by_column(self, items):
+        if len(self.column_bounds) < 2:
+            return [items]
+        groups = [[] for _ in self.column_bounds]
+        for it in items:
+            center = (it.x0 + it.x1) / 2.0
+            placed = False
+            for i, (cx0, cx1) in enumerate(self.column_bounds):
+                if cx0 <= center <= cx1:
+                    groups[i].append(it)
+                    placed = True
+                    break
+            if not placed:
+                nearest = min(
+                    range(len(self.column_bounds)),
+                    key=lambda i: abs(center - (self.column_bounds[i][0] + self.column_bounds[i][1]) / 2.0),
+                )
+                groups[nearest].append(it)
+        return groups
 
     def _detect_page_tables(self, items, table, bbox, start_idx=0):
         try:
@@ -607,12 +659,36 @@ class BorderlessTableExtraction:
                 cluster_vals.append([val])
         return clusters
 
+    def _row_local_eps(self, items, fallback):
+        row_eps = max(self._estimate_line_height(items) * 0.5, self.py(0.002))
+        rows = self._rows_by_top(items, row_eps)
+
+        start_gaps = []
+        for row in rows:
+            row_sorted = sorted(row, key=lambda it: it.x0)
+            for a, b in zip(row_sorted, row_sorted[1:]):
+                gap = b.x0 - a.x0
+                if gap > 0:
+                    start_gaps.append(gap)
+
+        if not start_gaps:
+            return None
+
+        return max(min(start_gaps) * 0.6, fallback * 0.25)
+
     def _cluster_columns(self, items):
         sorted_items = sorted(items, key=lambda it: it.x0)
         xs = [it.x0 for it in sorted_items]
-        eps_x = self._auto_eps(xs, k=2, fallback=self.px(0.015))
-
+        fallback = self.px(0.015)
+        eps_x = self._auto_eps(xs, k=2, fallback=fallback)
         raw_clusters = self._sequential_cluster_1d(list(zip(xs, sorted_items)), eps_x)
+
+        dominant_share = max((len(c) for c in raw_clusters), default=0) / len(items) if items else 0.0
+        if len(raw_clusters) < 2 or dominant_share > 0.7:
+            row_eps = self._row_local_eps(items, fallback)
+            if row_eps is not None and row_eps < eps_x:
+                eps_x = row_eps
+                raw_clusters = self._sequential_cluster_1d(list(zip(xs, sorted_items)), eps_x)
 
         median_item_width = statistics.median([it.width for it in items]) if items else self.px(0.01)
 
@@ -715,6 +791,9 @@ class BorderlessTableExtraction:
         ]
 
         if len(valid_clusters) < self.min_cols:
+            return [], {}
+
+        if len(valid_clusters) == 2 and not any(c["is_narrow"] for c in valid_clusters):
             return [], {}
 
         item_col_id = {}
@@ -901,7 +980,18 @@ class BorderlessTableExtraction:
             })
 
         min_overlap = -max(line_height * 0.5, self.py(0.003))
+        row_tol = min(line_height * 0.1, self.py(0.002))
         for it in other_items:
+            top_band = None
+            adj_y1 = it.y1 - row_tol
+            for i, band in enumerate(bands):
+                if band["bottom"] < adj_y1 <= band["top"]:
+                    top_band = i
+                    break
+            if top_band is not None:
+                bands[top_band]["items"].append(it)
+                continue
+
             best_i, best_overlap = None, -1.0
             for i, band in enumerate(bands):
                 overlap = min(band["top"], it.y1) - max(band["bottom"], it.y0)
@@ -1278,7 +1368,8 @@ class BorderlessTableExtraction:
                 (c0 * self.page_width, c1 * self.page_width)
                 for c0, c1 in inherited.get("columns_norm", [])
             ]
-            cols = self._merge_column_ranges(cols + inherited_abs)
+            merged = self._merge_column_ranges(cols + inherited_abs)
+            cols = inherited_abs if len(merged) < len(inherited_abs) else merged
 
         columns_norm = [(x0 / self.page_width, x1 / self.page_width) for (x0, x1) in cols]
         n_cols_out = len(cols)
@@ -1292,7 +1383,7 @@ class BorderlessTableExtraction:
             "reason": reason,
         }
 
-    _RULER_CELL_RE = re.compile(r'^\(?\s*(?:[0-9]{1,2}|[ivxIVX]{1,4})\s*\)?[.)]?$')
+    _RULER_CELL_RE = re.compile(r'^\(?\s*(?:[0-9' + INDIC_DIGIT_CHARS + r']{1,2}|[ivxIVX]{1,4})\s*\)?[.)]?$')
 
     def _table_has_column_ruler(self, df):
         if df is None or getattr(df, "empty", True):

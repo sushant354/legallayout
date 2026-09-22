@@ -5,6 +5,7 @@ import numpy as np
 import re
 import logging
 import pandas as pd
+import bisect
 
 
 from .TextBox import TextBox
@@ -51,6 +52,7 @@ class Page:
         self.ocr_language = ocr_language
         self.ocr_engine = ocr_engine
         self.is_amendment_pdf = is_amendment_pdf
+        self.scanned_copy = scanned_copy
         figure_text = figure_text or pdf_type in ('acts', 'sebi_circulars')
         self.figures = Pictures(self.pdf_path, self.pg_num, base_name_of_file,
                                 output_dir, unique_images, min_img_size,
@@ -127,7 +129,7 @@ class Page:
                     continue
         except Exception as e:
             self.logger.exception("Failed to process textboxes for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
-        
+
     def get_figures(self): #, pg):
         pg = self.page_in_xml
         try:
@@ -142,7 +144,13 @@ class Page:
                     continue
         except Exception as e:
             self.logger.exception("Failed to process figures for page %s: %s", getattr(pg, 'pg_num', 'unknown'), e)
-        
+
+    def reconcile_figure_names(self):
+        for fig_obj in self.all_figbox:
+            fig_obj.figname = self.figures.raw_name_to_hash.get(
+                fig_obj.figname, fig_obj.figname
+            )
+
     def sort_all_boxes(self):
             def parse_bbox(obj):
                 try:
@@ -461,11 +469,70 @@ class Page:
                 self.logger.warning("Error while detection of  textbox for title on page %s: %s", self.pg_num, e)
                 continue
 
+    def get_underlined_titles(self, pdf_type):
+        max_words = 10
+        underline_gap = 3.0
+        min_overlap_ratio = 0.7
+
+        underline_bboxes = []
+        for tag in ('rect', 'line', 'curve'):
+            for el in self.page_in_xml.findall(f'.//{tag}'):
+                try:
+                    bbox = tuple(map(float, el.attrib['bbox'].split(',')))
+                except (KeyError, ValueError):
+                    continue
+                if self.is_line_like(bbox) and not self.is_table_line(bbox):
+                    underline_bboxes.append(bbox)
+
+        if not underline_bboxes:
+            return
+
+        for tb in self.all_tbs.keys():
+            try:
+                label = self.all_tbs.get(tb)
+                if label not in (None, ["amendment"]):
+                    continue
+
+                text = tb.extract_text_from_tb().strip()
+                if not text or text.count(' ') >= max_words:
+                    continue
+
+                if len(tb.tbox.findall('.//textline')) > 1:
+                    continue
+
+                x0, y0, x1, y1 = tb.coords
+                tb_width = x1 - x0
+                if tb_width <= 0:
+                    continue
+
+                for ux0, uy0, ux1, uy1 in underline_bboxes:
+                    underline_y = max(uy0, uy1)
+                    if abs(y0 - underline_y) > underline_gap:
+                        continue
+
+                    underline_width = ux1 - ux0
+                    if underline_width <= 0:
+                        continue
+
+                    overlap = min(x1, ux1) - max(x0, ux0)
+                    if overlap <= 0 or overlap / min(tb_width, underline_width) < min_overlap_ratio:
+                        continue
+
+                    if label == ["amendment"]:
+                        self.all_tbs[tb].append("title")
+                    else:
+                        self.all_tbs[tb] = "title"
+                    self.logger.debug(f"Title detected by underline: '{text}' on page {self.pg_num}")
+                    break
+            except Exception as e:
+                self.logger.warning("Error while detection of underlined title on page %s: %s", self.pg_num, e)
+                continue
+
     def get_italic_blockquotes(self, pdf_type):
         for tb, label in self.all_tbs.items():
             if label is not None:
                 continue
-            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9]+\)?[.)]', tb.extract_text_from_tb().strip()):
+            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)?[.)]', tb.extract_text_from_tb().strip()):
                 self.all_tbs[tb] = ('italic', 'blockquote')
 
     # def detect_pre(self):
@@ -768,8 +835,9 @@ class Page:
         return round(self.body_endX - self.body_startX, 2)
 
     # --- func to detect whether the page body is laid out in multiple (usually two) columns ---
-    def detect_multicolumn_layout(self, min_items_per_column=3, min_column_height_ratio=0.25,
-                                   min_gap_ratio=0.03, min_gap_em_ratio=1.0, max_overlap_ratio=0.15):
+    def detect_multicolumn_layout(self, min_items_per_column=2, min_column_height_ratio=0.25,
+                                   min_gap_ratio=0.03, min_gap_em_ratio=1.0, max_overlap_ratio=0.15,
+                                   min_band_height_ratio=0.15, min_paired_per_column=1):
         self.is_multicolumn = False
         self.column_bounds = []
         self.column_split_x = None
@@ -778,10 +846,15 @@ class Page:
         if len(all_candidates) < 2 * min_items_per_column:
             return
 
-        page_mid = self.pg_width / 2.0
-        candidates = [tb for tb in all_candidates if not (tb.coords[0] < page_mid < tb.coords[2])]
+        upright = [tb for tb in all_candidates if tb.height <= 1.5 * tb.width]
+        if len(upright) < 2 * min_items_per_column:
+            return
 
-        candidates = [tb for tb in candidates if tb.height <= 1.5 * tb.width]
+        content_x0 = min(tb.coords[0] for tb in upright)
+        content_x1 = max(tb.coords[2] for tb in upright)
+        content_mid = (content_x0 + content_x1) / 2.0
+
+        candidates = [tb for tb in upright if not (tb.coords[0] < content_mid < tb.coords[2])]
         if len(candidates) < 2 * min_items_per_column:
             return
 
@@ -801,10 +874,19 @@ class Page:
         left_cluster_id = int(np.argmin(centers))
         right_cluster_id = 1 - left_cluster_id
 
-        left_items = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == left_cluster_id]
-        right_items = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == right_cluster_id]
+        left_cluster = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == left_cluster_id]
+        right_cluster = [tb for tb, lbl in zip(candidates, km.labels_) if lbl == right_cluster_id]
 
-        if len(left_items) < min_items_per_column or len(right_items) < min_items_per_column:
+        if not left_cluster or not right_cluster:
+            return
+
+        def y_overlaps(a, b):
+            return min(a.coords[3], b.coords[3]) - max(a.coords[1], b.coords[1]) > 0
+
+        left_items = [l for l in left_cluster if any(y_overlaps(l, r) for r in right_cluster)]
+        right_items = [r for r in right_cluster if any(y_overlaps(r, l) for l in left_cluster)]
+
+        if len(left_items) < min_paired_per_column or len(right_items) < min_paired_per_column:
             return
 
         left_font_sizes = [tb.avg_font_size for tb in left_items if tb.avg_font_size]
@@ -816,10 +898,24 @@ class Page:
             if larger > 0 and (smaller / larger) < 0.5:
                 return
 
-        left_height = sum(tb.height for tb in left_items)
-        right_height = sum(tb.height for tb in right_items)
-        if left_height < min_column_height_ratio * self.pg_height or \
-           right_height < min_column_height_ratio * self.pg_height:
+        paired_items = left_items + right_items
+        band_top = max(tb.coords[3] for tb in paired_items)
+        band_bottom = min(tb.coords[1] for tb in paired_items)
+        band_height = band_top - band_bottom
+        if band_height < min_band_height_ratio * self.pg_height:
+            return
+
+        def band_coverage(items):
+            covered = 0.0
+            for tb in items:
+                lo = max(tb.coords[1], band_bottom)
+                hi = min(tb.coords[3], band_top)
+                if hi > lo:
+                    covered += hi - lo
+            return covered / band_height
+
+        if band_coverage(left_items) < min_column_height_ratio or \
+           band_coverage(right_items) < min_column_height_ratio:
             return
 
         left_x0 = min(tb.coords[0] for tb in left_items)
@@ -839,6 +935,19 @@ class Page:
         if narrower_width > 0 and (overlap / narrower_width) > max_overlap_ratio:
             return
 
+        band_items = [
+            tb for tb in all_candidates
+            if min(tb.coords[3], band_top) - max(tb.coords[1], band_bottom) > 0
+        ]
+        n_narrow_cols = self._count_narrow_columns(band_items)
+        if not self.scanned_copy and n_narrow_cols >= 2 and \
+           not self._columns_have_stacked_paragraphs(left_cluster, right_cluster):
+            self.logger.debug(
+                f"Page {self.pg_num}: rejecting multicolumn, looks like a table "
+                f"({n_narrow_cols} aligned narrow columns)"
+            )
+            return
+
         self.is_multicolumn = True
         self.column_bounds = [(left_x0, left_x1), (right_x0, right_x1)]
         self.column_split_x = (left_x1 + right_x0) / 2.0
@@ -846,6 +955,50 @@ class Page:
             f"Page {self.pg_num}: detected multicolumn layout, "
             f"column_bounds={self.column_bounds}, split_x={self.column_split_x}"
         )
+
+    def _columns_have_stacked_paragraphs(self, left_cluster, right_cluster, min_stack=2, full_width_ratio=0.85):
+        for cluster in (left_cluster, right_cluster):
+            if len(cluster) < min_stack:
+                return False
+            col_x0 = min(tb.coords[0] for tb in cluster)
+            col_x1 = max(tb.coords[2] for tb in cluster)
+            col_width = col_x1 - col_x0
+            if col_width <= 0:
+                return False
+            full = sum(1 for tb in cluster
+                       if (tb.coords[2] - tb.coords[0]) >= full_width_ratio * col_width)
+            if full < min_stack:
+                return False
+        return True
+
+    def _count_narrow_columns(self, band_items, min_stack=2):
+        if len(band_items) < 2:
+            return 0
+        widths = sorted(tb.coords[2] - tb.coords[0] for tb in band_items)
+        split_w, best_gap = None, 0.0
+        for i in range(len(widths) - 1):
+            gap = widths[i + 1] - widths[i]
+            if gap > best_gap:
+                best_gap = gap
+                split_w = (widths[i] + widths[i + 1]) / 2.0
+        if split_w is None:
+            return 0
+        narrow = [tb for tb in band_items if (tb.coords[2] - tb.coords[0]) < split_w]
+        if not narrow:
+            return 0
+        heights = [tb.coords[3] - tb.coords[1] for tb in band_items if tb.coords[3] > tb.coords[1]]
+        tol = float(np.median(heights)) if heights else 0.0
+        centers = sorted(((tb.coords[0] + tb.coords[2]) / 2.0) for tb in narrow)
+        groups = []
+        current = [centers[0]]
+        for c in centers[1:]:
+            if c - current[-1] <= tol:
+                current.append(c)
+            else:
+                groups.append(current)
+                current = [c]
+        groups.append(current)
+        return sum(1 for g in groups if len(g) >= min_stack)
 
     # --- band-based reading-order reorder shared by apply_column_reading_order and sort_all_boxes ---
     def _reorder_by_columns(self, items, full_width_ratio=0.6):
@@ -872,8 +1025,9 @@ class Page:
 
         for tb, label in sorted_items:
             x0, y0, x1, y1 = tb.coords
-            is_full_width = (x1 - x0) >= full_width_ratio * combined_width and x0 < split_x < x1
-            if is_full_width or label is not None:
+            straddles_split = x0 < split_x < x1
+            is_full_width = (x1 - x0) >= full_width_ratio * combined_width
+            if straddles_split or is_full_width or label is not None:
                 flush()
                 bands.append([(tb, label)])
             else:
@@ -930,7 +1084,7 @@ class Page:
             return False
         
     def find_sidenote_leftend_rightstart_coords(self):
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         left_sidenote_end_coords = []
         right_sidenote_start_coords = []
         for tb, label in self.all_tbs.items():
@@ -1038,9 +1192,9 @@ class Page:
     #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,sectionState, main):  #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         group_re = re.compile(
-            r'^\(\s*((?:[1-9]\d{0,2})|(?:[A-Z]{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+            r'^\(\s*((?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2})|(?:[A-Z' + INDIC_LETTER_CHARS + r']{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
             re.IGNORECASE
         )
         try:
@@ -1164,7 +1318,7 @@ class Page:
         group_re = re.compile(
             r'^\s*'
             r'(?:'
-                r'(?P<marker>\d+[A-Z]*(?:-[A-Z]+)?\s*\.)'
+                r'(?P<marker>\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)'
                 r'|'
                 r'\(\s*(?P<marker_paren>[^\s\)]+)\s*\)'
             r')\s*(?P<text>.*)$',
@@ -1276,6 +1430,12 @@ class Page:
                 except Exception as e:
                     self.logger.warning(f"Page {self.pg_num}: Failed to label textbox '{tb}' for table {idx} -- {e}")
     
+    def mark_table_boilerplate(self, idx, source, position):
+        boilerplate_label = f"{source}_boilerplate"
+        for tb in list(self.all_tbs.keys()):
+            if self.all_tbs[tb] == (source, idx):
+                self.all_tbs[tb] = (boilerplate_label, idx, position)
+
     def label_borderless_table_tbs(self):
         if self.borderless_tabular_datas is None:
             return
@@ -1356,15 +1516,15 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[a-z]{1,2}[.\)]|\([a-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[a-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([a-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+                r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
         )
 
@@ -1385,7 +1545,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1428,15 +1588,15 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z]{1,2}[.\)]|\([A-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+                r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
         )
 
@@ -1462,7 +1622,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1698,7 +1858,7 @@ class Page:
             if footnote_started and current_footnote_font_size is None:
 
                 is_bare_number = bool(
-                    re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
+                    re.fullmatch(r'\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?', text.strip())
                 )
 
                 if not is_bare_number and self.all_tbs[tb] is None and tb not in protected_tbs:
@@ -1732,7 +1892,7 @@ class Page:
                 )
 
                 is_bare_number = bool(
-                    re.fullmatch(r'\(?[0-9]{1,4}\)?', text.strip())
+                    re.fullmatch(r'\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?', text.strip())
                 )
 
                 if same_font and not is_bare_number:
@@ -1779,7 +1939,7 @@ class Page:
                 return
 
             leading_marker_re = re.compile(r'^\s*\(?([0-9*†‡]{1,3})\)?[.\s]')
-            bare_number_re = re.compile(r'^\(?[0-9]{1,4}\)?$')
+            bare_number_re = re.compile(r'^\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?$')
             dotted_clause_re = re.compile(r'^\d+\.\d+(\.\d+)*[.\s]')
             embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9*†‡]{1,3})\}\}\}\}')
 
@@ -1849,7 +2009,7 @@ class Page:
         if protected_tbs is None:
             protected_tbs = set()
 
-        bare_number_re = re.compile(r'^\(?([0-9]{1,3})\)?$')
+        bare_number_re = re.compile(r'^\(?([0-9' + INDIC_DIGIT_CHARS + r']{1,3})\)?$')
         tbs_in_order = list(self.all_tbs.keys())
 
         for idx, tb in enumerate(tbs_in_order):
@@ -1937,9 +2097,9 @@ class Page:
         hierarchy_type = ("level0","level1","level2","level3","level4")
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z]{1,2}[.\)]|\([A-z]{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
-                r'(?:\(?[1-9]\d{0,2}(?:\.[1-9]\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
+                r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
         )
         try:
@@ -2001,22 +2161,29 @@ class Page:
             self.logger.error(f"Error in get_hierarchy: {e}")
             return False
     
-    def reclaim_header_footer_for_continuation(self, continuation_template, top_band_ratio=0.30, x_tol_ratio=0.03):
+    def reclaim_header_footer_for_continuation(self, continuation_template, top_band_ratio=0.30,
+                                               x_tol_ratio=0.03, protected_boxes=None,
+                                               protect_margin_ratio=0.10):
         if not continuation_template:
             return
 
         cols = continuation_template.get("columns_norm", [])
         if not cols:
             return
+        protected_boxes = protected_boxes or set()
         tmpl_x0 = min(c0 for c0, _ in cols) * self.pg_width - self.pg_width * x_tol_ratio
         tmpl_x1 = max(c1 for _, c1 in cols) * self.pg_width + self.pg_width * x_tol_ratio
         top_cut = self.pg_height * (1.0 - top_band_ratio)
+        top_margin = self.pg_height * (1.0 - protect_margin_ratio)
+        bottom_margin = self.pg_height * protect_margin_ratio
 
         reclaimable = {"header", "footer", "side notes"}
         for tb, label in list(self.all_tbs.items()):
             if label not in reclaimable:
                 continue
             x0, y0, x1, y1 = tb.coords
+            if id(tb) in protected_boxes and (y0 >= top_margin or y1 <= bottom_margin):
+                continue
             if y1 < top_cut:
                 continue
             center_x = (x0 + x1) / 2.0
@@ -2026,14 +2193,29 @@ class Page:
                     f"Page {self.pg_num}: Reclaimed '{label}' textbox for continuation candidacy"
                 )
 
+    def columns_have_paragraph(self, min_lines=3):
+        if not self.is_multicolumn or not self.column_bounds:
+            return False
+        for tb, label in self.all_tbs.items():
+            if label is not None:
+                continue
+            center = (tb.coords[0] + tb.coords[2]) / 2.0
+            if not any(cx0 <= center <= cx1 for cx0, cx1 in self.column_bounds):
+                continue
+            if len(tb.tbox.findall('.//textline')) >= min_lines:
+                return True
+        return False
+
     def get_borderless_table(self, pdf_type, header_classifier=None, region_merge_classifier=None,
                              continuation_template=None, continuation_classifier=None):
+        use_column_bounds = self.column_bounds if self.columns_have_paragraph() else None
         self.borderless_tabular_datas = BorderlessTableExtraction(
                 self.all_tbs, pdf_type, self.pg_width, self.pg_height,
                 header_classifier=header_classifier,
                 region_merge_classifier=region_merge_classifier,
                 continuation_classifier=continuation_classifier,
                 continuation_template=continuation_template,
+                column_bounds=use_column_bounds,
             )
 
         return self.borderless_tabular_datas.continuation_out
@@ -2051,6 +2233,10 @@ class Page:
         MAX_GAP_HEIGHT_RATIO = 1.8
         MIN_GROUP = 2
         GAP_SHORT_ITEM_WORD_LIMIT = 6
+        TRAILING_ANNOTATION_RE = re.compile(
+            r'[\(\[](emphasis (supplied|added|mine)|underlined?|sic)[\)\]]\.?\s*$',
+            re.IGNORECASE,
+        )
 
         body_start = self.body_startX
         body_end = self.body_endX
@@ -2059,6 +2245,19 @@ class Page:
             return
 
         split_gap_abs = body_width * SPLIT_GAP_RATIO
+
+        blockquote_y0s = sorted(
+            tb.coords[1] for tb, label in self.all_tbs.items() if label == "blockquote"
+        )
+
+        def group_follows_blockquote(group_top_y1, row_height):
+            if not blockquote_y0s:
+                return False
+            idx = bisect.bisect_left(blockquote_y0s, group_top_y1)
+            if idx >= len(blockquote_y0s):
+                return False
+            nearest_above = blockquote_y0s[idx]
+            return 0 <= nearest_above - group_top_y1 <= max(4.0, row_height * MAX_GAP_HEIGHT_RATIO)
 
         items = []
         for tb, label in self.all_tbs.items():
@@ -2211,10 +2410,16 @@ class Page:
             if kind == "gap" and all(
                 max(len(it["text"].split()) for it in row) <= GAP_SHORT_ITEM_WORD_LIMIT
                 for row in group
+            ) and not any(
+                TRAILING_ANNOTATION_RE.search(row[-1]["text"]) for row in group
             ):
                 required_group = 1
 
-            if len(group) >= required_group:
+            group_row_height = max(group[0][0]["y1"] - group[0][0]["y0"], 1.0)
+            group_top_y1 = max(it["y1"] for it in group[0])
+            follows_blockquote = group_follows_blockquote(group_top_y1, group_row_height)
+
+            if len(group) >= required_group and not follows_blockquote:
                 for row in group:
                     for it in row:
                         if self.all_tbs[it["tb"]] is None:

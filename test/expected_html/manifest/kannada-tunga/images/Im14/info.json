@@ -1,0 +1,9 @@
+{
+  "@context": "http://iiif.io/api/image/3/context.json",
+  "id": "http://localhost:8000/manifest/kannada-tunga/images/Im14",
+  "type": "ImageService3",
+  "protocol": "http://iiif.io/api/image",
+  "profile": "level0",
+  "width": 83,
+  "height": 116
+}

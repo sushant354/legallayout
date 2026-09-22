@@ -176,7 +176,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
             valid_mark = bool(
                 re.fullmatch(
-                    r"[0-9a-zA-Z*†‡]+",
+                    r"[0-9a-zA-Z*†‡" + INDIC_DIGIT_CHARS + INDIC_LETTER_CHARS + r"]+",
                     normalized.strip()
                 )
             )
@@ -836,7 +836,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
     def findType(self,text):
         group_re = re.compile(
-                r'^\s*(\(\s*(?:[1-9]\d{0,2}|[A-Z]{1,3}|(?:CM|CD|D?C{0,3})?'
+                r'^\s*(\(\s*(?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}|[A-Z' + INDIC_LETTER_CHARS + r']{1,3}|(?:CM|CD|D?C{0,3})?'
                 r'(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3}))\s*\))\s*(.*)',
                 re.IGNORECASE
             )
@@ -858,8 +858,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
             re.compile(
                 r'^('
-                    r'[1-9]\d{0,3}'
-                    r'(?:\.[1-9]\d{0,3}){1,5}'
+                    r'[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,3}'
+                    r'(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,3}){1,5}'
                     r'\.?'
                 r')'
                 r'(?:\s+|$)(.*)$',
@@ -868,8 +868,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
             re.compile(
                 r'^('
-                    r'[1-9]\d{0,3}[A-Z]?'
-                    r'(?:-[A-Z]+)?'
+                    r'[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,3}[A-Z' + INDIC_LETTER_CHARS + r']?'
+                    r'(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?'
                     r'\.'
                 r')'
                 r'(?:\s+|$)(.*)$',
@@ -878,8 +878,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
             re.compile(
                 r'^('
-                    r'(?:\([A-Za-z]{1,5}\))'
-                    r'|(?:[A-Za-z]{1,5}[.)])'
+                    r'(?:\([A-Za-z' + INDIC_LETTER_CHARS + r']{1,5}\))'
+                    r'|(?:[A-Za-z' + INDIC_LETTER_CHARS + r']{1,5}[.)])'
                 r')'
                 r'(?:\s+|$)(.*)$',
                 re.IGNORECASE
@@ -896,8 +896,8 @@ class SebiCirculars(TableBuilder, SentenceMaker):
 
             re.compile(
                 r'^('
-                    r'(?:\([1-9]\d{0,3}\))'
-                    r'|(?:[1-9]\d{0,3}[.)]?)'
+                    r'(?:\([1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,3}\))'
+                    r'|(?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,3}[.)]?)'
                 r')'
                 r'(?:\s+|$)(.*)$',
                 re.IGNORECASE
@@ -939,7 +939,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
             self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
             if not has_side_notes:
-                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 prefix = match.group(1)
                 rest_text = match.group(2).strip()
                 rest_text_type, value, remain_text = self.findType(rest_text)
@@ -963,7 +963,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                     self.footnote_to_add = None
                 return
             if side_note_text:
-                match = re.match(r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
                     short_title = self.normalize_text((side_note_text or "").strip()) or ""
@@ -991,7 +991,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             else:
                 check_re = re.compile(
                         r'^'
-                        r'(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)'   # Group 1: Number/marker like '13.'
+                        r'(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)'   # Group 1: Number/marker like '13.'
                         r'(?!\s*\([^)]+\))'                       # Negative lookahead: fail if second group starts with anything in parentheses
                         r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'   # Group 2: Text up to first . or : optionally followed by -/—
                         r'(.*)$',                                 # Group 3: Rest of text
@@ -1019,7 +1019,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                     return
                 
                 match = re.match(
-                                r'^(\s*\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)',
+                                r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)',
                                 text.strip()
                             )
 
@@ -1379,7 +1379,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
                 else:
                     self.builder += "\n" + ("\t" * (cell_tab))+f"TC"
                 value = row[col]
-                value = str(value)
+                value = "" if pd.isna(value) or str(value).strip().lower() == "nan" else str(value)
                 text = self.normalize_text(value)
                 for src_text, replacement_txt in footnote_map.items():
                     if src_text and src_text in text:
@@ -1449,14 +1449,15 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             self.logger.warning("Exception while adding section amendment [%s]: %s",text, e)
     
     def is_section_amended(self, text):
-        match = re.match(
-                r'''^\s*['"]?              # optional leading ' or "
-                    (\d{1,3}[A-Z]*(?:-[A-Z]+)?\.\s*)   # your numbering token
+        section_letter_class = 'A-Z' + INDIC_LETTER_CHARS
+        pattern = (
+            r'''^\s*['"]?              # optional leading ' or "'''
+            rf'''
+                    (\d{{1,3}}[{section_letter_class}]*(?:-[{section_letter_class}]+)?\.\s*)   # your numbering token
                     (.*)                   # rest of the text
-                ''',
-                text.strip(),
-                re.VERBOSE
-            )
+                '''
+        )
+        match = re.match(pattern, text.strip(), re.VERBOSE)
         return match
 
     def remove_unwanted_sidenotes(self, side_note_datas):
@@ -1543,7 +1544,9 @@ class SebiCirculars(TableBuilder, SentenceMaker):
             if label == "header" or label == "footer" \
                 or label == "footnote" or label == "toc":
                continue
-            
+            if isinstance(label, tuple) and label[0] in ("table_boilerplate", "borderless_table_boilerplate"):
+               continue
+
             if label in ('figure',) and (tb.figname not in self.unique_image):
                 self.logger.warning("The figure may be header or junk image, skipping...")
                 continue
@@ -1678,7 +1681,7 @@ class SebiCirculars(TableBuilder, SentenceMaker):
       cleaned = raw.lower()
 
       # --- Reject common bullet forms: 'i.', 'ii)', '1.' followed by text ---
-      if re.match(r"^\(?[ivxlcdm0-9]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
+      if re.match(r"^\(?[ivxlcdm0-9" + INDIC_DIGIT_CHARS + r"]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
           return False
 
       # Remove enclosing brackets/parentheses/braces only if whole thing is wrapped

@@ -2,6 +2,16 @@ import logging
 import re
 import unicodedata
 
+from .SentenceEndDetector import SENTENCE_END_CHAR_CLASS, INDIC_SENTENCE_END_CHARS
+from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS
+
+SECTION_HEADING_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_LETTER_CHARS + r'])\.\s+\S|^Re:\s+\S')
+LIST_ITEM_RE = re.compile(
+    r'^\s*(?:\([A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)'
+    r'|\d{1,3}(?:\.\d{1,3})+\.?'
+    r'|[A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,3}[.\)])(?=\s|$)'
+)
+
 _ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
 
 
@@ -22,9 +32,9 @@ class ClauseTracker:
 
     _PATTERNS = (
         ("roman", re.compile(r'^\(([ivxlcdmIVXLCDM]{2,6})\)(?=[\s.:;]|$)')),
-        ("arabic_dot", re.compile(r'^(\d{1,3})[.\)]?(?=[\s]|$|[A-Z])')),
+        ("arabic_dot", re.compile(r'^(\d{1,3})[.\)]?(?=[\s]|$|[A-Z' + INDIC_LETTER_CHARS + r'])')),
         ("paren_num", re.compile(r'^\((\d{1,3})\)(?=[\s.:;]|$)')),
-        ("alpha", re.compile(r'^\(([A-Za-z])\)(?=[\s.:;]|$)')),
+        ("alpha", re.compile(r'^\(([A-Za-z' + INDIC_LETTER_CHARS + r'])\)(?=[\s.:;]|$)')),
     )
 
     def __init__(self):
@@ -111,6 +121,7 @@ class Amendment:
         self.bq_active_run_length = 0
         self.bq_has_evidence = False
         self.bq_seen_row = False
+        self.bq_prev_block_boundary = True
         self.clause_tracker = ClauseTracker()
 
     # --- func to classify the textbox if it is detected with sign of amendments properties ---
@@ -122,7 +133,10 @@ class Amendment:
                 self.logger.warning(f"Failed to extract text from textbox on page {getattr(page, 'pg_num', '?')}: {e}")
                 continue
 
-            text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            text = text.replace('\u201C', '"').replace('\u201D', '"').replace('\u2018\u2018','"').replace('\u2019\u2019','"') \
+                .replace('\u201E', '"').replace('\u201F', '"').replace('\u00AB', '"').replace('\u00BB', '"').replace('\uFF02', '"') \
+                .replace('\u2018', "'").replace('\u2019', "'").replace('\u201A', "'").replace('\u201B', "'") \
+                .replace('\u2039', "'").replace('\u203A', "'").replace('\uFF07', "'")
 
             try:
                 label = page.all_tbs[tb]
@@ -239,7 +253,7 @@ class Amendment:
                 self.logger.warning(f"Failed to extract text from textbox on page {getattr(page, 'pg_num', '?')}: {e}")
                 continue
 
-            text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
+            text = text.replace('\u201C', '"').replace('\u201D', '"').replace('\u2018\u2018','"').replace('\u2019\u2019','"').replace('\u2018', "'").replace('\u2019', "'")
 
             try:
                 label = page.all_tbs[tb]
@@ -425,7 +439,7 @@ class Amendment:
     #      outer sibling ("4.") reappears - whether or not the quote ever closes punctually.
     # Either signal closes the excerpt on its own; state persists across a page break since
     # excerpts routinely run past one.
-    def check_for_blockquotes_judgments(self, page):
+    def check_for_blockquotes_judgments(self, page, judgments_mode=False):
         trigger_re = re.compile(r'[:：][-‐‑‒–—―−]?\s*$')
         heading_max_words = 8
         row_y_tolerance = 3.0
@@ -440,10 +454,10 @@ class Amendment:
             text = unicodedata.normalize("NFKC", text)
             for invisible in ('\xad', '​', '‌', '‍', '⁠', '﻿'):
                 text = text.replace(invisible, '')
-            text = text.replace('“', '"').replace('”', '"').replace('„', '"').replace('‟', '"')
-            text = text.replace('«', '"').replace('»', '"').replace('＂', '"')
-            text = text.replace('‘', "'").replace('’', "'").replace('‚', "'").replace('‛', "'")
-            text = text.replace('‹', "'").replace('›', "'").replace('＇', "'")
+            text = text.replace('\u201C', '"').replace('\u201D', '"').replace('\u201E', '"').replace('\u201F', '"')
+            text = text.replace('\u00AB', '"').replace('\u00BB', '"').replace('\uFF02', '"')
+            text = text.replace('\u2018', "'").replace('\u2019', "'").replace('\u201A', "'").replace('\u201B', "'")
+            text = text.replace('\u2039', "'").replace('\u203A', "'").replace('\uFF07', "'")
             text = re.sub(r'\s+', ' ', text).strip()
             return text
 
@@ -514,6 +528,28 @@ class Amendment:
                 is_first_row = not self.bq_seen_row
                 self.bq_seen_row = True
 
+                has_boxes = bool(row["boxes"])
+                row_is_bold = has_boxes and all(b["tb"].textFont_is_bold() for b in row["boxes"])
+                row_is_bold_or_italic = has_boxes and all(
+                    b["tb"].textFont_is_bold() or b["tb"].textFont_is_italic() for b in row["boxes"])
+                row_is_section_heading = (
+                    not self.bq_quote_stack
+                    and (
+                        (row_is_bold_or_italic and bool(SECTION_HEADING_ENUM_RE.match(text)))
+                        or (row_is_bold and not LIST_ITEM_RE.match(text)
+                            and (text.rstrip().endswith(':')
+                                 or not re.search(r'[.?!' + INDIC_SENTENCE_END_CHARS + r']["\'”’)\]]*$', text.rstrip())))
+                    )
+                )
+                if self.bq_active and row_is_section_heading:
+                    self.bq_active = False
+                    self.bq_quote_stack = []
+                    self.bq_return_marker = None
+                    self.bq_indent_x0 = None
+                    self.bq_active_run_length = 0
+                    self.bq_has_evidence = False
+                    self.logger.debug(f"Page {page.pg_num}: blockquote closed before section heading '{text}'")
+
                 if self.bq_active:
                     self.bq_active_run_length += 1
 
@@ -534,7 +570,7 @@ class Amendment:
                     # absolute ceiling is a last-resort backstop only: nothing here is
                     # a substitute for real close-detection, it just guarantees a
                     # mistaken open can never consume the rest of the document.
-                    if self.bq_quote_stack or marker is not None:
+                    if self.bq_quote_stack or marker is not None or LIST_ITEM_RE.match(text):
                         self.bq_has_evidence = True
                     elif not self.bq_has_evidence and self.bq_indent_x0 is not None \
                             and self.bq_outer_x0 is not None:
@@ -595,7 +631,9 @@ class Amendment:
                         tight = max(4.0, 0.4 * unit)
                         delta_outer = abs(row_x0 - self.bq_outer_x0)
                         delta_indent = abs(row_x0 - self.bq_indent_x0) if self.bq_indent_x0 is not None else None
-                        indent_returned = delta_outer <= tight and (
+                        indent_distinct = self.bq_indent_x0 is None or \
+                            abs(self.bq_indent_x0 - self.bq_outer_x0) > tight
+                        indent_returned = indent_distinct and delta_outer <= tight and (
                             delta_indent is None or delta_outer < delta_indent
                         )
                         # A margin match can be a false alarm rather than a genuine
@@ -652,30 +690,49 @@ class Amendment:
                 self.bq_pending_trigger = False
                 opened_ongoing = False
                 opened_self_contained = False
-                if text.startswith('"') and not is_closing(text, '"') and (double_count % 2 != 0 and not is_first_row or pending_trigger):
+                unit = row_height or 8.0
+                indent_step = max(6.0, 0.75 * unit)
+                measurable_indent = self.bq_outer_x0 is not None and row_x0 is not None
+                row_indented = measurable_indent and row_x0 > self.bq_outer_x0 + indent_step
+                has_structure = marker is not None or bool(LIST_ITEM_RE.match(text))
+                next_line_indented = False
+                if measurable_indent and row_idx + 1 < len(rows):
+                    peek_boxes = rows[row_idx + 1]["boxes"]
+                    if peek_boxes:
+                        next_line_indented = peek_boxes[0]["x0"] > self.bq_outer_x0 + indent_step
+                is_outer_sibling = marker is not None and ClauseTracker.matches_with_indent(
+                    marker, self.clause_tracker.snapshot_next_sibling(), row_x0, None, row_height
+                )
+                quote_open_ok = pending_trigger or self.bq_prev_block_boundary or (
+                    self.bq_outer_x0 is not None and row_x0 is not None
+                    and row_x0 > self.bq_outer_x0 + (row_height or 0) * 0.5)
+                if text.startswith('"') and not is_closing(text, '"') and (pending_trigger or (double_count % 2 != 0 and not is_first_row and quote_open_ok)):
                     self.bq_quote_stack.append('"')
                     opened_ongoing = True
-                elif text.startswith("'") and not is_closing(text, "'") and (single_count % 2 != 0 and not is_first_row or pending_trigger):
+                elif text.startswith("'") and not is_closing(text, "'") and (pending_trigger or (single_count % 2 != 0 and not is_first_row and quote_open_ok)):
                     self.bq_quote_stack.append("'")
                     opened_ongoing = True
                 elif (text.startswith('"') and is_closing(text, '"')) or \
                      (text.startswith("'") and is_closing(text, "'")):
                     opened_self_contained = True
-                elif pending_trigger and not (marker is not None and ClauseTracker.matches_with_indent(
-                    marker, self.clause_tracker.snapshot_next_sibling(), row_x0, None, row_height
-                )):
+                elif pending_trigger and not is_outer_sibling and (
+                        (has_structure
+                         and (self.bq_outer_x0 is None
+                              or row_x0 > self.bq_outer_x0 + (row_height or 0) * 0.5))
+                        or (judgments_mode and not has_structure
+                            and row_indented and next_line_indented)):
                     opened_ongoing = True
 
                 if opened_ongoing:
                     return_marker = self.clause_tracker.snapshot_next_sibling()
-                    if not self.bq_quote_stack and return_marker is None:
+                    if not judgments_mode and not self.bq_quote_stack and return_marker is None:
                         self.bq_quote_stack = []
                     else:
                         self.bq_active = True
                         self.bq_return_marker = return_marker
                         self.bq_indent_x0 = row_x0
                         self.bq_active_run_length = 0
-                        self.bq_has_evidence = bool(self.bq_quote_stack)
+                        self.bq_has_evidence = bool(self.bq_quote_stack) or row_indented
                         for b in row["boxes"]:
                             page.all_tbs[b["tb"]] = "blockquote"
                         self.logger.debug(f"Page {page.pg_num}: blockquote opened on row '{text}'")
@@ -692,6 +749,7 @@ class Amendment:
                 # baseline the indentation-return closing check above compares
                 # against once we're back out of the quote.
                 self.bq_outer_x0 = row_x0
+                self.bq_prev_block_boundary = bool(re.search(r'[' + SENTENCE_END_CHAR_CLASS + r'][)\'"”’\]]*$', text.strip()))
 
                 # A line ending in ':' is only rejected as a standalone label/heading
                 # (e.g. "CORAM:", "Present:", "Scope of review and analysis:") when it
@@ -710,7 +768,13 @@ class Amendment:
                     b["tb"].textFont_is_bold() for b in row["boxes"]
                 )
                 looks_like_standalone_label = row_is_bold and len(words) < heading_max_words
-                if trigger_re.search(text) and not looks_like_standalone_label:
+                next_row_indented = False
+                if row["boxes"] and row_idx + 1 < len(rows):
+                    next_boxes = rows[row_idx + 1]["boxes"]
+                    if next_boxes:
+                        next_step = max(6.0, 0.75 * (row["boxes"][0]["height"] or 8.0))
+                        next_row_indented = next_boxes[0]["x0"] > row["boxes"][0]["x0"] + next_step
+                if trigger_re.search(text) and (not looks_like_standalone_label or (judgments_mode and next_row_indented)):
                     self.bq_pending_trigger = True
                     self.logger.debug(f"Page {page.pg_num}: blockquote trigger detected in row '{text}'")
 

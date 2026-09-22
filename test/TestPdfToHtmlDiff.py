@@ -15,7 +15,7 @@ import csv
 # 'python -m unittest' from the project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from source.Main import Main
+from source.Main import Main, install_cleanup_signal_handlers
 
 
 def process_case(job):
@@ -38,6 +38,7 @@ def process_case(job):
     result = {'pdf_name': job['pdf_name'], 'success': False,
               'filename': None, 'error': None}
 
+    main = None
     try:
         main = Main(
             pdfPath=pdf_path_for_main,
@@ -49,7 +50,8 @@ def process_case(job):
             is_footnote_continuation=job['is_footnote_continuation'],
             min_img_pixels=job['min_img_pixels'],
             ocr_language=job['ocr_language'],
-            ocr_engine=job['ocr_engine'],
+            ocr_engine_image_text=job['ocr_engine'],
+            ocr_engine_pdf_parser=job['ocr_engine_pdf_parser'],
             is_scanned_copy=job['scanned_copy'],
             table_extract=job['table_extract'],
             figure_text=job['figure_text'],
@@ -81,10 +83,6 @@ def process_case(job):
             main.total_pgs, job['suffix']
         )
 
-        # Clean up cache
-        main.clear_cache_pdf()
-        main.clear_xml_cache()
-
         result['success'] = True
         return result
 
@@ -94,6 +92,14 @@ def process_case(job):
         return result
 
     finally:
+        if main is not None:
+            main.cleanup_run()
+        else:
+            try:
+                from source.TableExtraction import cleanup_camelot_temp_dirs
+                cleanup_camelot_temp_dirs()
+            except Exception:
+                pass
         if renamed_copy and renamed_copy.exists():
             renamed_copy.unlink()
 
@@ -261,6 +267,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'suffix': test_case['actual_html'].suffix,
             'ocr_language': params.get('ocr_language') or 'eng',
             'ocr_engine': params.get('ocr_engine') or 'tesseract',
+            'ocr_engine_pdf_parser': params.get('ocr_engine_pdf_parser') or None,
             'min_img_pixels': params.get('min_img_pixels') or 0,
             # on unless a row turns it off, which is the pipeline's own default
             'font_detect': params.get('font_detect', True)
@@ -301,7 +308,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
         results = [None] * len(jobs)
         done = 0
 
-        with ProcessPoolExecutor(max_workers=workers) as executor:
+        with ProcessPoolExecutor(max_workers=workers,
+                                 initializer=install_cleanup_signal_handlers) as executor:
             futures = {
                 executor.submit(process_case, job): idx
                 for idx, job in enumerate(jobs)
@@ -395,6 +403,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     is_footnote_continuation = cls._parse_bool(row.get('is_footnote_continuation', ''))
                     ocr_language = row.get('ocr_language', '').strip() or 'eng'
                     ocr_engine = row.get('ocr_engine', '').strip() or 'tesseract'
+                    ocr_engine_pdf_parser = row.get('ocr_engine_pdf_parser', '').strip() or None
                     min_img_pixels_raw = row.get('min_img_pixels', '').strip()
                     min_img_pixels = int(min_img_pixels_raw) if min_img_pixels_raw.isdigit() else 0
                     server_root = cls._resolve_server_root(row.get('server_root', ''))
@@ -412,6 +421,8 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                     base_name = pdf_path.stem
                     if scanned_copy:
                         base_name += '_scanned'
+                    if ocr_engine_pdf_parser:
+                        base_name += f'_op-{ocr_engine_pdf_parser}'
 
                     # base_name is only known here, so the row is filtered now
                     # rather than as soon as its filename was read
@@ -439,6 +450,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                         'is_footnote_continuation': is_footnote_continuation,
                         'ocr_language': ocr_language,
                         'ocr_engine': ocr_engine,
+                        'ocr_engine_pdf_parser': ocr_engine_pdf_parser,
                         'min_img_pixels': min_img_pixels,
                         'server_root': server_root,
                         'public_base_url': public_base_url,
@@ -470,7 +482,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
                      start_page = None, end_page = None, scanned_copy = False, table_extract = False,
                      figure_text = False,
                      has_doc_end = False, is_footnote_continuation = False, ocr_language = 'eng',
-                     ocr_engine = 'tesseract',
+                     ocr_engine = 'tesseract', ocr_engine_pdf_parser = None,
                      min_img_pixels = 0, server_root = None, public_base_url = None,
                      rights = None, provider_id = None, provider_name = None, attribution = None,
                      font_conv = None, font_lang = None, font_detect = True,
@@ -485,6 +497,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
             'figure_text': figure_text, 'has_doc_end': has_doc_end,
             'is_footnote_continuation': is_footnote_continuation,
             'ocr_language': ocr_language, 'ocr_engine': ocr_engine,
+            'ocr_engine_pdf_parser': ocr_engine_pdf_parser,
             'min_img_pixels': min_img_pixels,
             'server_root': server_root, 'public_base_url': public_base_url,
             'rights': rights, 'provider_id': provider_id,
@@ -618,9 +631,26 @@ def update_golden_files(actual_dir, expected_dir):
             copied_files += 1
             print(f"[UPDATED] {target_file}")
         elif actual_file.is_dir():
-            shutil.copytree(actual_file, target_file, dirs_exist_ok=True)
-            copied_files += 1
-            print(f"[UPDATED] {target_file}/")
+            # mirror each immediate child (e.g. manifest/<pdfname>) individually
+            # rather than one merge-copytree over the whole directory, so a
+            # child's stale files/subfolders (renamed or dropped images, a
+            # pdf that no longer produces a manifest) are actually removed
+            # instead of accumulating forever; untouched siblings under
+            # target_file are left alone, so a partial --cases run only
+            # updates the goldens for the cases it actually regenerated
+            target_file.mkdir(parents=True, exist_ok=True)
+            for child in actual_file.iterdir():
+                target_child = target_file / child.name
+                if target_child.is_dir():
+                    shutil.rmtree(target_child)
+                elif target_child.exists():
+                    target_child.unlink()
+                if child.is_dir():
+                    shutil.copytree(child, target_child)
+                else:
+                    shutil.copy2(child, target_child)
+                copied_files += 1
+                print(f"[UPDATED] {target_child}")
 
     print(f"\n✅ Updated {copied_files} golden file(s) in {expected_dir}")
 

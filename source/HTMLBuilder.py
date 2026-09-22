@@ -1,27 +1,125 @@
 import re
 import math
+from collections import Counter
 import numpy as np
 import logging
 import pandas as pd
 from difflib import SequenceMatcher
 import copy
 from pathlib import Path
-from .Table import TableBuilder
-from .SentenceEndDetector import LegalSentenceDetector
+from .Table import TableBuilder, TOC_PLACEHOLDER
+from .SentenceEndDetector import LegalSentenceDetector, SENTENCE_END_CHAR_CLASS
+from .Utils import INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS
 from .NormalizeText import NormalizeText
 from .TextBox import (FONT_MARK_START, FONT_MARK_RE, split_marked_text,
                       strip_font_marks)
 from html import escape as html_escape
 
 
+HTML_PARA_GAP_FACTOR = 1.15
+
+PRE_GRID_COLUMN_GAP_FACTOR = 2.0
+PRE_GRID_ALIGN_FACTOR = 0.5
+PRE_GRID_COLUMN_SUPPORT = 0.5
+PRE_GRID_MIN_COVERAGE = 0.85
+PRE_GRID_MIN_COLCOUNT_CONSISTENCY = 0.5
+PRE_GRID_MIN_ROWS = 2
+PRE_GRID_MIN_ROW_COLUMNS = 2
+PRE_GRID_MIN_MULTICOL_ROWS = 2
+PRE_GRID_MIN_INTERIOR_COLUMNS = 2
+PRE_GRID_MULTICOL_FRACTION = 0.5
+
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
 VOID_TAGS = {"br"}
-FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)(?:@(\d+))?\}\}\}\}')
 FOOTNOTE_ABBREVIATION_RE = re.compile(
     r'(?:\b[a-z]\.){2,}$|\b(?:no|ref)\.$',
     re.IGNORECASE
 )
+
+ROW_MERGEABLE_LABELS = {None, "title", "section", "subsection", "para", "subpara",
+                        "blockquote", "level1", "level2", "level3", "level4"}
+
+
+def is_row_mergeable_label(label):
+    if isinstance(label, (tuple, list)):
+        return False
+    return label in ROW_MERGEABLE_LABELS
+
+
+class RowMergedTextEl:
+    def __init__(self, text):
+        self.text = text
+
+    def findall(self, path):
+        return [self]
+
+
+class RowMergedTBoxElement:
+    def __init__(self, line_texts):
+        self._lines = [RowMergedTextEl(text) for text in line_texts]
+
+    def findall(self, path):
+        return self._lines
+
+
+class RowMergedTextBox:
+
+    def __init__(self, builder, parts):
+        self.parts = parts
+        x0 = min(p.coords[0] for p in parts)
+        y0 = min(p.coords[1] for p in parts)
+        x1 = max(p.coords[2] for p in parts)
+        y1 = max(p.coords[3] for p in parts)
+        self.coords = (x0, y0, x1, y1)
+        self.width = x1 - x0
+        self.height = y1 - y0
+        line_texts = self._build_line_texts(builder)
+        self.tbox = RowMergedTBoxElement(line_texts)
+        self._text = ' '.join(line_texts)
+
+    def _build_line_texts(self, builder):
+        lines = []
+        for part in self.parts:
+            for textline in part.tbox.findall('.//textline'):
+                bbox = textline.attrib.get('bbox')
+                if not bbox:
+                    continue
+                lx0, ly0, lx1, ly1 = map(float, bbox.split(','))
+                text = builder.build_line_text(part, textline)
+                if text:
+                    lines.append({'x0': lx0, 'y0': ly0, 'x1': lx1, 'y1': ly1, 'text': text})
+
+        lines.sort(key=lambda item: (-item['y0'], item['x0']))
+        rows = []
+        current_row = []
+        for item in lines:
+            if current_row:
+                prev = current_row[-1]
+                row_height = max(prev['y1'] - prev['y0'], item['y1'] - item['y0'], 1.0)
+                same_row = abs(prev['y0'] - item['y0']) <= row_height * 0.4
+                continues_rightward = item['x0'] >= prev['x1'] - row_height * 0.5
+                if same_row and continues_rightward:
+                    current_row.append(item)
+                    continue
+                rows.append(current_row)
+                current_row = []
+            current_row.append(item)
+        if current_row:
+            rows.append(current_row)
+
+        return [' '.join(i['text'] for i in row) for row in rows]
+
+    def extract_text_from_tb(self):
+        return self._text
+
+    def get_first_char_coords(self):
+        return self.parts[0].get_first_char_coords()
+
+    def get_last_char_coords(self):
+        return self.parts[-1].get_last_char_coords()
+
 
 class HTMLBuilder(TableBuilder):
     
@@ -40,7 +138,7 @@ class HTMLBuilder(TableBuilder):
         self.all_footnote_text = all_footnote_text
         self.current_page_num = None
         self.footnote_refs_used = []
-        self.toc_html = None
+        self.toc_entries = None
         self.toc_rendered = False
         self.pending_text = ""
         self.pending_tag = None
@@ -50,8 +148,8 @@ class HTMLBuilder(TableBuilder):
         self.hierarchy = ("section","subsection","para","subpara","subsubpara")
         self.level_hierarchy = ('level1', 'level2', 'level3', 'level4','level5')
         self._sentence_detector = LegalSentenceDetector()
-        self._detect_sentence_end = self._sentence_detector.is_real_sentence_end
-        self.is_real_sentence_end = self._is_real_sentence_end
+        self.is_real_sentence_end = self._sentence_detector.is_real_sentence_end
+        self._page_line_gap = None
         self.previous_sentence_end_status = True
         self.is_pre_added = False
         self._base_normalize_text = NormalizeText().normalize_text
@@ -121,7 +219,11 @@ class HTMLBuilder(TableBuilder):
   span.footer-text{
     display:None;
   }
-  
+
+  span.table-header-text, span.table-footer-text{
+    display:None;
+  }
+
   h4 {
     text-align: center;
   }
@@ -324,7 +426,7 @@ class HTMLBuilder(TableBuilder):
     def check_for_last_token(self, html):
       last_token, last_tag = self.get_last_token(html)
       if last_tag and last_token: 
-          if not last_token.endswith(('.','?','!',';',':',":-", "---", "...", '—',':','."', ".'",';"',";'", '…')): #, '-'
+          if not last_token.endswith((":-", "---", "...", '—', '."', ".'", ';"', ";'", '…') + tuple(SENTENCE_END_CHAR_CLASS)):
              return True, last_tag
       return False, last_tag 
     
@@ -542,12 +644,15 @@ class HTMLBuilder(TableBuilder):
       sebi_level_close_re = re.compile(r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z]+\s+\d{1,2},\s*\d{4})|(?:Place)\s*[:\-]{1}\s*[A-Z][A-Za-z .,&-]*|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
       
       try:
+        gap_break = self.is_para_gap_break(text_tb, next_text_tb)
         if self.stack_for_section:
           if re.fullmatch(r'—{3,}', self.plain(text).strip()):
             self.close_sections()
             self.builder += f"<center>{text}</center>"
             return
-          if self.pdf_type != 'acts':
+          if gap_break is not None:
+            is_sentence_completed = gap_break
+          elif self.pdf_type != 'acts':
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = self.plain(text).strip().endswith(self.sentence_completion_punctuation)
@@ -559,7 +664,9 @@ class HTMLBuilder(TableBuilder):
           if text and sebi_level_close_re.match(self.plain(text)):
                   self.close_levels()
                   # return
-          if self.pdf_type != 'acts':
+          if gap_break is not None:
+            is_sentence_completed = gap_break
+          elif self.pdf_type != 'acts':
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = self.plain(text).strip().endswith(self.sentence_completion_punctuation)
@@ -575,7 +682,9 @@ class HTMLBuilder(TableBuilder):
                 self.builder += (' ' + text)
                 self.previous_sentence_end_status = is_sentence_completed
         else:
-            if self.pdf_type != 'acts':
+            if gap_break is not None:
+              is_sentence_completed = gap_break
+            elif self.pdf_type != 'acts':
               is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
             else:
               is_sentence_completed = self.plain(text).strip().endswith(self.sentence_completion_punctuation)
@@ -709,7 +818,7 @@ class HTMLBuilder(TableBuilder):
           side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
           self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
           if side_note_text:
-            match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', plain.strip())
+            match = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
             if match:
               prefix, rest_text = split_marked_text(text.strip(), match.end(1))
               short_title = self.normalize_text(side_note_text.strip())
@@ -733,7 +842,7 @@ class HTMLBuilder(TableBuilder):
                       self.stack_for_section.append(hierarchy_index+1)
                   
           else:
-            match = re.match(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', plain.strip())
+            match = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
             if match:
               prefix, rest_text = split_marked_text(text.strip(), match.end(1))
               rest_text = rest_text.strip()
@@ -921,7 +1030,7 @@ class HTMLBuilder(TableBuilder):
         side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
         self.logger.debug("Side note matched for the amendments [%s]: %s",text, side_note_text)
         if side_note_text:
-          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', plain.strip())
+          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
           if match:
             prefix, rest_text = split_marked_text(text.strip(), match.end(1))
             short_title = self.normalize_text(side_note_text.strip())
@@ -958,8 +1067,8 @@ class HTMLBuilder(TableBuilder):
         self.logger.exception("Error in add_amendment_section [%s]: %s",text, e)
        
     def is_section(self,texts):
-      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE) # 
-      texts = self.plain(texts).strip()
+      section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.\s*\S*', re.IGNORECASE) #
+      texts = texts.strip()
       texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
       if section_re.match(texts):
          return True 
@@ -1038,7 +1147,7 @@ class HTMLBuilder(TableBuilder):
         )
 
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1]\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             # re.IGNORECASE
         )
 
@@ -1077,6 +1186,18 @@ class HTMLBuilder(TableBuilder):
            footer = f'<span class="footer-text">{text}</span>\n'
            self.pending_header_footer.append(footer) 
 
+    def add_table_boilerplate(self, table_obj, position):
+        text_html = self.render_table_boilerplate_text(table_obj, position)
+        if not text_html:
+            return
+        if not self.pending_table:
+            if self.pending_tag and self.pending_text:
+                self.pending_text += text_html + '\n'
+            else:
+                self.builder += text_html + '\n'
+        else:
+            self.pending_header_footer.append(text_html + '\n')
+
     def flush_pending_header_footer(self):
         if self.pending_header_footer:
             self.builder += '\n'
@@ -1091,10 +1212,12 @@ class HTMLBuilder(TableBuilder):
 
         def replace(match):
             footnote_num = match.group(1)
-            if footnote_num not in self.footnote_refs_used:
-                self.footnote_refs_used.append(footnote_num)
-            anchor = f"fn-{self.current_page_num}-{footnote_num}"
-            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            page_num = int(match.group(2)) if match.group(2) else self.current_page_num
+            ref_key = (page_num, footnote_num)
+            if ref_key not in self.footnote_refs_used:
+                self.footnote_refs_used.append(ref_key)
+            anchor = f"fn-{page_num}-{footnote_num}"
+            ref = f"fnref-{page_num}-{footnote_num}"
             return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
 
         return FOOTNOTE_MARKER_RE.sub(replace, text)
@@ -1129,16 +1252,18 @@ class HTMLBuilder(TableBuilder):
         if not self.footnote_refs_used:
             return
 
-        page_footnote_text = self.all_footnote_text.get(self.current_page_num, {})
         items = []
 
-        for footnote_num in sorted(self.footnote_refs_used, key=lambda n: int(n) if n.isdigit() else n):
+        for page_num, footnote_num in sorted(
+            self.footnote_refs_used, key=lambda pair: (pair[0], int(pair[1]))
+        ):
+            page_footnote_text = self.all_footnote_text.get(page_num, {})
             if footnote_num not in page_footnote_text:
                 continue
 
             body = self.arrange_footnote_sentences(page_footnote_text[footnote_num])
-            anchor = f"fn-{self.current_page_num}-{footnote_num}"
-            ref = f"fnref-{self.current_page_num}-{footnote_num}"
+            anchor = f"fn-{page_num}-{footnote_num}"
+            ref = f"fnref-{page_num}-{footnote_num}"
             items.append(f'<li id="{anchor}" value="{footnote_num}">{body} <a href="#{ref}">↩</a></li>\n')
 
         if items:
@@ -1148,6 +1273,220 @@ class HTMLBuilder(TableBuilder):
             self.builder += '</ol>\n</section>\n'
 
         self.footnote_refs_used = []
+
+    def is_row_aligned(self, prev_tb, tb):
+        px0, py0, px1, py1 = prev_tb.coords
+        ix0, iy0, ix1, iy1 = tb.coords
+        row_height = max(py1 - py0, iy1 - iy0, 1.0)
+        same_row = abs(py0 - iy0) <= row_height * 0.4
+        continues_rightward = ix0 >= px1 - row_height * 0.5
+        return same_row and continues_rightward
+
+    def page_normal_line_gap(self, tbs):
+        ys = []
+        for tb in tbs:
+            try:
+                lines = self.extract_textlines(tb)
+            except Exception:
+                continue
+            for l in lines:
+                ys.append(l['y0'])
+        ys.sort(reverse=True)
+        gaps = [ys[i] - ys[i + 1] for i in range(len(ys) - 1) if ys[i] - ys[i + 1] > 0]
+        if not gaps:
+            return None
+        ordered = sorted(gaps)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+    def is_para_gap_break(self, tb, next_tb):
+        if self._page_line_gap is None or tb is None or next_tb is None:
+            return None
+        try:
+            la = self.extract_textlines(tb)
+            lb = self.extract_textlines(next_tb)
+        except Exception:
+            return None
+        if not la or not lb:
+            return None
+        la.sort(key=lambda l: -l['y0'])
+        lb.sort(key=lambda l: -l['y0'])
+        gap = la[-1]['y0'] - lb[0]['y0']
+        if gap <= 0:
+            return None
+        if gap > self._page_line_gap * HTML_PARA_GAP_FACTOR:
+            return True
+        return None
+
+    def merge_row_aligned_textboxes(self, items):
+        merged = []
+        current_parts = []
+        current_label = None
+        for tb, label in items:
+            if current_parts and label == current_label and is_row_mergeable_label(label) \
+                    and self.is_row_aligned(current_parts[-1], tb):
+                current_parts.append(tb)
+                continue
+            if current_parts:
+                merged.append(self._finalize_row_group(current_parts, current_label))
+            current_parts = [tb]
+            current_label = label
+        if current_parts:
+            merged.append(self._finalize_row_group(current_parts, current_label))
+        return merged
+
+    def _finalize_row_group(self, parts, label):
+        if len(parts) == 1:
+            return (parts[0], label)
+        return (RowMergedTextBox(self, parts), label)
+
+    def _line_cell_starts(self, tb, textline):
+        chars = []
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw or raw.isspace():
+                continue
+            bbox = text_el.attrib.get('bbox')
+            if not bbox:
+                continue
+            try:
+                cx0, cy0, cx1, cy1 = map(float, bbox.split(','))
+            except ValueError:
+                continue
+            chars.append((cx0, cx1))
+        if not chars:
+            return [], None
+        chars.sort(key=lambda c: c[0])
+        widths = [x1 - x0 for x0, x1 in chars if x1 > x0]
+        char_width = sorted(widths)[len(widths) // 2] if widths else 1.0
+        threshold = char_width * PRE_GRID_COLUMN_GAP_FACTOR
+        starts = [chars[0][0]]
+        prev_x1 = chars[0][1]
+        for x0, x1 in chars[1:]:
+            if x0 - prev_x1 > threshold:
+                starts.append(x0)
+            prev_x1 = max(prev_x1, x1)
+        return starts, char_width
+
+    def _collect_grid_lines(self, tbs):
+        lines = []
+        for tb in tbs:
+            for textline in tb.tbox.findall('.//textline'):
+                bbox = textline.attrib.get('bbox')
+                if not bbox:
+                    continue
+                try:
+                    x0, y0, x1, y1 = map(float, bbox.split(','))
+                except ValueError:
+                    continue
+                text = self.build_line_text(tb, textline)
+                if not text.strip():
+                    continue
+                starts, char_width = self._line_cell_starts(tb, textline)
+                if not starts:
+                    continue
+                lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                              'starts': starts, 'char_width': char_width})
+        return lines
+
+    def _cluster_values(self, values, tol):
+        clusters = []
+        for v in sorted(values):
+            if clusters and v - clusters[-1][-1] <= tol:
+                clusters[-1].append(v)
+            else:
+                clusters.append([v])
+        return clusters
+
+    def pre_grid_span(self, tbs):
+        lines = self._collect_grid_lines(tbs)
+        if len(lines) < PRE_GRID_MIN_ROWS:
+            return None
+        rows = self.cluster_rows_by_position(lines)
+        if len(rows) < PRE_GRID_MIN_ROWS:
+            return None
+
+        heights = [l['y1'] - l['y0'] for l in lines if l['y1'] > l['y0']]
+        med_h = sorted(heights)[len(heights) // 2] if heights else 1.0
+        tol = max(med_h * PRE_GRID_ALIGN_FACTOR, 1.0)
+
+        row_starts = []
+        for row in rows:
+            starts = sorted({s for line in row for s in line['starts']})
+            row_starts.append(starts)
+
+        multicol_idx = [i for i, s in enumerate(row_starts)
+                        if len(s) >= PRE_GRID_MIN_ROW_COLUMNS]
+        if len(multicol_idx) < PRE_GRID_MIN_MULTICOL_ROWS:
+            return None
+        if len(multicol_idx) < len(rows) * PRE_GRID_MULTICOL_FRACTION:
+            return None
+
+        col_counts = [len(row_starts[i]) for i in multicol_idx]
+        mode_count = Counter(col_counts).most_common(1)[0][0]
+        consistent = sum(1 for c in col_counts if abs(c - mode_count) <= 1)
+        if consistent < len(col_counts) * PRE_GRID_MIN_COLCOUNT_CONSISTENCY:
+            return None
+
+        pairs = [(s, i) for i in multicol_idx for s in row_starts[i]]
+        clusters = self._cluster_values([p[0] for p in pairs], tol)
+        left_edge = min(c[0] for c in clusters)
+        min_support = max(2, math.ceil(len(multicol_idx) * PRE_GRID_COLUMN_SUPPORT))
+
+        aligned_bands = []
+        aligned_interior = []
+        for cluster in clusters:
+            lo, hi = cluster[0], cluster[-1]
+            support = {i for s, i in pairs if lo - tol <= s <= hi + tol}
+            if len(support) < min_support:
+                continue
+            band = (lo - tol, hi + tol)
+            aligned_bands.append(band)
+            if (lo + hi) / 2.0 > left_edge + tol:
+                aligned_interior.append(band)
+        if len(aligned_interior) < PRE_GRID_MIN_INTERIOR_COLUMNS:
+            return None
+
+        covered = sum(1 for s, _ in pairs
+                      if any(lo <= s <= hi for lo, hi in aligned_bands))
+        if not pairs or covered / len(pairs) < PRE_GRID_MIN_COVERAGE:
+            return None
+
+        grid_rows = []
+        for i in multicol_idx:
+            if any(any(lo <= s <= hi for lo, hi in aligned_interior)
+                   for s in row_starts[i]):
+                grid_rows.append(rows[i])
+        if len(grid_rows) < PRE_GRID_MIN_MULTICOL_ROWS:
+            return None
+
+        y_bottom = min(line['y0'] for row in grid_rows for line in row)
+        y_top = max(line['y1'] for row in grid_rows for line in row)
+        return (y_bottom - med_h, y_top + med_h)
+
+    def apply_pre_grid_labels(self, all_items):
+        result = list(all_items)
+        total = len(result)
+        i = 0
+        while i < total:
+            if result[i][1] is not None:
+                i += 1
+                continue
+            j = i
+            while j < total and result[j][1] is None:
+                j += 1
+            span = self.pre_grid_span([result[k][0] for k in range(i, j)])
+            if span is not None:
+                y_bottom, y_top = span
+                for k in range(i, j):
+                    tb = result[k][0]
+                    cy = (tb.coords[1] + tb.coords[3]) / 2.0
+                    if y_bottom <= cy <= y_top:
+                        result[k] = (tb, "pre")
+            i = j
+        return result
 
     def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
@@ -1162,7 +1501,9 @@ class HTMLBuilder(TableBuilder):
         # except Exception as e:
         #     self.logger.warning(f'when closing sections tag after section end page - {e}')
               
-        all_items = list(page.all_tbs.items())
+        all_items = self.apply_pre_grid_labels(list(page.all_tbs.items()))
+        self._page_line_gap = self.page_normal_line_gap(
+            [tb for tb, label in all_items if label is None])
         for idx, (tb, label) in enumerate(all_items):
             next_text = None
             next_text_tb = None
@@ -1190,6 +1531,10 @@ class HTMLBuilder(TableBuilder):
                 self.flush_pre_lines()
 
             if label in ("pre", "pre_header"):
+                if self.pending_table is not None and len(self.pending_table) <= 2:
+                    self.addTable(self.pending_table[0])
+                    self.pending_table = None
+                    self.flush_pending_header_footer()
                 self.pending_pre_lines.extend(self.extract_textlines(tb))
                 continue
 
@@ -1209,13 +1554,13 @@ class HTMLBuilder(TableBuilder):
                 continue
 
             elif label == "toc":
-                if self.toc_html and not self.toc_rendered:
+                if self.toc_entries and not self.toc_rendered:
                     self.flushPrevious()
                     if self.pending_table is not None and len(self.pending_table) <= 2:
                         self.addTable(self.pending_table[0])
                         self.pending_table = None
                         self.flush_pending_header_footer()
-                    self.builder += self.toc_html
+                    self.builder += TOC_PLACEHOLDER
                     self.toc_rendered = True
                 continue
 
@@ -1236,6 +1581,7 @@ class HTMLBuilder(TableBuilder):
                     table_width = page.tabular_datas.get_table_width(table_id)
 
                     if table_obj is not None:
+                        table_obj = self.apply_table_footnote_markers(page, table_id, table_obj)
                         if self.pending_table is None:
                             self.pending_table = [table_obj, table_width]
                         
@@ -1269,6 +1615,17 @@ class HTMLBuilder(TableBuilder):
 
                     visited_for_table.add(table_id)
 
+            elif isinstance(label, tuple) and label[0] in ("table_boilerplate", "borderless_table_boilerplate"):
+                table_id = label[1]
+                position = label[2]
+                if table_id not in visited_for_table:
+                    source_tables = (page.tabular_datas if label[0] == "table_boilerplate"
+                                      else page.borderless_tabular_datas).tables
+                    table_obj = source_tables.get(table_id)
+                    if table_obj is not None:
+                        self.add_table_boilerplate(table_obj, position)
+                    visited_for_table.add(table_id)
+
             elif isinstance(label,list) and label[0] == "amendment":
                self.addAmendment(label,tb,page.side_notes_datas,page.pg_height)
             elif isinstance(label, tuple) and label[1] == 'blockquote':
@@ -1293,8 +1650,6 @@ class HTMLBuilder(TableBuilder):
                 # if not self.is_pg_num(tb,page.pg_width):
                   self.addUnlabelled(self.get_tb_text(tb), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
 
-        self.render_footnote_section()
-
     def is_pg_num(self,tb,pg_width):
         if  tb.width < 0.04 * pg_width and self.check_isDigit(tb):
             self.logger.debug("The unlabelled textbox [%s] is classified as pg_num",tb.extract_text_from_tb())
@@ -1310,7 +1665,7 @@ class HTMLBuilder(TableBuilder):
       cleaned = raw.lower()
 
       # --- Reject common bullet forms: 'i.', 'ii)', '1.' followed by text ---
-      if re.match(r"^\(?[ivxlcdm0-9]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
+      if re.match(r"^\(?[ivxlcdm0-9" + INDIC_DIGIT_CHARS + r"]+\)?[.)]\s+\w+", cleaned, re.IGNORECASE):
           return False
 
       # Remove enclosing brackets/parentheses/braces only if whole thing is wrapped
@@ -1339,7 +1694,11 @@ class HTMLBuilder(TableBuilder):
         self.close_levels()
         self.close_sections()
         self.flushTables()
-        return self.render_font_spans(self.close_html())
+        self.render_footnote_section()
+        html = self.close_html()
+        if html:
+            html = self.finalize_toc(html)
+        return html
 
     def flushTables(self):
         """Flush pending_table into final storage."""

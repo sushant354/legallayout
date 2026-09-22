@@ -1,8 +1,180 @@
 import pandas as pd
 import re
 import numpy as np
+import html as html_lib
 from difflib import SequenceMatcher
 import logging
+
+from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS
+
+TABLE_FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
+BOLD_FONT_RE = re.compile(r'bold', re.IGNORECASE)
+PRE_KEEP_SPAN_RE = re.compile(
+    r'<span[^>]*class="(?:header-text|footer-text|table-header-text|table-footer-text)"')
+
+
+def table_dataframe_signature(df):
+    try:
+        cells = [
+            str(value).strip()
+            for row in df.itertuples(index=False, name=None)
+            for value in row
+        ]
+    except Exception:
+        return ""
+    text = ' '.join(cell for cell in cells if cell and cell.lower() != 'nan')
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+DIGIT_RUN_RE = re.compile(r'\d+')
+
+# a cell holding real data (a count, a serial number, a date) is exactly the
+# thing a templated table varies row to row and page to page - and it can sit
+# inside an otherwise-static sentence, where a plain text-similarity ratio
+# barely moves ("Total: 5 seats" vs "Total: 8 seats" still scores ~0.9). \d is
+# unicode-aware, so this reads a digit run in any script's own digits (Latin,
+# Devanagari, Malayalam, Tamil, ...) without needing to know which script it is
+def _cell_similarity(a, b):
+    if a == b:
+        return 1.0
+    digits_a = DIGIT_RUN_RE.findall(a)
+    digits_b = DIGIT_RUN_RE.findall(b)
+    if (digits_a or digits_b) and digits_a != digits_b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def table_dataframe_cell_match_ratio(df1, df2, min_cell_ratio=0.6):
+    if df1 is None or df2 is None or df1.shape != df2.shape:
+        return 0.0
+    try:
+        cells1 = [str(v).strip().lower() for row in df1.itertuples(index=False, name=None) for v in row]
+        cells2 = [str(v).strip().lower() for row in df2.itertuples(index=False, name=None) for v in row]
+    except Exception:
+        return 0.0
+    if not cells1:
+        return 0.0
+    ratios = [_cell_similarity(a, b) for a, b in zip(cells1, cells2)]
+    # one cell reading as wildly different must never be smoothed away by
+    # every other cell in a large table matching perfectly - a single genuine
+    # content difference, however small a fraction of the table it is, means
+    # this is not the same boilerplate repeated
+    if min(ratios) < min_cell_ratio:
+        return 0.0
+    return sum(ratios) / len(ratios)
+
+
+def table_dataframe_flattened_text(df, col_sep='    ', row_sep='&#10;'):
+    try:
+        rows = list(df.itertuples(index=False, name=None))
+    except Exception:
+        return ""
+    lines = []
+    for row in rows:
+        cells = [str(value).strip() for value in row]
+        cells = [cell for cell in cells if cell and cell.lower() != 'nan']
+        if cells:
+            lines.append(col_sep.join(cells))
+    return row_sep.join(lines)
+
+TOC_PLACEHOLDER = '{{__TOC_ANCHOR_PLACEHOLDER__}}'
+TOC_TAG_NAMES = ('h4', 'p', 'li', 'blockquote')
+TOC_TAG_OPEN_ANY_RE = re.compile(
+    r'<(' + '|'.join(TOC_TAG_NAMES) + r')(?![a-zA-Z])([^>]*)>'
+)
+TOC_TAG_OPEN_RES = {t: re.compile(r'<' + t + r'(?![a-zA-Z])[^>]*>') for t in TOC_TAG_NAMES}
+TOC_TAG_CLOSE_RES = {t: re.compile(r'</' + t + r'>') for t in TOC_TAG_NAMES}
+TOC_TAG_STRIP_RE = re.compile(r'<[^>]+>')
+TOC_LEADING_ENUM_RE = re.compile(
+    r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)?[.\):])+\s*',
+    re.IGNORECASE
+)
+TOC_MATCH_THRESHOLD = 0.6
+TOC_MIN_CONTAINED_TARGET_LEN = 8
+
+
+def toc_block_text(fragment):
+    text = TOC_TAG_STRIP_RE.sub(' ', fragment)
+    text = html_lib.unescape(text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def toc_normalize(text):
+    text = text.lower()
+    text = TOC_LEADING_ENUM_RE.sub('', text)
+    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    return text.strip()
+
+
+def toc_best_containment_match(candidates, target, start, end):
+    best_idx = None
+    best_len_diff = None
+    for idx in range(start, end):
+        cand_norm = candidates[idx]['norm']
+        if cand_norm in target:
+            contained = True
+        elif target in cand_norm:
+            contained = len(target) >= TOC_MIN_CONTAINED_TARGET_LEN
+        else:
+            contained = False
+        if not contained:
+            continue
+
+        len_diff = abs(len(cand_norm) - len(target))
+        if best_idx is None or len_diff < best_len_diff:
+            best_idx = idx
+            best_len_diff = len_diff
+            if len_diff == 0:
+                break
+    return best_idx
+
+
+def toc_iter_blocks(html, start=0, end=None):
+    if end is None:
+        end = len(html)
+    pos = start
+    while pos < end:
+        match = TOC_TAG_OPEN_ANY_RE.search(html, pos, end)
+        if not match:
+            return
+
+        tag = match.group(1)
+        open_re = TOC_TAG_OPEN_RES[tag]
+        close_re = TOC_TAG_CLOSE_RES[tag]
+
+        depth = 1
+        scan_pos = match.end()
+        body_start = match.end()
+        body_end = None
+        close_end = None
+        while depth > 0:
+            next_open = open_re.search(html, scan_pos, end)
+            next_close = close_re.search(html, scan_pos, end)
+            if not next_close:
+                break
+            if next_open and next_open.start() < next_close.start():
+                depth += 1
+                scan_pos = next_open.end()
+            else:
+                depth -= 1
+                scan_pos = next_close.end()
+                if depth == 0:
+                    body_end = next_close.start()
+                    close_end = next_close.end()
+
+        if body_end is None:
+            pos = match.end()
+            continue
+
+        yield {
+            'insert_pos': match.end(1),
+            'attrs': match.group(2),
+            'body': html[body_start:body_end],
+            'body_start': body_start,
+        }
+        yield from toc_iter_blocks(html, body_start, body_end)
+        pos = close_end
+
 
 class TableBuilder:
     def __init__(self):
@@ -12,16 +184,173 @@ class TableBuilder:
         self.logger = logging.getLogger(__name__)
         
         self.serial_patterns = [
-            r"^(\(?[1-9]\d*[\)\)]?[\.\)]?)$",  # Numbers with brackets/dots: (1), 1., 1)
-            r"^([a-zA-Z][\)\.]?)$",           # Single letters with brackets/dots: a), A.
+            r"^(\(?[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"]\d*[\)\)]?[\.\)]?)$",  # Numbers with brackets/dots: (1), 1., 1)
+            r"^([a-zA-Z" + INDIC_LETTER_CHARS + r"][\)\.]?)$",           # Single letters with brackets/dots: a), A.
             r"^([ivxlcdmIVXLCDM]+[\)\.]?)$",   # Roman numerals with brackets/dots: i), ii.
-            r"^(\(?[1-9]\d*\)[\.\:]?)",       # (1). or (1):
-            r"^([a-zA-Z]\d+(\.\d+)?)$",       # Alphanumeric: a1, a2.1
-            r"^(\d+(\.\d+)?[a-zA-Z])$",       # Numeric-letter: 1a, 2.1b
+            r"^(\(?[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"]\d*\)[\.\:]?)",       # (1). or (1):
+            r"^([a-zA-Z" + INDIC_LETTER_CHARS + r"]\d+(\.\d+)?)$",       # Alphanumeric: a1, a2.1
+            r"^(\d+(\.\d+)?[a-zA-Z" + INDIC_LETTER_CHARS + r"])$",       # Numeric-letter: 1a, 2.1b
             r"^(sec|art|clause|section)\s*[\-\:]?\s*\d+",  # Legal references
             r"^(\d+\s*of\s*\d+)$",            # "1 of 10" pattern
         ]
     
+    def render_table_boilerplate_text(self, table_obj, position):
+        if table_obj is None:
+            return ""
+        flattened = table_dataframe_flattened_text(table_obj)
+        if not flattened:
+            return ""
+        return f'<span class="table-{position}-text">{self.normalize_text(flattened)}</span>'
+
+    def apply_table_footnote_markers(self, page, table_id, table_obj):
+        marker_tbs = [
+            tb for tb, label in page.all_tbs.items()
+            if label == ("table", table_id) and tb.footnotes_superscript
+        ]
+        if not marker_tbs:
+            return table_obj
+
+        df = table_obj.copy()
+
+        for tb in marker_tbs:
+            text = tb.extract_text_from_tb()
+            for match in TABLE_FOOTNOTE_MARKER_RE.finditer(text):
+                footnote_num = match.group(1)
+                preceding = text[:match.start()].rstrip()
+                word_match = re.search(r'(\S+)$', preceding)
+                if not word_match:
+                    continue
+
+                preceding_word = word_match.group(1)
+                needle = preceding_word + footnote_num
+                replacement = (preceding_word + '{{^{{FOOTNOTE ' + footnote_num
+                              + '@' + str(page.pg_num) + '}}}}')
+
+                for row_idx in range(df.shape[0]):
+                    for col_idx in range(df.shape[1]):
+                        cell = df.iat[row_idx, col_idx]
+                        if isinstance(cell, str) and needle in cell:
+                            df.iat[row_idx, col_idx] = cell.replace(needle, replacement, 1)
+                            break
+                    else:
+                        continue
+                    break
+
+        return df
+
+    def finalize_toc(self, html):
+        if TOC_PLACEHOLDER not in html:
+            return html
+
+        entries = getattr(self, 'toc_entries', None) or []
+        if not entries:
+            return html.replace(TOC_PLACEHOLDER, '', 1)
+
+        candidates = []
+        for block in toc_iter_blocks(html):
+            if 'id=' in block['attrs']:
+                continue
+            norm = toc_normalize(toc_block_text(block['body']))
+            if len(norm) < 3:
+                continue
+            candidates.append({
+                'insert_pos': block['insert_pos'],
+                'body_start': block['body_start'],
+                'body': block['body'],
+                'norm': norm,
+            })
+
+        anchor_counter = [0]
+        block_anchor = {}
+        insertions = []
+        used_positions = set()
+
+        def next_anchor():
+            anchor_counter[0] += 1
+            return f'toc-anchor-{anchor_counter[0]}'
+
+        def inline_position(cand, entry_text):
+            words = [w for w in re.split(r'\s+', entry_text.strip()) if w]
+            if not words:
+                return None
+            pattern = r'\s*'.join(re.escape(w) for w in words[:6])
+            found = re.search(pattern, cand['body'])
+            if not found:
+                return None
+            return cand['body_start'] + found.start()
+
+        def assign_anchor(idx, entry_text):
+            cand = candidates[idx]
+            pos = cand['insert_pos']
+            if pos not in block_anchor:
+                anchor = next_anchor()
+                block_anchor[pos] = anchor
+                insertions.append((pos, f' id="{anchor}"'))
+                used_positions.add(pos)
+                return anchor
+            inline_pos = inline_position(cand, entry_text)
+            if inline_pos is not None and inline_pos not in used_positions:
+                anchor = next_anchor()
+                insertions.append((inline_pos, f'<span id="{anchor}"></span>'))
+                used_positions.add(inline_pos)
+                return anchor
+            return block_anchor[pos]
+
+        cursor = 0
+        entry_anchors = []
+        for entry in entries:
+            target = toc_normalize(entry['text'])
+            match_idx = None
+
+            if len(target) >= 3:
+                match_idx = toc_best_containment_match(candidates, target, cursor, len(candidates))
+                if match_idx is None:
+                    match_idx = toc_best_containment_match(candidates, target, 0, len(candidates))
+
+                if match_idx is None:
+                    best_score = TOC_MATCH_THRESHOLD
+                    for idx, cand in enumerate(candidates):
+                        score = SequenceMatcher(None, target, cand['norm']).ratio()
+                        if score > best_score:
+                            best_score = score
+                            match_idx = idx
+
+            if match_idx is not None:
+                entry_anchors.append(assign_anchor(match_idx, entry['text']))
+                cursor = match_idx
+            else:
+                entry_anchors.append(None)
+
+        pieces = []
+        last = 0
+        for pos, snippet in sorted(insertions, key=lambda item: item[0]):
+            pieces.append(html[last:pos])
+            pieces.append(snippet)
+            last = pos
+        pieces.append(html[last:])
+        html = ''.join(pieces)
+
+        title_text = getattr(self, 'toc_title', None) or 'Table of Contents'
+        out = [
+            '<nav class="toc">',
+            f'<p class="toc-title">{html_lib.escape(title_text)}</p>',
+            '<table class="toc-table">',
+        ]
+        for entry, anchor in zip(entries, entry_anchors):
+            level = entry['level']
+            indent = f' style="padding-left: {(level - 1) * 1.5}em;"' if level > 1 else ''
+            title = html_lib.escape(entry['text'])
+            body = f'<a href="#{anchor}">{title}</a>' if anchor else title
+            out.append(
+                f'<tr class="toc-level-{level}">'
+                f'<td class="toc-entry"{indent}>{body}</td></tr>'
+            )
+        out.append('</table>')
+        out.append('</nav>')
+        toc_html = '\n'.join(out) + '\n'
+
+        return html.replace(TOC_PLACEHOLDER, toc_html, 1)
+
     def is_sequential(self, text1, text2):
         try:
             s1, s2 = str(text1).strip(), str(text2).strip()
@@ -262,7 +591,7 @@ class TableBuilder:
             return True
             
         # Check for alphanumeric serial patterns
-        if re.fullmatch(r'[a-z]\d+|[a-z]+\d+', clean_text):
+        if re.fullmatch(r'[a-z' + INDIC_LETTER_CHARS + r']\d+|[a-z' + INDIC_LETTER_CHARS + r']+\d+', clean_text):
             return True
             
         return False
@@ -634,6 +963,83 @@ class TableBuilder:
 
         return ''.join(line_parts).replace('\n', ' ').strip()
 
+    def leading_token_is_bold(self, textline):
+        total = 0
+        bold = 0
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+            if raw.isspace():
+                if total:
+                    break
+                continue
+            total += 1
+            if BOLD_FONT_RE.search(text_el.attrib.get('font', '')):
+                bold += 1
+        if not total:
+            return False
+        return (bold / total) > 0.5
+
+    def line_cells_from_chars(self, tb, textline):
+        chars = []
+        pending_superscript = []
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+            cx0 = cx1 = None
+            char_bbox = None
+            if 'bbox' in text_el.attrib:
+                try:
+                    char_bbox = tuple(map(float, text_el.attrib['bbox'].split(',')))
+                    cx0, cx1 = char_bbox[0], char_bbox[2]
+                except Exception:
+                    char_bbox = None
+            if char_bbox is not None and char_bbox in tb.footnotes_superscript:
+                pending_superscript.append(tb.footnotes_superscript[char_bbox])
+                continue
+            if pending_superscript:
+                marker = '{{^{{FOOTNOTE ' + ''.join(pending_superscript) + '}}}}'
+                chars.append((cx0, cx1, marker, False))
+                pending_superscript = []
+            chars.append((cx0, cx1, raw, raw.isspace()))
+        if pending_superscript:
+            marker = '{{^{{FOOTNOTE ' + ''.join(pending_superscript) + '}}}}'
+            chars.append((None, None, marker, False))
+
+        widths = [c[1] - c[0] for c in chars
+                  if not c[3] and c[0] is not None and c[1] is not None and c[1] > c[0]]
+        char_width = sorted(widths)[len(widths) // 2] if widths else 1.0
+        threshold = char_width * 2.0
+
+        cells = []
+        current = None
+        prev_x1 = None
+        for cx0, cx1, raw, is_space in chars:
+            if is_space:
+                if current is not None:
+                    current['text'] += raw
+                continue
+            if (current is not None and prev_x1 is not None and cx0 is not None
+                    and cx0 - prev_x1 > threshold):
+                if current['text'].strip():
+                    cells.append(current)
+                current = None
+            if current is None:
+                current = {'x0': cx0, 'x1': cx1, 'text': raw}
+            else:
+                current['text'] += raw
+                if cx1 is not None:
+                    current['x1'] = cx1
+            if cx1 is not None:
+                prev_x1 = cx1
+        if current is not None and current['text'].strip():
+            cells.append(current)
+        for cell in cells:
+            cell['text'] = cell['text'].strip()
+        return cells, char_width
+
     def extract_textlines(self, tb):
         lines = []
         for textline in tb.tbox.findall('.//textline'):
@@ -649,7 +1055,20 @@ class TableBuilder:
             if not text:
                 continue
 
-            lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
+            cells, char_width = self.line_cells_from_chars(tb, textline)
+            for cell in cells:
+                cell['y0'] = y0
+                cell['y1'] = y1
+                if cell['x0'] is None:
+                    cell['x0'] = x0
+                if cell['x1'] is None:
+                    cell['x1'] = x1
+
+            lines.append({
+                'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text,
+                'lead_bold': self.leading_token_is_bold(textline),
+                'cells': cells, 'char_width': char_width,
+            })
         return lines
 
     def cluster_rows_by_position(self, items):
@@ -686,6 +1105,12 @@ class TableBuilder:
             line += text
         return line
 
+    def pre_line_cells(self, item):
+        cells = item.get('cells')
+        if cells:
+            return cells
+        return [item]
+
     def render_pre_block(self, lines):
         ordered = []
         current_chunk = []
@@ -700,21 +1125,27 @@ class TableBuilder:
         if current_chunk:
             ordered.append(('text', current_chunk))
 
-        all_text_items = [item for kind, chunk in ordered if kind == 'text' for item in chunk]
+        all_text_items = [cell for kind, chunk in ordered if kind == 'text'
+                          for item in chunk for cell in self.pre_line_cells(item)]
         if not all_text_items:
             return
 
         base_x0 = min(item['x0'] for item in all_text_items)
-        total_width = sum(item['x1'] - item['x0'] for item in all_text_items)
-        total_chars = sum(len(item['text']) for item in all_text_items)
-        char_width = total_width / total_chars
+        total_width = sum(max(item['x1'] - item['x0'], 0.0) for item in all_text_items)
+        total_chars = sum(len(item['text']) for item in all_text_items) or 1
+        char_width = total_width / total_chars or 1.0
 
         body_lines = []
         for kind, chunk in ordered:
             if kind == 'raw':
-                body_lines.append(chunk['raw'])
+                raw = chunk['raw']
+                if not PRE_KEEP_SPAN_RE.search(raw):
+                    raw = re.sub(r'</?span[^>]*>', '', raw)
+                if raw.strip():
+                    body_lines.append(raw)
                 continue
-            for row in self.cluster_rows_by_position(chunk):
+            chunk_cells = [cell for item in chunk for cell in self.pre_line_cells(item)]
+            for row in self.cluster_rows_by_position(chunk_cells):
                 line = self.build_row_text(row, base_x0, char_width)
                 if line.strip():
                     body_lines.append(line)

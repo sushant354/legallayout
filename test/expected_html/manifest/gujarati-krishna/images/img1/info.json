@@ -1,0 +1,9 @@
+{
+  "@context": "http://iiif.io/api/image/3/context.json",
+  "id": "http://localhost:8000/manifest/gujarati-krishna/images/img1",
+  "type": "ImageService3",
+  "protocol": "http://iiif.io/api/image",
+  "profile": "level0",
+  "width": 1125,
+  "height": 1125
+}

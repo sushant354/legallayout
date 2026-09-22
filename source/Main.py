@@ -5,10 +5,12 @@ from pathlib import Path
 from collections import defaultdict
 import re
 import codecs
-import html
 import logging
 import shutil
 import uuid
+import signal
+import atexit
+import weakref
 import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
 from .Page import Page, SectionState
@@ -22,6 +24,8 @@ from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .Figure import PageImages
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
+from .Table import table_dataframe_cell_match_ratio
+from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS, INDIC_SEMICOLON_CHARS
 
 from contextlib import contextmanager
 
@@ -446,18 +450,70 @@ SPACE_OVERLAP_RATIO = 0.95
 NEIGHBOUR_OVERLAP_RATIO = 0.1
 
 
+_active_runs = {}
+
+
+def _register_run(main, keep_xml):
+    run_id = main.run_id
+
+    def _on_dead(ref, rid=run_id):
+        _active_runs.pop(rid, None)
+
+    _active_runs[run_id] = (weakref.ref(main, _on_dead), keep_xml)
+
+
+def _unregister_run(run_id):
+    _active_runs.pop(run_id, None)
+
+
+def cleanup_active_runs():
+    for run_id, (ref, keep_xml) in list(_active_runs.items()):
+        main = ref()
+        if main is not None:
+            try:
+                main.cleanup_run(keep_xml=keep_xml)
+            except Exception:
+                pass
+        _active_runs.pop(run_id, None)
+
+
+def install_cleanup_signal_handlers(signals=None):
+    if signals is None:
+        signals = (signal.SIGTERM,)
+
+    def handler(signum, frame):
+        logging.getLogger('source.Main').warning(
+            "Interrupt (%s) received - clearing cache and stopping",
+            signal.Signals(signum).name)
+        cleanup_active_runs()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    for sig in signals:
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, OSError):
+            pass
+
+
+atexit.register(cleanup_active_runs)
+
+
 class Main:
     def __init__(self,pdfPath,is_amendment_pdf,output_dir, pdf_type, has_side_notes, has_doc_end,
                  is_footnote_continuation, min_img_pixels, ocr_language, is_scanned_copy,
                  table_extract, public_base_url=None, server_root=None,
                  rights=None, provider_id=None, provider_name=None, 
                  attribution=None, figure_text=False, font_conv_map=None,
-                 ocr_engine="tesseract", font_model=None, font_lang=None,
-                 font_detect=True, show_fonts=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
+                 ocr_engine_image_text="tesseract", font_model=None, font_lang=None,
+                 font_detect=True, show_fonts=False, ocr_engine_pdf_parser=None,
+                 keep_xml=False): #start,end,is_amendment_pdf,output_dir, pdf_type):
         self.logger = logging.getLogger('source.Main')
         # names this run's files in the shared cache directories, see
         # get_run_cache_pdf()
         self.run_id = uuid.uuid4().hex[:12]
+        self.keep_xml = keep_xml
+        _register_run(self, self.keep_xml)
         if self.is_url_like(output_dir):
             raise ValueError(
                 f"output_dir ('{output_dir}') looks like a URL, not a local filesystem "
@@ -494,13 +550,43 @@ class Main:
                 f"[!] provider_id ('{provider_id}') doesn't look like a URI - ignoring it."
             )
             provider_id = None
-        if ocr_engine == "paddleocr" and ocr_language not in TESSERACT_TO_PADDLE_LANG:
-            self.logger.warning(
-                f"[!] ocr_language ('{ocr_language}') has no paddleocr equivalent. "
-                f"Languages supported for ocr_engine='paddleocr': "
-                f"{', '.join(sorted(TESSERACT_TO_PADDLE_LANG))}. Falling back to 'eng'."
+        invalid_langs = [l for l in ocr_language.split('+') if l not in TESSERACT_LANGUAGES]
+        if invalid_langs:
+            raise ValueError(
+                f"ocr_language ('{ocr_language}') contains unknown language code(s) "
+                f"{invalid_langs}. Each '+'-separated code must be one of: "
+                f"{', '.join(TESSERACT_LANGUAGES)}."
             )
-            ocr_language = "eng"
+        ocr_language_image_text = ocr_language
+        if ocr_engine_image_text == "paddleocr" and ocr_language not in TESSERACT_TO_PADDLE_LANG:
+            supported = [l for l in ocr_language.split('+') if l in TESSERACT_TO_PADDLE_LANG]
+            non_english_supported = [l for l in supported if l != "eng"]
+            if non_english_supported:
+                self.logger.warning(
+                    f"[!] paddleocr doesn't support the multi-language code "
+                    f"'{ocr_language}'; using '{non_english_supported[0]}', the "
+                    f"first paddleocr-supported non-English language in it."
+                )
+                ocr_language_image_text = non_english_supported[0]
+            elif supported:
+                self.logger.warning(
+                    f"[!] paddleocr doesn't support the multi-language code "
+                    f"'{ocr_language}'; using '{supported[0]}', the only "
+                    f"paddleocr-supported language in it."
+                )
+                ocr_language_image_text = supported[0]
+            else:
+                self.logger.warning(
+                    f"[!] ocr_language ('{ocr_language}') has no paddleocr equivalent. "
+                    f"Languages supported for ocr_engine_image_text='paddleocr': "
+                    f"{', '.join(sorted(TESSERACT_TO_PADDLE_LANG))}. Falling back to 'eng'."
+                )
+                ocr_language_image_text = "eng"
+        if ocr_engine_pdf_parser is not None and ocr_engine_pdf_parser not in OCR_PDF_PARSERS_AVAILABLE:
+            raise ValueError(
+                f"ocr_engine_pdf_parser ('{ocr_engine_pdf_parser}') must be one of "
+                f"{OCR_PDF_PARSERS_AVAILABLE} or None."
+            )
 
         self.pdf_path = pdfPath
         self.output_dir = output_dir
@@ -529,7 +615,9 @@ class Main:
         self.html_builder = None
         self.min_img_pixels = min_img_pixels
         self.ocr_language = ocr_language
-        self.ocr_engine = ocr_engine
+        self.ocr_language_image_text = ocr_language_image_text
+        self.ocr_engine_image_text = ocr_engine_image_text
+        self.ocr_engine_pdf_parser = ocr_engine_pdf_parser
         self.is_scanned_copy = is_scanned_copy
         self.table_extract = table_extract
         self.figure_text = figure_text
@@ -1661,8 +1749,8 @@ class Main:
 
     def get_all_footnote_text(self):
 
-        FOOTNOTE_START_RE = re.compile(
-            r'^\{\{\^\{\{FOOTNOTE\s*(.+?)\}\}\}\}'
+        FOOTNOTE_MARKER_RE = re.compile(
+            r'\{\{\^\{\{FOOTNOTE\s*(.+?)\}\}\}\}'
         )
 
         active_footnote_num = None
@@ -1757,28 +1845,38 @@ class Main:
                     if not text:
                         continue
 
-                    start_match = FOOTNOTE_START_RE.match(text)
+                    segments = FOOTNOTE_MARKER_RE.split(text)
 
-                    if start_match:
+                    leading_text = segments[0].strip()
 
-                        footnote_num = (
-                            start_match.group(1).strip()
+                    if leading_text:
+
+                        if active_footnote_num and active_footnote_page is not None:
+
+                            self.all_footnote_text[
+                                active_footnote_page
+                            ][
+                                active_footnote_num
+                            ] += "\n" + leading_text
+
+                    for i in range(1, len(segments), 2):
+
+                        footnote_num = segments[i].strip()
+
+                        cleaned_text = (
+                            segments[i + 1].strip()
+                            if i + 1 < len(segments)
+                            else ""
                         )
-
-                        active_footnote_num = footnote_num
-                        active_footnote_page = pg_num
-
-                        cleaned_text = FOOTNOTE_START_RE.sub(
-                            '',
-                            text,
-                            count=1
-                        ).strip()
 
                         cleaned_text = re.sub(
                             r'^[.\):\]]\s*',
                             '',
                             cleaned_text
                         )
+
+                        active_footnote_num = footnote_num
+                        active_footnote_page = pg_num
 
                         if (
                             footnote_num
@@ -1794,17 +1892,6 @@ class Main:
                             page_footnote_text[
                                 footnote_num
                             ] += "\n" + cleaned_text
-
-                    else:
-
-                        if not active_footnote_num or active_footnote_page is None:
-                            continue
-
-                        self.all_footnote_text[
-                            active_footnote_page
-                        ][
-                            active_footnote_num
-                        ] += "\n" + text
 
             if not self.is_footnote_continuation:
 
@@ -1832,7 +1919,7 @@ class Main:
                         )
 
                         self.remove_empty_parent_dir(img_path)
-                    
+
                     except Exception as e:
 
                         self.logger.warning(
@@ -1899,34 +1986,33 @@ class Main:
 
     def get_htmlBuilder(self, pdf_type, docend_symbol = False):
         if pdf_type == 'sebi':
-            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') #( ".", ":", "?",  ".'", '."', ";", ";'", ';"')
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
-                               show_fonts = self.show_fonts,
-                               detected_fonts = self.detected_font_classes)
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
+                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
-                                                '.”', '.’', ';”' , ';’', ':-')
+                                                '.”', '.’', ';”' , ';’', ':-') \
+                                                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return Acts(self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
         elif pdf_type in set(['sebi_circulars']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-', '.]',
-                                                ',-', ':-', ';-', '--')
+                                                ',-', ':-', ';-', '--') \
+                                                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return SebiCirculars(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type, docend_symbol)
 
         elif pdf_type == 'judgments':
-            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";')
-            self.warn_font_names_unsupported('the judgments builder')
+            sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
+                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         else:
-            sentence_completion_punctutation = ('.', ':')
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
-                               show_fonts = self.show_fonts,
-                               detected_fonts = self.detected_font_classes)
+            sentence_completion_punctutation = ('.', ':') + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
@@ -1956,11 +2042,7 @@ class Main:
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.print_tbs()
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
-            page.find_sidenote_leftend_rightstart_coords()
-            page.get_side_notes() #self.section_start_page,self.section_end_page)
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             if self.is_amendment_pdf:
@@ -1979,12 +2061,11 @@ class Main:
                                                 ': or', '; and', ': and', ':––', ';––',\
                                                 '––', '."', '.\'', ';"', ';\'' , \
                                                 '.”', '.’', ';”' , ';’', ':-', '.]',
-                                                ',-', ':-', ';-', '--')
+                                                ',-', ':-', ';-', '--') \
+                                                + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
 
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -2002,18 +2083,17 @@ class Main:
     def process_pages_sebi(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
             # self.amendment.check_for_blockquotes(page)
-            self.amendment.check_for_blockquotes_judgments(page)
+            self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
             page.detect_sparse_pre()
             # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
             page.get_titles(pdf_type)
+            page.get_underlined_titles(pdf_type)
             page.sort_all_boxes()
             # page.print_blockquote()
             # page.print_headers()
@@ -2025,28 +2105,68 @@ class Main:
     def process_pages_judgments(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
-            self.amendment.check_for_blockquotes_judgments(page)
+            self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
             page.detect_sparse_pre()
             # page.detect_pre()
-           
+
             # page.get_titles(pdf_type)
+            page.get_underlined_titles(pdf_type)
             # page.get_bulletins(self.section_state)
             page.sort_all_boxes()
             # page.print_headers()
             # page.print_footers()
             page.print_all()
-    
+        self.html_builder.doc_line_gap = self.compute_doc_line_gap()
+        self.html_builder.doc_max_line_width = self.compute_doc_max_line_width()
+
+    def compute_doc_max_line_width(self):
+        entries = []
+        for page in self.all_pgs.values():
+            for tb, label in page.all_tbs.items():
+                if label in ("header", "footer", "footnote", "title", "toc", "figure"):
+                    continue
+                if isinstance(label, (tuple, list)):
+                    continue
+                for line in self.extract_toc_lines(tb):
+                    width = line['x1'] - line['x0']
+                    if width > 0:
+                        entries.append((line['x0'], width))
+        if not entries:
+            return None
+        entries.sort(key=lambda e: e[0])
+        return entries
+
+    def compute_doc_line_gap(self):
+        gaps = []
+        for page in self.all_pgs.values():
+            ys = []
+            for tb, label in page.all_tbs.items():
+                if label in ("header", "footer", "footnote", "title", "toc", "figure"):
+                    continue
+                if isinstance(label, (tuple, list)):
+                    continue
+                for line in self.extract_toc_lines(tb):
+                    ys.append(line["y0"])
+            ys.sort(reverse=True)
+            for a, b in zip(ys, ys[1:]):
+                gap = a - b
+                if gap > 0:
+                    gaps.append(gap)
+        if not gaps:
+            return None
+        gaps.sort()
+        mid = len(gaps) // 2
+        if len(gaps) % 2:
+            return gaps[mid]
+        return (gaps[mid - 1] + gaps[mid]) / 2.0
+
     def process_pages(self, pdf_type):
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
-            page.get_width_ofTB_moreThan_Half_of_pg()
-            page.get_body_width_by_binning()
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
@@ -2117,13 +2237,14 @@ class Main:
             page = Page(pg, self.pdf_path, base_name_of_file, output_dir,
                         self.pdf_type, self.has_side_notes, self.is_amendment_pdf,
                         self.fontmapper, self.unique_images, self.min_img_pixels,
-                        self.ocr_language,
-                        self.is_scanned_copy, self.figure_text, self.ocr_engine,
+                        self.ocr_language_image_text,
+                        self.is_scanned_copy, self.figure_text, self.ocr_engine_image_text,
                         page_images=page_images)
             self.total_pgs += 1
             self.all_pgs[self.total_pgs] = page
             page.process_textboxes()#pg)
             page.get_figures()#pg)
+            page.reconcile_figure_names()
             page.label_table_tbs()
 
             # page.line_based_header_footer_detection()
@@ -2159,11 +2280,24 @@ class Main:
         if not self.is_scanned_copy:
             self.finalize_adaptive_header_footer_detection()
 
+        for page in self.all_pgs.values():
+            page.get_width_ofTB_moreThan_Half_of_pg()
+            page.get_body_width_by_binning()
+            if self.has_side_notes:
+                page.find_sidenote_leftend_rightstart_coords()
+                page.get_side_notes()
+
+        self.logger.info("Detecting multicolumn page layouts...")
+        for page in self.all_pgs.values():
+            page.detect_multicolumn_layout()
+
         if self.table_extract and self.pdf_type != 'judgments':
             self.logger.info("Detecting borderless tables...")
             self.pending_continuation = None
+            protected_running_hf = self.get_protected_running_headers_footers()
             for page in self.all_pgs.values():
-                page.reclaim_header_footer_for_continuation(self.pending_continuation)
+                page.reclaim_header_footer_for_continuation(
+                    self.pending_continuation, protected_boxes=protected_running_hf)
                 self.pending_continuation = page.get_borderless_table(
                     self.pdf_type, self.header_classifier, self.region_merge_classifier,
                     continuation_template=self.pending_continuation,
@@ -2171,10 +2305,10 @@ class Main:
                 )
                 page.label_borderless_table_tbs()
 
-        self.logger.info("Detecting multicolumn page layouts...")
         for page in self.all_pgs.values():
-            page.detect_multicolumn_layout()
             page.apply_column_reading_order()
+
+        self.detect_repeating_tables()
 
         if self.pdf_type in {'judgments'}:
             self.detect_header_pre(pages)
@@ -2188,6 +2322,78 @@ class Main:
             self.remove_empty_manifest_dir(base_name_of_file, output_dir)
         self.get_all_footnote_text()
         self.logger.info(self.all_footnote_text)
+
+    def detect_repeating_tables(self):
+        total_pages = len(self.all_pgs)
+        if total_pages < 3:
+            return
+
+        CELL_MATCH_THRESHOLD = 0.95
+        POSITION_TOLERANCE = 0.05
+        MIN_OCCURRENCE_RATE = 0.85
+
+        entries = []
+        for page_num, page in self.all_pgs.items():
+            if not page.pg_height:
+                continue
+            sources = [("table", page.tabular_datas.tables, page.tabular_datas.table_bbox)]
+            if page.borderless_tabular_datas is not None:
+                sources.append((
+                    "borderless_table",
+                    getattr(page.borderless_tabular_datas, "tables", {}) or {},
+                    getattr(page.borderless_tabular_datas, "table_bbox", {}) or {},
+                ))
+            for source, tables, table_bbox in sources:
+                for idx, df in tables.items():
+                    bbox = table_bbox.get(idx)
+                    if bbox is None or df is None or df.empty:
+                        continue
+                    entries.append({
+                        'page_num': page_num,
+                        'idx': idx,
+                        'source': source,
+                        'df': df,
+                        'y0_pct': bbox[1] / page.pg_height,
+                    })
+
+        if not entries:
+            return
+
+        used = [False] * len(entries)
+        for i, entry in enumerate(entries):
+            if used[i]:
+                continue
+            group = [entry]
+            used[i] = True
+            for j in range(i + 1, len(entries)):
+                if used[j] or entries[j]['source'] != entry['source']:
+                    continue
+                other = entries[j]
+                if abs(entry['y0_pct'] - other['y0_pct']) > POSITION_TOLERANCE:
+                    continue
+                if table_dataframe_cell_match_ratio(entry['df'], other['df']) >= CELL_MATCH_THRESHOLD:
+                    group.append(other)
+                    used[j] = True
+
+            # a genuine running boilerplate table repeats on nearly every page -
+            # a table that recurs only occasionally is a template (same
+            # row/column labels) filled in with different data each time,
+            # which must never be flattened away like real boilerplate
+            covered_pages = {member['page_num'] for member in group}
+            if len(covered_pages) / total_pages < MIN_OCCURRENCE_RATE:
+                continue
+
+            avg_y0_pct = sum(member['y0_pct'] for member in group) / len(group)
+            position = "header" if avg_y0_pct >= 0.5 else "footer"
+
+            for member in group:
+                page_obj = self.all_pgs.get(member['page_num'])
+                if page_obj is not None:
+                    page_obj.mark_table_boilerplate(member['idx'], member['source'], position)
+                    self.logger.debug(
+                        "Page %s: table %s (%s) marked as repeating %s boilerplate",
+                        member['page_num'], member['idx'], member['source'], position
+                    )
 
     def remove_empty_manifest_dir(self, base_name_of_file, output_dir, image_base_dir="manifest"):
         manifest_pdf_dir = os.path.join(output_dir, image_base_dir, base_name_of_file)
@@ -2859,6 +3065,22 @@ class Main:
                     
         return False
 
+    def get_protected_running_headers_footers(self, min_pages=2):
+        protected = set()
+        try:
+            for group in getattr(self, 'adaptive_headers', []) + getattr(self, 'adaptive_footers', []):
+                elements = group.get('elements', [])
+                pages_seen = set(e.get('page_num') for e in elements)
+                if len(pages_seen) < min_pages:
+                    continue
+                for e in elements:
+                    tb = e.get('textbox')
+                    if tb is not None:
+                        protected.add(id(tb))
+        except Exception as e:
+            self.logger.debug("Could not build protected running header/footer set: %s", e)
+        return protected
+
     def _apply_adaptive_headers_footers(self):
         try:
             for header_group in self.adaptive_headers:
@@ -2913,9 +3135,17 @@ class Main:
         else:
             self.html_builder = self.get_htmlBuilder(self.pdf_type)
 
+    def get_scanned_copy_parser_engine(self, pdf_type):
+        if self.ocr_engine_pdf_parser is not None:
+            return self.ocr_engine_pdf_parser
+        if pdf_type in {'egazette', 'acts', 'sebi_circulars'}:
+            return "chromelens"
+        return "tesseract"
+
     def process_scanned_copy(self, pdf_type, base_name_of_file, start_page,
                              end_page):
-        if pdf_type in {'egazette', 'acts', 'sebi_circulars'}:
+        parser_engine = self.get_scanned_copy_parser_engine(pdf_type)
+        if parser_engine == "chromelens":
             pages = ChromeLensParserTool(self.pdf_path)\
                                 .build_xml(start_page, end_page)
         else:
@@ -3028,6 +3258,8 @@ class Main:
 
             if pdf_type in {'egazette', 'sebi'}:
                 self.write_manifest()
+
+            self.remove_empty_manifest_dir(base_name_of_file, self.output_dir)
 
             return True
         except Exception as e:
@@ -3278,10 +3510,39 @@ class Main:
         except OSError as e:
             self.logger.error("Error deleting cached pdf(s) %s: %s", run_dir, e)
 
+    def clear_camelot_cache(self):
+        try:
+            from .TableExtraction import cleanup_camelot_temp_dirs
+            cleanup_camelot_temp_dirs()
+        except Exception as e:
+            self.logger.debug("Skipping camelot temp cleanup: %s", e)
+
     def clear_ocr_engines(self):
-        if self.ocr_engine == "paddleocr":
+        if self.ocr_engine_image_text == "paddleocr":
             clear_paddle_ocr_engines()
             self.logger.info("Released paddleocr model(s) held by this run")
+
+    def cleanup_run(self, keep_xml=None):
+        if keep_xml is None:
+            keep_xml = getattr(self, "keep_xml", False)
+        try:
+            self.clear_cache_pdf()
+        except Exception as e:
+            self.logger.debug("cache_pdf cleanup failed: %s", e)
+        if not keep_xml:
+            try:
+                self.clear_xml_cache()
+            except Exception as e:
+                self.logger.debug("cache_xml cleanup failed: %s", e)
+        try:
+            self.clear_camelot_cache()
+        except Exception as e:
+            self.logger.debug("camelot temp cleanup failed: %s", e)
+        try:
+            self.clear_ocr_engines()
+        except Exception as e:
+            self.logger.debug("ocr engine cleanup failed: %s", e)
+        _unregister_run(self.run_id)
 
 
     def detect_header_pre(self, pages):
@@ -3866,7 +4127,7 @@ class Main:
 
     def detect_sebi_header_pre(self, pages):
         body_start_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9]\d{0,2}[A-Z]?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
         )
 
         rows = []
@@ -3903,6 +4164,23 @@ class Main:
             if page_obj.all_tbs[row["tb"]] is None:
                 page_obj.all_tbs[row["tb"]] = "pre_header"
 
+    def extract_toc_lines(self, tb):
+        lines = []
+        for textline in tb.tbox.findall('.//textline'):
+            bbox = textline.attrib.get('bbox')
+            if not bbox:
+                continue
+            try:
+                x0, y0, x1, y1 = map(float, bbox.split(','))
+            except ValueError:
+                continue
+            chars = [t.text for t in textline.findall('.//text') if t.text]
+            text = re.sub(r'\s+', ' ', ''.join(chars)).strip()
+            if not text:
+                continue
+            lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
+        return lines
+
     def detect_toc(self, pages):
         TOC_HEADING_RE = re.compile(
             r'^\s*(TABLE\s+OF\s+CONTENTS?|INDEX|CONTENTS?|SYNOPSIS|'
@@ -3912,9 +4190,11 @@ class Main:
         )
         PAGE_NO_HEADER_RE = re.compile(r'^\s*PAGE\s*(?:NO\.?|NUMBER)\s*$', re.I)
         ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.I)
-        TOC_ENTRY_RE = re.compile(r'^(.*?\S)[\s.․…]{2,}(\(?[A-Za-z0-9]{1,7}\)?)\.?\s*$')
-        MAX_MISS_STREAK = 2
-        MAX_CONTINUATION_LEN = 120
+        TOC_PAGE_REF_RE = re.compile(
+            r'[.․…\s]*[.․…]{2,}[.․…\s]*(\(?[A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,7}\)?)\.?(?=\s|$)'
+        )
+        MAX_MISS_STREAK = 3
+        MAX_CONTINUATION_LEN = 160
         LEVEL_TOL = 10.0
         MIN_ENTRIES = 3
         ROW_Y_TOL = 0.6
@@ -3929,19 +4209,18 @@ class Main:
                 return token
             return None
 
-        def match_entry(row):
-            if len(row["texts"]) > 1:
-                token = page_token(row["texts"][-1])
-                if token:
-                    body = " ".join(row["texts"][:-1]).strip()
-                    if body:
-                        return body, token
-            match = TOC_ENTRY_RE.match(row["text"])
-            if match:
-                token = page_token(match.group(2))
-                if token:
-                    return match.group(1).strip(), token
-            return None
+        def split_entries(text):
+            found = []
+            last = 0
+            for match in TOC_PAGE_REF_RE.finditer(text):
+                token = page_token(match.group(1))
+                if not token:
+                    continue
+                body = text[last:match.start()].strip()
+                found.append((body, token))
+                last = match.end()
+            remainder = text[last:].strip()
+            return found, remainder
 
         rows = []
         for pg_idx, pg in enumerate(pages):
@@ -3952,14 +4231,13 @@ class Main:
             for tb, label in page_obj.all_tbs.items():
                 if label is not None:
                     continue
-                text = re.sub(r'\s+', ' ', tb.extract_text_from_tb()).strip()
-                if not text:
-                    continue
-                x0, y0, x1, y1 = tb.coords
-                rows.append({
-                    "page": page_num, "tbs": [tb], "texts": [text], "text": text,
-                    "x0": x0, "y0": y0, "x1": x1, "y1": y1,
-                })
+                for line in self.extract_toc_lines(tb):
+                    rows.append({
+                        "page": page_num, "tbs": [tb], "texts": [line["text"]],
+                        "text": line["text"],
+                        "x0": line["x0"], "y0": line["y0"],
+                        "x1": line["x1"], "y1": line["y1"],
+                    })
 
         if not rows:
             return
@@ -3993,9 +4271,14 @@ class Main:
         rows = merged_rows
 
         heading_idx = None
+        heading_text = None
         for idx, row in enumerate(rows):
-            if any(TOC_HEADING_RE.match(t) for t in row["texts"]):
-                heading_idx = idx
+            for t in row["texts"]:
+                if TOC_HEADING_RE.match(t):
+                    heading_idx = idx
+                    heading_text = t.strip()
+                    break
+            if heading_idx is not None:
                 break
 
         if heading_idx is None:
@@ -4020,20 +4303,18 @@ class Main:
                 i += 1
                 continue
 
-            matched = match_entry(row)
-            if matched:
-                body, page_no = matched
-                if pending_prefix:
-                    body = f"{pending_prefix} {body}"
-                entries.append({
-                    "text": body,
-                    "page_no": page_no,
-                    "x0": pending_start_x0 if pending_start_x0 is not None else row["x0"],
-                })
+            found, remainder = split_entries(text)
+            if found:
+                for idx, (body, page_no) in enumerate(found):
+                    if idx == 0 and pending_prefix:
+                        body = f"{pending_prefix} {body}".strip()
+                    entry_x0 = pending_start_x0 if (idx == 0 and pending_start_x0 is not None) else row["x0"]
+                    if body:
+                        entries.append({"text": body, "page_no": page_no, "x0": entry_x0})
                 consumed_tbs.extend((row["page"], tb) for tb in row["tbs"])
                 consumed_tbs.extend(pending_tbs)
-                pending_prefix = ""
-                pending_start_x0 = None
+                pending_prefix = remainder
+                pending_start_x0 = row["x0"] if remainder else None
                 pending_tbs = []
                 miss_streak = 0
                 i += 1
@@ -4068,25 +4349,8 @@ class Main:
                 stack = [(x0, level)]
             entry["level"] = level
 
-        out = [
-            '<nav class="toc">',
-            '<p class="toc-title">Table of Contents</p>',
-            '<table class="toc-table">',
-        ]
-        for entry in entries:
-            level = entry["level"]
-            indent = f' style="padding-left: {(level - 1) * 1.5}em;"' if level > 1 else ''
-            title = html.escape(entry["text"])
-            page_no = html.escape(entry["page_no"])
-            out.append(
-                f'<tr class="toc-level-{level}">'
-                f'<td class="toc-entry"{indent}>{title}</td>'
-                f'<td class="toc-page">{page_no}</td></tr>'
-            )
-        out.append('</table>')
-        out.append('</nav>')
-
-        self.html_builder.toc_html = '\n'.join(out) + '\n'
+        self.html_builder.toc_entries = entries
+        self.html_builder.toc_title = heading_text
 
         for page_num, tb in consumed_tbs:
             page_obj = self.all_pgs[page_num]
@@ -4130,11 +4394,23 @@ def get_arg_parser():
     parser.add_argument('-mip', '--min-img-pixels', dest = 'min_img_pixels', action = 'store', \
                       required = False,  default = 0,  help = 'minimum pixel area threshold for initial filtering (area = dimension^2). Images are further filtered based on text content detection.')
     parser.add_argument('-ol', '--ocr-language', dest='ocr_language', action='store', \
-                      required=False, default='eng', choices=TESSERACT_LANGUAGES,
-                      help=f'tesseract language code for OCR (default: eng). One of: {", ".join(TESSERACT_LANGUAGES)}')
-    parser.add_argument('-oe', '--ocr-engine', dest='ocr_engine', action='store', \
+                      required=False, default='eng',
+                      help=f'tesseract language code for OCR (default: eng), or several joined '
+                           f'with "+" (tesseract\'s own multi-language syntax, e.g. hin+eng) - '
+                           f'only the tesseract engine (-op tesseract / -oe tesseract) honours a '
+                           f'combination; paddleocr takes a single language and degrades a '
+                           f'combination to the first language in it it supports; chromelens '
+                           f'ignores this option entirely (it auto-detects language). One of: '
+                           f'{", ".join(TESSERACT_LANGUAGES)}')
+    parser.add_argument('-oe', '--ocr-engine-image-text', dest='ocr_engine_image_text', action='store', \
                       required=False, default='tesseract', choices=OCR_ENGINES_AVAILABLE,
-                      help=f'OCR engine to use for figure text extraction (default: tesseract). One of: {", ".join(OCR_ENGINES_AVAILABLE)}')
+                      help=f'OCR engine to use for figure/image text extraction (default: tesseract). One of: {", ".join(OCR_ENGINES_AVAILABLE)}')
+    parser.add_argument('-op', '--ocr-engine-pdf-parser', dest='ocr_engine_pdf_parser', action='store', \
+                      required=False, default=None, choices=OCR_PDF_PARSERS_AVAILABLE,
+                      help='OCR engine used to parse a scanned-copy PDF into text (page-text extraction path, '
+                           'distinct from -oe/--ocr-engine-image-text which is for figure/image text). Default: '
+                           'chromelens for egazette/acts/sebi_circulars, tesseract otherwise; pass explicitly to '
+                           f'override that default in either direction. One of: {", ".join(OCR_PDF_PARSERS_AVAILABLE)}')
     parser.add_argument('-sc', '--scanned-copy', dest = 'scanned_copy', action = 'store_true',
                         required = False, default = False, help = 'mention if the pdf copy is scanned')
     parser.add_argument('-te', '--table-extract', dest = 'table_extract', action = 'store_true',
@@ -4281,7 +4557,8 @@ if __name__ == "__main__":
     if min_img_pixels and isinstance(min_img_pixels, str):
         min_img_pixels = int(min_img_pixels)
     ocr_language = args.ocr_language
-    ocr_engine = args.ocr_engine
+    ocr_engine_image_text = args.ocr_engine_image_text
+    ocr_engine_pdf_parser = args.ocr_engine_pdf_parser
     is_scanned_copy = args.scanned_copy
     table_extract = args.table_extract
     figure_text = args.figure_text
@@ -4291,25 +4568,26 @@ if __name__ == "__main__":
     provider_id = args.provider_id
     provider_name = args.provider_name
     attribution = args.attribution
-    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type, 
+    main = Main(pdf_path,is_amendment_pdf,output_dir, args.pdf_type,
                 has_sidenotes, has_doc_end,
                 is_footnote_continuation, min_img_pixels, ocr_language,
                 is_scanned_copy, table_extract, public_base_url, server_root,
                 rights, provider_id, provider_name, attribution,
-                figure_text, args.font_conv_map, ocr_engine,
-                args.font_model, args.font_lang, args.font_detect, args.show_fonts)
+                figure_text, args.font_conv_map, ocr_engine_image_text,
+                args.font_model, args.font_lang, args.font_detect, args.show_fonts,
+                ocr_engine_pdf_parser, args.keep_xml)
     # margins = compute_optimal_char_margin(pdf_path)
     char_margin = args.char_margin # str(margins)
     word_margin = args.word_margin # str(margins['word_margin'])
     line_margin = args.line_margin # str(margins['line_margin'])
     logger.info(f'char_margin : {char_margin}, word_margin: {word_margin}, line_margin: {line_margin}')
+
+    install_cleanup_signal_handlers((signal.SIGINT, signal.SIGTERM))
+
     try:
         is_success = main.parsePDF(args.pdf_type, char_margin, word_margin, line_margin, \
                                    start_page, end_page)
         if is_success:
             main.buildHTML(start_page, end_page) #end)
     finally:
-        main.clear_cache_pdf()
-        if not args.keep_xml:
-            main.clear_xml_cache()
-        main.clear_ocr_engines()
+        main.cleanup_run(keep_xml=args.keep_xml)

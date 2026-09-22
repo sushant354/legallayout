@@ -1,8 +1,14 @@
 import re
 from typing import Optional, Tuple
 
+from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS
 
 BBox = Tuple[float, float, float, float]
+
+INDIC_SENTENCE_END_CHARS = "\u0964\u0965\u06D4\u061F\u1C7E\u1C7F\uAAF1"
+INDIC_SEMICOLON_CHARS = "\u061B"
+SENTENCE_END_CHAR_CLASS = ".?!:;" + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS
+TERMINAL_PUNCT_CHAR_CLASS = ".!?" + INDIC_SENTENCE_END_CHARS
 
 LEGAL_ABBREVIATIONS= {
             # People / titles
@@ -144,9 +150,9 @@ class LegalSentenceDetector:
       if re.fullmatch(r'\d+(?:\.\d+)*\.', s):
         return False
       pure_bullet_patterns = [
-          re.compile(r'^\(?\d+[A-Z]?\)?[.)]?$'),   # (1), 1A., 2)
+          re.compile(r'^\(?\d+[A-Z' + INDIC_LETTER_CHARS + r']?\)?[.)]?$'),   # (1), 1A., 2)
           re.compile(r'^\(?[ivxlcdm]+\)?[.)]?$' , re.I), # (iv), ii.
-          re.compile(r'^\(?[a-z]\)?[.)]?$' , re.I),      # (a), b.
+          re.compile(r'^\(?[a-z' + INDIC_LETTER_CHARS + r']\)?[.)]?$' , re.I),      # (a), b.
       ]
       for pattern in pure_bullet_patterns:
           if pattern.fullmatch(s):
@@ -162,17 +168,17 @@ class LegalSentenceDetector:
       if s.endswith(':'):
           if next_text:
               nxt_clean = next_text.strip()
-              if re.match(r'^\(?[a-z0-9ivxlcdm]+\)', nxt_clean, re.I):  # bullet-like
+              if re.match(r'^\(?[a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)', nxt_clean, re.I):  # bullet-like
                   return True
           return False if at_page_end else True
       
 
       # 1. SENTENCE-ENDING PUNCTUATION CHECK
-      sentence_end_pattern = re.compile(r'.*[.?!:;]\s*$')
+      sentence_end_pattern = re.compile(r'.*[' + SENTENCE_END_CHAR_CLASS + r']\s*$')
       if not sentence_end_pattern.match(s):
           return False
 
-      last_token_match = re.search(r'(\S+?)([.?!:;]+)\s*$', s)
+      last_token_match = re.search(r'(\S+?)([' + SENTENCE_END_CHAR_CLASS + r']+)\s*$', s)
       if not last_token_match:
           return False if at_page_end else True
 
@@ -182,10 +188,10 @@ class LegalSentenceDetector:
       # 2. LIST-LIKE END TOKENS
       list_boundary_patterns = [
           re.compile(r'^\(\s*\d+\s*\)$'),
-          re.compile(r'^\(\s*[a-z]\s*\)$', re.I),
+          re.compile(r'^\(\s*[a-z' + INDIC_LETTER_CHARS + r']\s*\)$', re.I),
           re.compile(r'^\(\s*[ivxlcdm]+\s*\)$', re.I),
           re.compile(r'^\d+\.$'),
-          re.compile(r'^[a-z]\.$', re.I),
+          re.compile(r'^[a-z' + INDIC_LETTER_CHARS + r']\.$', re.I),
           re.compile(r'^[ivxlcdm]+\.$', re.I),
       ]
       clean_token = re.sub(r'[^\w\(\)]', '', last_token).lower()
@@ -237,7 +243,7 @@ class LegalSentenceDetector:
                   
                   if re.fullmatch(r'\d+(?:\.\d+)*\.', nxt_clean):
                         return True
-                  if re.search(r'[.?!:;][\'"”’)]*$', s) and re.match(r'^[\'"“”‘’]', nxt):
+                  if re.search(r'[' + SENTENCE_END_CHAR_CLASS + r'][\'"”’)]*$', s) and re.match(r'^[\'"“”‘’]', nxt):
                       return True
 
                   # Rule 1: punctuation + uppercase → True
@@ -245,7 +251,7 @@ class LegalSentenceDetector:
                       return True
 
                   # 🔧 NEW Rule: punctuation + bullet → True
-                  if trailing_punct  and re.match(r'^\(?[a-z0-9ivxlcdm]+\)', nxt_clean, re.I):
+                  if trailing_punct  and re.match(r'^\(?[a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)', nxt_clean, re.I):
                       return True
 
                   # Rule 2: punctuation + next bullet form → True
@@ -253,13 +259,13 @@ class LegalSentenceDetector:
                       re.compile(r'^\d+\.$'),
                       re.compile(r'^\(\d+\)$'),
                       re.compile(r'^\d+\)$'),
-                      re.compile(r'^[a-z]\.$', re.I),
-                      re.compile(r'^\([a-z]\)$', re.I),
+                      re.compile(r'^[a-z' + INDIC_LETTER_CHARS + r']\.$', re.I),
+                      re.compile(r'^\([a-z' + INDIC_LETTER_CHARS + r']\)$', re.I),
                       re.compile(r'^[ivxlcdm]+\.$', re.I),
                       re.compile(r'^\([ivxlcdm]+\)$', re.I),
-                      re.compile(r'^\s*\d+[A-Z]*(?:-[A-Z]+)?\s*\.\s*\S*', re.IGNORECASE),
+                      re.compile(r'^\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.\s*\S*', re.IGNORECASE),
                       re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE),
-                      re.compile(r'^(\s*\d+[A-Z]*(?:-[A-Z]+)?\.\s*)(.*)', re.IGNORECASE)
+                      re.compile(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', re.IGNORECASE)
                   ]
                   if trailing_punct:
                       for pattern in bullet_start_patterns:
@@ -286,8 +292,8 @@ class LegalSentenceDetector:
                   continuation_patterns = [
                       re.compile(r'^\d+'),
                       re.compile(r'^[ivxlcdmIVXLCDM]+[.)\]\}]'),
-                      re.compile(r'^\([a-z0-9ivxlcdm]+\)', re.I),
-                      re.compile(r'^[a-z0-9ivxlcdm]+\.', re.I),
+                      re.compile(r'^\([a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)', re.I),
+                      re.compile(r'^[a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\.', re.I),
                       re.compile(r'^\('),
                   ]
                   for pattern in continuation_patterns:
@@ -384,7 +390,7 @@ class LegalSentenceDetector:
             
             if not box2:
                 text = text_tb.extract_text_from_tb().strip()
-                if text.endswith((":-", "---", "...", '—', '…','.','?','!',':',';')):
+                if text.endswith((":-", "---", "...", '—', '…') + tuple(SENTENCE_END_CHAR_CLASS)):
                     return True
                 return False
             
@@ -453,9 +459,9 @@ class SentenceMaker:
 
 
         alpha_patterns = [
-            r"^[A-Za-z]\.$",              # a., A.
-            r"^[A-Za-z]\)$",              # a), A)
-            r"^\([A-Za-z]\)$",            # (a), (A)
+            r"^[A-Za-z" + INDIC_LETTER_CHARS + r"]\.$",              # a., A.
+            r"^[A-Za-z" + INDIC_LETTER_CHARS + r"]\)$",              # a), A)
+            r"^\([A-Za-z" + INDIC_LETTER_CHARS + r"]\)$",            # (a), (A)
         ]
         for p in alpha_patterns:
             if re.match(p, l):
@@ -474,7 +480,7 @@ class SentenceMaker:
         return False
 
     def _ends_sentence(self, line: str) -> bool:
-        return bool(re.search(r"[.!?]$", line.strip()))
+        return bool(re.search(r"[" + TERMINAL_PUNCT_CHAR_CLASS + r"]$", line.strip()))
 
     def _is_title_like(self, line: str) -> bool:
         words = line.split()
@@ -509,7 +515,7 @@ class SentenceMaker:
         if self._is_title_like(prev) and self._is_title_like(curr):
             return True
 
-        if re.search(r"[a-zA-Z]", prev) and not self._ends_sentence(prev):
+        if re.search(r"[a-zA-Z" + INDIC_LETTER_CHARS + r"]", prev) and not self._ends_sentence(prev):
             return True
 
         return False
@@ -536,6 +542,6 @@ class SentenceMaker:
 
     def _normalize_punctuation(self, text: str) -> str:
         text = re.sub(r"\s+", " ", text)        # collapse spaces
-        text = re.sub(r"\s+([,.;:])", r"\1", text)  # remove space before punctuation
+        text = re.sub(r"\s+([,.;:" + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r"])", r"\1", text)
         text = re.sub(r",(\S)", r", \1", text)  # ensure space after commas
         return text.strip()
