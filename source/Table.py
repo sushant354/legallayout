@@ -26,6 +26,44 @@ def table_dataframe_signature(df):
     return re.sub(r'\s+', ' ', text).strip()
 
 
+DIGIT_RUN_RE = re.compile(r'\d+')
+
+# a cell holding real data (a count, a serial number, a date) is exactly the
+# thing a templated table varies row to row and page to page - and it can sit
+# inside an otherwise-static sentence, where a plain text-similarity ratio
+# barely moves ("Total: 5 seats" vs "Total: 8 seats" still scores ~0.9). \d is
+# unicode-aware, so this reads a digit run in any script's own digits (Latin,
+# Devanagari, Malayalam, Tamil, ...) without needing to know which script it is
+def _cell_similarity(a, b):
+    if a == b:
+        return 1.0
+    digits_a = DIGIT_RUN_RE.findall(a)
+    digits_b = DIGIT_RUN_RE.findall(b)
+    if (digits_a or digits_b) and digits_a != digits_b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def table_dataframe_cell_match_ratio(df1, df2, min_cell_ratio=0.6):
+    if df1 is None or df2 is None or df1.shape != df2.shape:
+        return 0.0
+    try:
+        cells1 = [str(v).strip().lower() for row in df1.itertuples(index=False, name=None) for v in row]
+        cells2 = [str(v).strip().lower() for row in df2.itertuples(index=False, name=None) for v in row]
+    except Exception:
+        return 0.0
+    if not cells1:
+        return 0.0
+    ratios = [_cell_similarity(a, b) for a, b in zip(cells1, cells2)]
+    # one cell reading as wildly different must never be smoothed away by
+    # every other cell in a large table matching perfectly - a single genuine
+    # content difference, however small a fraction of the table it is, means
+    # this is not the same boilerplate repeated
+    if min(ratios) < min_cell_ratio:
+        return 0.0
+    return sum(ratios) / len(ratios)
+
+
 def table_dataframe_flattened_text(df, col_sep='    ', row_sep='&#10;'):
     try:
         rows = list(df.itertuples(index=False, name=None))

@@ -1,7 +1,8 @@
 pdfminer.six
 scikit-learn
 matplotlib
-camelot-py[cv]
+camelot-py==2.0.0
+playa-pdf==1.1.0
 pandas
 numpy
 beautifulsoup4

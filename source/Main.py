@@ -24,7 +24,7 @@ from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .Figure import PageImages
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
-from .Table import table_dataframe_signature
+from .Table import table_dataframe_cell_match_ratio
 from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS, INDIC_SEMICOLON_CHARS
 
 from contextlib import contextmanager
@@ -2328,10 +2328,9 @@ class Main:
         if total_pages < 3:
             return
 
-        SIMILARITY_THRESHOLD = 0.9
+        CELL_MATCH_THRESHOLD = 0.95
         POSITION_TOLERANCE = 0.05
-        MIN_OCCURRENCES = 3
-        MIN_OCCURRENCE_RATE = 0.4
+        MIN_OCCURRENCE_RATE = 0.85
 
         entries = []
         for page_num, page in self.all_pgs.items():
@@ -2347,16 +2346,13 @@ class Main:
             for source, tables, table_bbox in sources:
                 for idx, df in tables.items():
                     bbox = table_bbox.get(idx)
-                    if bbox is None:
-                        continue
-                    signature = table_dataframe_signature(df)
-                    if not signature:
+                    if bbox is None or df is None or df.empty:
                         continue
                     entries.append({
                         'page_num': page_num,
                         'idx': idx,
                         'source': source,
-                        'signature': signature,
+                        'df': df,
                         'y0_pct': bbox[1] / page.pg_height,
                     })
 
@@ -2375,13 +2371,16 @@ class Main:
                 other = entries[j]
                 if abs(entry['y0_pct'] - other['y0_pct']) > POSITION_TOLERANCE:
                     continue
-                similarity = SequenceMatcher(None, entry['signature'], other['signature']).ratio()
-                if similarity >= SIMILARITY_THRESHOLD:
+                if table_dataframe_cell_match_ratio(entry['df'], other['df']) >= CELL_MATCH_THRESHOLD:
                     group.append(other)
                     used[j] = True
 
-            if (len(group) < MIN_OCCURRENCES
-                    or len(group) / total_pages < MIN_OCCURRENCE_RATE):
+            # a genuine running boilerplate table repeats on nearly every page -
+            # a table that recurs only occasionally is a template (same
+            # row/column labels) filled in with different data each time,
+            # which must never be flattened away like real boilerplate
+            covered_pages = {member['page_num'] for member in group}
+            if len(covered_pages) / total_pages < MIN_OCCURRENCE_RATE:
                 continue
 
             avg_y0_pct = sum(member['y0_pct'] for member in group) / len(group)
