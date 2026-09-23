@@ -176,9 +176,18 @@ def toc_iter_blocks(html, start=0, end=None):
         pos = close_end
 
 
+TABLE_MERGE_ROW_GAP_MULTIPLIER = 3
+TABLE_MERGE_BOTTOM_MARGIN_RATIO = 0.15
+TABLE_MERGE_TOP_BAND_RATIO = 0.30
+TABLE_MERGE_WIDTH_RATIO = 0.85
+TABLE_MERGE_X_OVERLAP_RATIO = 0.6
+
+
 class TableBuilder:
     def __init__(self):
         self.pending_table = None
+        self.pending_table_bbox = None
+        self.pending_table_page = None
         self.min_word_threshold_tableRows = 2
         self.table_terminators = {".", "!", "?"}
         self.logger = logging.getLogger(__name__)
@@ -465,82 +474,152 @@ class TableBuilder:
         # Default: add space
         return prev_text + " " + curr_text
 
-    def is_table_continuation(self, table2, table2_width):
+    def is_table_continuation(self, table2, table2_width, table2_bbox=None, table2_page=None, page_height=None):
         if self.pending_table is None:
             return False
-            
+
         table1, table1_width = self.pending_table
-        
+
         if table1.empty or table2.empty:
             return False
 
         try:
-            # 1. Width similarity check (more flexible threshold)
-            if max(table1_width, table2_width) > 0:
-                width_ratio = min(table1_width, table2_width) / max(table1_width, table2_width)
-                if width_ratio < 0.85:  # More flexible than 0.95
-                    self.logger.debug(f"Width ratio too low: {width_ratio}")
-                    return False
-
-            # 2. Column count check with flexibility
-            col_diff = abs(table1.shape[1] - table2.shape[1])
-            if col_diff > 1:  # Allow 1 column difference
-                self.logger.debug(f"Column count difference too high: {col_diff}")
-                return False
-
-            # 3. NEW: Header similarity check - if headers are identical, remove duplicate
-            header_sim = self._calculate_header_similarity(table1, table2)
-            if header_sim > 0.9:
-                self.logger.debug("Identical headers detected, treating as continuation")
-                # Remove the header row from table2 before merging
-                if len(table2) > 1:
-                    table2 = table2.iloc[1:].reset_index(drop=True)
-                return True
-
-            # 4. Check for obvious new table patterns
-            if not self._is_new_table_start(table1, table2):
-                return True
-
-            # 5. ENHANCED: Last row first column check for numeric vs non-numeric
-            last_row_first_col = str(table1.iloc[-1, 0]).strip()
-            first_row_first_col = str(table2.iloc[0, 0]).strip()
-            
-            # If last row's first cell is numeric AND current row's first cell is also numeric
-            # They should be separate rows (continuation)
-            if (self._is_numeric_content(last_row_first_col) and 
-                self._is_numeric_content(first_row_first_col)):
-                self.logger.debug(f"Both numeric first columns: {last_row_first_col} and {first_row_first_col}")
-                return True
-
-            # 6. NEW: Check if last row of table1 ends with sentence terminators
-            last_row_text = self._get_last_row_text(table1)
-            if self._ends_with_sentence_terminator(last_row_text):
-                self.logger.debug("Last row ends with sentence terminator, treating as continuation")
-                return True
-
-            # 7. NEW: Sparse table with mostly empty cells - treat as continuation
-            if self._is_very_sparse_table(table2):
-                self.logger.debug("Very sparse table detected, likely continuation")
-                return True
-
-            # 8. Sequential numbering check (for non-numeric cases)
-            if first_row_first_col and last_row_first_col:
-                if self.is_sequential(first_row_first_col, last_row_first_col):
-                    self.logger.debug(f"Sequential numbering: {last_row_first_col} → {first_row_first_col}")
-                    return True
-
-            # 9. Content similarity check
-            if self._has_similar_structure(table1, table2):
-                self.logger.debug("Similar structure detected")
-                return True
-
-            # Fallback: treat as new table
-            self.logger.debug("Defaulting to new table")
-            return False
-
+            have_coords = (table2_bbox is not None and table2_page is not None and page_height
+                           and self.pending_table_bbox is not None and self.pending_table_page is not None)
+            if have_coords:
+                return self._is_geometric_continuation(
+                    table1, table1_width, table2, table2_width,
+                    self.pending_table_bbox, self.pending_table_page,
+                    table2_bbox, table2_page, page_height)
+            return self._is_legacy_continuation(table1, table1_width, table2, table2_width)
         except Exception as e:
             self.logger.error(f"Error in is_table_continuation: {e}")
             return False
+
+    def _is_geometric_continuation(self, table1, table1_width, table2, table2_width,
+                                   bbox1, page1, bbox2, page2, page_height):
+        if not self._columns_match(table1, table1_width, table2, table2_width):
+            return False
+
+        adjacency = self._table_adjacency(bbox1, page1, bbox2, page2, page_height, len(table1))
+        if adjacency is None:
+            return False
+
+        if adjacency == 'same_page' and self._looks_like_own_header(table2):
+            self.logger.debug("Same-page table starts with its own header, treating as new table")
+            return False
+
+        if adjacency == 'cross_page_header' and not self._headers_repeat(table1, table2):
+            self.logger.debug("Cross-page table ends mid-page without a repeated header, treating as new table")
+            return False
+
+        self.logger.debug(f"Geometric continuation accepted ({adjacency})")
+        return True
+
+    def _headers_repeat(self, table1, table2):
+        return self._calculate_header_similarity(table1, table2) > 0.9
+
+    def _columns_match(self, table1, table1_width, table2, table2_width):
+        if table1.shape[1] != table2.shape[1]:
+            self.logger.debug(f"Column counts differ: {table1.shape[1]} vs {table2.shape[1]}")
+            return False
+        if max(table1_width, table2_width) > 0:
+            width_ratio = min(table1_width, table2_width) / max(table1_width, table2_width)
+            if width_ratio < TABLE_MERGE_WIDTH_RATIO:
+                self.logger.debug(f"Width ratio too low: {width_ratio}")
+                return False
+        return True
+
+    def _table_adjacency(self, bbox1, page1, bbox2, page2, page_height, table1_rows):
+        try:
+            page1 = int(page1)
+            page2 = int(page2)
+        except (TypeError, ValueError):
+            return None
+
+        x1_0, y1_0, x1_1, y1_1 = bbox1
+        x2_0, y2_0, x2_1, y2_1 = bbox2
+
+        if not self._x_ranges_align(x1_0, x1_1, x2_0, x2_1):
+            return None
+
+        if page1 == page2:
+            row_height = abs(y1_1 - y1_0) / max(table1_rows, 1)
+            gap = y1_0 - y2_1
+            if -row_height <= gap <= TABLE_MERGE_ROW_GAP_MULTIPLIER * max(row_height, 1.0):
+                return 'same_page'
+            return None
+
+        if page2 - page1 == 1 and page_height:
+            at_top_of_next_page = y2_1 >= page_height * (1.0 - TABLE_MERGE_TOP_BAND_RATIO)
+            if not at_top_of_next_page:
+                return None
+            at_bottom_of_prev_page = y1_0 <= page_height * TABLE_MERGE_BOTTOM_MARGIN_RATIO
+            if at_bottom_of_prev_page:
+                return 'cross_page'
+            return 'cross_page_header'
+
+        return None
+
+    def _x_ranges_align(self, a0, a1, b0, b1):
+        width_a = a1 - a0
+        width_b = b1 - b0
+        if width_a <= 0 or width_b <= 0:
+            return False
+        overlap = min(a1, b1) - max(a0, b0)
+        if overlap <= 0:
+            return False
+        return overlap >= TABLE_MERGE_X_OVERLAP_RATIO * min(width_a, width_b)
+
+    def _looks_like_own_header(self, table):
+        if table.empty or table.shape[1] == 0:
+            return False
+        first_row = table.iloc[0]
+        cells = [str(cell).strip() for cell in first_row]
+        non_empty = [cell for cell in cells if cell and cell.lower() != 'nan']
+        if len(non_empty) < table.shape[1]:
+            return False
+        return not any(self._is_numeric_content(cell) for cell in non_empty)
+
+    def _is_legacy_continuation(self, table1, table1_width, table2, table2_width):
+        if max(table1_width, table2_width) > 0:
+            width_ratio = min(table1_width, table2_width) / max(table1_width, table2_width)
+            if width_ratio < 0.85:
+                return False
+
+        col_diff = abs(table1.shape[1] - table2.shape[1])
+        if col_diff > 1:
+            return False
+
+        header_sim = self._calculate_header_similarity(table1, table2)
+        if header_sim > 0.9:
+            return True
+
+        if not self._is_new_table_start(table1, table2):
+            return True
+
+        last_row_first_col = str(table1.iloc[-1, 0]).strip()
+        first_row_first_col = str(table2.iloc[0, 0]).strip()
+
+        if (self._is_numeric_content(last_row_first_col) and
+                self._is_numeric_content(first_row_first_col)):
+            return True
+
+        last_row_text = self._get_last_row_text(table1)
+        if self._ends_with_sentence_terminator(last_row_text):
+            return True
+
+        if self._is_very_sparse_table(table2):
+            return True
+
+        if first_row_first_col and last_row_first_col:
+            if self.is_sequential(first_row_first_col, last_row_first_col):
+                return True
+
+        if self._has_similar_structure(table1, table2):
+            return True
+
+        return False
 
     def _calculate_header_similarity(self, table1, table2):
         try:
@@ -699,13 +778,15 @@ class TableBuilder:
         return ''.join(pattern)
 
 
-    def merge_tables(self, table2, table2_width):
+    def merge_tables(self, table2, table2_width, table2_bbox=None, table2_page=None):
         if self.pending_table is None:
             self.pending_table = [table2, table2_width]
+            self.pending_table_bbox = table2_bbox
+            self.pending_table_page = table2_page
             return
-            
+
         table1, table1_width = self.pending_table
-        
+
         if table1.empty or table2.empty:
             return
 
@@ -725,6 +806,9 @@ class TableBuilder:
             # Step 4: Update average width
             avg_width = (table1_width + table2_width) / 2.0
             self.pending_table = [merged_table, avg_width]
+            if table2_bbox is not None:
+                self.pending_table_bbox = table2_bbox
+                self.pending_table_page = table2_page
             self.logger.debug(f"Successfully merged tables. New shape: {merged_table.shape}")
 
         except Exception as e:

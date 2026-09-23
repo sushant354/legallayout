@@ -798,13 +798,20 @@ class JudgmentBuilder(TableBuilder):
                 if table_obj is not None:
                     self.flush_block()
                     table_width = tables_source.get_table_width(table_id)
+                    table_bbox = tables_source.table_bbox.get(table_id) if label[0] == "table" else None
+                    table_page = self.current_page_num if table_bbox is not None else None
                     if self.pending_table is None:
                         self.pending_table = [table_obj, table_width]
-                    elif self.is_table_continuation(table_obj, table_width):
-                        self.merge_tables(table_obj, table_width)
+                        self.pending_table_bbox = table_bbox
+                        self.pending_table_page = table_page
+                    elif self.is_table_continuation(table_obj, table_width, table_bbox,
+                                                    table_page, page.pg_height):
+                        self.merge_tables(table_obj, table_width, table_bbox, table_page)
                     else:
                         self.addTable(self.pending_table[0])
                         self.pending_table = [table_obj, table_width]
+                        self.pending_table_bbox = table_bbox
+                        self.pending_table_page = table_page
 
                 visited_for_table.add(table_id)
                 continue

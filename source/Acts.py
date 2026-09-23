@@ -1140,21 +1140,27 @@ class Acts(TableBuilder, SentenceMaker):
                 if table_id not in visited_for_table:
                     table_obj = page.tabular_datas.tables.get(table_id)
                     table_width = page.tabular_datas.get_table_width(table_id)
+                    table_bbox = page.tabular_datas.table_bbox.get(table_id)
 
                     if table_obj is not None:
                         if self.pending_table is None:
                             self.pending_table = [table_obj, table_width]
-                        
+                            self.pending_table_bbox = table_bbox
+                            self.pending_table_page = self.current_page_num
+
                         else:
-                            if self.is_table_continuation(table_obj, table_width):
-                                self.merge_tables(table_obj, table_width)#, html_builder=self)
-                               
+                            if self.is_table_continuation(table_obj, table_width, table_bbox,
+                                                          self.current_page_num, page.pg_height):
+                                self.merge_tables(table_obj, table_width, table_bbox, self.current_page_num)
+
                             else:
                                 self.addTable(self.pending_table[0])
                                 self.pending_table = [table_obj, table_width]
+                                self.pending_table_bbox = table_bbox
+                                self.pending_table_page = self.current_page_num
 
                     visited_for_table.add(table_id)
-            
+
             elif isinstance(label, tuple) and label[0] == "borderless_table":
                 table_id = label[1]
                 if table_id not in visited_for_table:
@@ -1164,14 +1170,18 @@ class Acts(TableBuilder, SentenceMaker):
                     if table_obj is not None:
                         if self.pending_table is None:
                             self.pending_table = [table_obj, table_width]
-                        
+                            self.pending_table_bbox = None
+                            self.pending_table_page = None
+
                         else:
                             if self.is_table_continuation(table_obj, table_width):
                                 self.merge_tables(table_obj, table_width)#, html_builder=self)
-                               
+
                             else:
                                 self.addTable(self.pending_table[0])
                                 self.pending_table = [table_obj, table_width]
+                                self.pending_table_bbox = None
+                                self.pending_table_page = None
 
                     visited_for_table.add(table_id)
 

@@ -451,19 +451,117 @@ NEIGHBOUR_OVERLAP_RATIO = 0.1
 
 
 _active_runs = {}
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CACHE_XML_DIR = _REPO_ROOT / "cache_xml"
+_CACHE_PDF_DIR = _REPO_ROOT / "cache_pdf"
+_RUN_MARKER_DIR = _CACHE_PDF_DIR / ".runs"
+_RUN_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+_XML_RUN_ID_RE = re.compile(r"-([0-9a-f]{12})\.xml$")
+_cache_swept = False
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def _write_run_marker(run_id, keep_xml):
+    try:
+        _RUN_MARKER_DIR.mkdir(parents=True, exist_ok=True)
+        (_RUN_MARKER_DIR / run_id).write_text(f"{os.getpid()}\n{1 if keep_xml else 0}")
+    except OSError:
+        pass
+
+
+def _remove_run_marker(run_id):
+    try:
+        (_RUN_MARKER_DIR / run_id).unlink()
+    except OSError:
+        pass
+
+
+def _protected_run_ids():
+    protected = set()
+    try:
+        markers = list(_RUN_MARKER_DIR.iterdir())
+    except OSError:
+        return protected
+    for marker in markers:
+        if not marker.is_file():
+            continue
+        run_id = marker.name
+        try:
+            lines = marker.read_text().splitlines()
+            pid = int(lines[0].strip())
+            keep_xml = len(lines) > 1 and lines[1].strip() == "1"
+        except (OSError, ValueError, IndexError):
+            _remove_run_marker(run_id)
+            continue
+        if keep_xml or _pid_alive(pid):
+            protected.add(run_id)
+        else:
+            _remove_run_marker(run_id)
+    return protected
+
+
+def sweep_orphaned_cache():
+    protected = _protected_run_ids()
+    try:
+        xml_files = list(_CACHE_XML_DIR.glob("*.xml"))
+    except OSError:
+        xml_files = []
+    for path in xml_files:
+        match = _XML_RUN_ID_RE.search(path.name)
+        if match and match.group(1) not in protected:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    try:
+        pdf_entries = list(_CACHE_PDF_DIR.iterdir())
+    except OSError:
+        pdf_entries = []
+    for path in pdf_entries:
+        if path.is_dir() and _RUN_ID_RE.match(path.name) and path.name not in protected:
+            try:
+                shutil.rmtree(path)
+            except OSError:
+                pass
+
+
+def _sweep_once():
+    global _cache_swept
+    if _cache_swept:
+        return
+    _cache_swept = True
+    try:
+        sweep_orphaned_cache()
+    except Exception:
+        pass
 
 
 def _register_run(main, keep_xml):
     run_id = main.run_id
 
-    def _on_dead(ref, rid=run_id):
+    def _on_dead(ref, rid=run_id, keep=keep_xml):
         _active_runs.pop(rid, None)
+        if not keep:
+            _remove_run_marker(rid)
 
     _active_runs[run_id] = (weakref.ref(main, _on_dead), keep_xml)
+    _write_run_marker(run_id, keep_xml)
+    _sweep_once()
 
 
-def _unregister_run(run_id):
+def _unregister_run(run_id, keep_xml=False):
     _active_runs.pop(run_id, None)
+    if not keep_xml:
+        _remove_run_marker(run_id)
 
 
 def cleanup_active_runs():
@@ -3542,7 +3640,7 @@ class Main:
             self.clear_ocr_engines()
         except Exception as e:
             self.logger.debug("ocr engine cleanup failed: %s", e)
-        _unregister_run(self.run_id)
+        _unregister_run(self.run_id, keep_xml)
 
 
     def detect_header_pre(self, pages):
