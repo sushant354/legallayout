@@ -232,6 +232,7 @@ FONT_LANG_MODELS = {
     'mar': 'eng_mar_fonts.pkl',
     'mal': 'eng_mal_fonts.pkl',
     'tel': 'eng_tel_fonts.pkl',
+    'ori': 'eng_ori_fonts.pkl',
 }
 DEFAULT_FONT_LANG = 'hin'
 FONT_MODEL_PATH = FONT_MODEL_DIR / FONT_LANG_MODELS[DEFAULT_FONT_LANG]

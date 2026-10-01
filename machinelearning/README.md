@@ -92,7 +92,22 @@ For English+Malayalam model
       -nf 'anjali[\s_-]*old[\s_-]*lipi[\s_-]*regular' &
 
 ```
-
+For Odiya language:
+```bash
+  nohup python -m source.FontSurvey -r \
+        -i ~/public/gzdl/raw/odisha ~/public/gzdl/raw/odisha_egaz \
+           ~/public/gzdl/raw/odisha_govpress \
+        -tc training_data/odiya_samples.csv -o odiya_corpus_report.txt \
+        -tf akruti='akruti[\s_-]*ori' \
+        -tf shree='shree[\s_-]*ori' \
+        -tf sarala='(?:^|\+)or(?:bw|[\s_-]*tt)' \
+        -tf kalinga='kalinga' \
+        -tf nirmala='nirmala[\s_-]*ui' \
+        -tf arialuni='arial[\s_-]*unicode' \
+        -nf '^(?!\*).*(?:times|arial(?![\s_-]*unicode)|calibri|cambria|courier|helvetica|verdana|tahoma|garamond)' \
+        -nf '^(?!\*).*(?:book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro|minion[\s_-]*pro|calisto|carlito|caladea|arimo|tinos|century|rockwell|twcen)' \
+        -nf '^(?!\*).*(?:segoe|malgun|yu[\s_-]*gothic|trebuchet|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|aptos|consolas|constantia|corbel|candara|franklin|open[\s_-]*sans|montserrat|ibm[\s_-]*plex|sylfaen|gadugi|gabriola|iskoola|leelawadee|narkisim|dotum|mincho|pgothic|maiandra|juice|comic[\s_-]*sans|g  isha|symbol|wingdings|zapf|rupee[\s_-]*foradian)' &
+```
 
 The whole corpus is the one csv `-tc/--training-csv` names, a row per sample:
 
