@@ -108,6 +108,18 @@ For Odiya language:
         -nf '^(?!\*).*(?:book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro|minion[\s_-]*pro|calisto|carlito|caladea|arimo|tinos|century|rockwell|twcen)' \
         -nf '^(?!\*).*(?:segoe|malgun|yu[\s_-]*gothic|trebuchet|palatino|lucida|georgia|microsoft[\s_-]*sans|dejavu|aptos|consolas|constantia|corbel|candara|franklin|open[\s_-]*sans|montserrat|ibm[\s_-]*plex|sylfaen|gadugi|gabriola|iskoola|leelawadee|narkisim|dotum|mincho|pgothic|maiandra|juice|comic[\s_-]*sans|g  isha|symbol|wingdings|zapf|rupee[\s_-]*foradian)' &
 ```
+For Gujarati language:
+```bash
+  nohup python -m source.FontSurvey -r -i ~/public/gzdl/raw/gujarat \
+      -tc training_data/gujarati_samples.csv -o gujarati_corpus_report.txt \
+      -tf krishna='(?<![a-z])(?:krishna(?:extra)?|mani(?:12)?|suchitra|chitra|giri?dhar|mohan1?)[\s,_-]*(?:bold)?[\s,_-]*(?:italic)?$' \
+      -tf krishnauni='krishna[\s_-]*uni' \
+      -tf chitrauni='(?:su)?chitra[\s_-]*uni' \
+      -tf nirmala='nirmala[\s_-]*ui' \
+      -nf 'times|arial(?![\s_-]*unicode)|calibri|cambria|courier|helvetica|verdana|tahoma|garamond' \
+      -nf 'book[\s_-]*antiqua|bookman|liberation|nimbus|myriad[\s_-]*pro|minion[\s_-]*pro|century|rockwell|palatino|georgia|lucida|trebuchet|dejavu|aptos' \
+      -nf 'segoe|malgun|yu[\s_-]*gothic|microsoft[\s_-]*sans|consolas|constantia|corbel|candara|franklin|shruti' &
+```
 
 The whole corpus is the one csv `-tc/--training-csv` names, a row per sample:
 
