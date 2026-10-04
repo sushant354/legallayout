@@ -129,6 +129,16 @@ chanakya,TT572t00,union_hindi.pdf,"ubZ fnYyh] 3 tqykbZ] 2018 …"
 not_required,TimesNewRomanPSMT,act1.pdf,"The following Act of Parliament …"
 ```
 
+For English+Punjabi language:
+```bash
+python -m source.FontSurvey -r -i ~/public/gzdl/raw/punjab ~/public/gzdl/raw/punjabdsa \
+      -tc training_data/punjabi_samples.csv -o punjabi_corpus_report.txt \
+      -tf asees='asees' \
+      -tf anmollipi='anmol[\s_-]*lipi|amr(?:it)?[\s_-]*lipi' \
+      -nf 'times|arial(?![\s_-]*unicode)|calibri|cambria|courier|helvetica|verdana|tahoma|garamond' \
+      -nf 'book[\s_-]*antiqua|bookman|liberation|nimbus|myriad|minion|segoe|malgun|yu[\s_-]*gothic' \
+      -nf 'franklin|univers|trebuchet|palatino|caladea|source[\s_-]*serif|noto|bronk|shruti'
+```
 Only `label` and `text` are learned from. `font` and `pdf` are there because
 a class that looks wrong is a question the label cannot answer: a regexp like
 `chanakya='chanakya|TT[0-9A-F]+t[0-9]+'` matches a *shape*, not an encoding,

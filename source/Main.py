@@ -233,6 +233,7 @@ FONT_LANG_MODELS = {
     'mal': 'eng_mal_fonts.pkl',
     'tel': 'eng_tel_fonts.pkl',
     'ori': 'eng_ori_fonts.pkl',
+    'pan': 'eng_pan_fonts.pkl',
 }
 DEFAULT_FONT_LANG = 'hin'
 FONT_MODEL_PATH = FONT_MODEL_DIR / FONT_LANG_MODELS[DEFAULT_FONT_LANG]
@@ -390,11 +391,16 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- (KrishnaUni, and ChitraUni/SuchitraUni), whose maps were built by the same
 # --- pairing slip Arial Unicode MS's was, so they draw real gujarati that is
 # --- merely the wrong gujarati - here for the first reason, like arialuni.
-# --- chitrauni has no converter yet, so a verdict naming it is left alone
+# --- chitrauni has no converter yet, so a verdict naming it is left alone.
+# --- raavi is the unicode gurmukhi of Windows as Microsoft Print To PDF embeds
+# --- it in the Punjab gazette, whose map has no entry for the glyphs the shaper
+# --- made and leaves matra i in the order it is drawn ('ਿਨਯਮ' for 'ਨਿਯਮ'), so
+# --- it draws real gurmukhi and its converter reorders - here for the third
+# --- reason, like tunga
 FONT_CLASSES_INDIC_TEXT = {
     'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal', 'tunga',
     'nudiuni', 'tauelango', 'ilasundaram', 'marutham', 'meera', 'freeserif',
-    'nats', 'krishnauni', 'chitrauni',
+    'nats', 'krishnauni', 'chitrauni', 'raavi',
     FONT_CLASS_NOT_REQUIRED,
 }
 
