@@ -1,16 +1,49 @@
 import pandas as pd
 import re
+import math
 import numpy as np
 import html as html_lib
 from difflib import SequenceMatcher
 import logging
 
-from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS, INDIC_COMBINING_MARK_CHARS, \
+    is_schedule, is_annexure, is_appendix, is_part, _term_alternation, \
+    indic_nil_alternation, indic_unit_time_alternation, indic_serial_no_alternation, \
+    indic_number_word_alternation, indic_item_alternation
 
+COMBINING_MARK_START_RE = re.compile(r'^[' + INDIC_COMBINING_MARK_CHARS + r']')
 TABLE_FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
 BOLD_FONT_RE = re.compile(r'bold', re.IGNORECASE)
+STYLE_BOLD_FONT_RE = re.compile(r'bold|demi|heavy|black', re.IGNORECASE)
+STYLE_ITALIC_FONT_RE = re.compile(r'italic|oblique', re.IGNORECASE)
+STYLE_TAGS = ('b', 'i', 'u')
+UNDERLINE_BELOW_TOLERANCE = 2.5
+UNDERLINE_ABOVE_RATIO = 0.4
+UNDERLINE_X_TOLERANCE = 0.5
+UNDERLINE_MAX_WIDTH_RATIO = 1.3
+UNDERLINE_WIDTH_SLACK = 4.0
+STYLE_SEAM_CLOSE_RE = re.compile(r'((?:</[biu]>)+)$')
+STYLE_SEAM_OPEN_RE = re.compile(r'^(\s*)((?:<[biu]>)+)')
 PRE_KEEP_SPAN_RE = re.compile(
     r'<span[^>]*class="(?:header-text|footer-text|table-header-text|table-footer-text)"')
+
+PRE_GRID_COLUMN_GAP_FACTOR = 2.0
+PRE_GRID_ALIGN_FACTOR = 0.5
+PRE_GRID_MIN_ROWS = 3
+PRE_GRID_MIN_MULTICOL_ROWS = 2
+PRE_GRID_MIN_INTERIOR_COLUMNS = 2
+PRE_GRID_MIN_TOTAL_COLUMNS = 3
+PRE_GRID_MIN_COLUMN_ROWS = 2
+PRE_GRID_COLUMN_SUPPORT_FRAC = 0.05
+PRE_GRID_GUTTER_FACTOR = 2.0
+PRE_GRID_SPINE_FRAC = 0.75
+PRE_GRID_MIN_SPINE_ROWS = 3
+PRE_GRID_MAX_ROW_SKIP = 1
+PRE_GRID_INDEX_FRACTION = 0.5
+PRE_GRID_MIN_DATA_FRAC = 0.5
+PRE_GRID_DUPLICATE_OVERLAP_RATIO = 0.5
+PRE_GRID_RAGGED_MAX_COLUMNS = PRE_GRID_MIN_TOTAL_COLUMNS + 1
+PRE_GRID_WIDE_COLUMN_FRAC = 0.4
 
 
 def table_dataframe_signature(df):
@@ -86,7 +119,7 @@ TOC_TAG_OPEN_RES = {t: re.compile(r'<' + t + r'(?![a-zA-Z])[^>]*>') for t in TOC
 TOC_TAG_CLOSE_RES = {t: re.compile(r'</' + t + r'>') for t in TOC_TAG_NAMES}
 TOC_TAG_STRIP_RE = re.compile(r'<[^>]+>')
 TOC_LEADING_ENUM_RE = re.compile(
-    r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)?[.\):])+\s*',
+    r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)?[.\):])+\s*',
     re.IGNORECASE
 )
 TOC_MATCH_THRESHOLD = 0.6
@@ -102,7 +135,7 @@ def toc_block_text(fragment):
 def toc_normalize(text):
     text = text.lower()
     text = TOC_LEADING_ENUM_RE.sub('', text)
-    text = re.sub(r'[^a-z0-9]+', ' ', text)
+    text = re.sub(r'[^a-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+', ' ', text)
     return text.strip()
 
 
@@ -184,21 +217,25 @@ TABLE_MERGE_X_OVERLAP_RATIO = 0.6
 
 
 class TableBuilder:
+    track_text_styles = False
+    page_underlines = ()
+
     def __init__(self):
         self.pending_table = None
         self.pending_table_bbox = None
         self.pending_table_page = None
         self.min_word_threshold_tableRows = 2
+        self._pre_grid_spine = None
         self.table_terminators = {".", "!", "?"}
         self.logger = logging.getLogger(__name__)
         
         self.serial_patterns = [
             r"^(\(?[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"]\d*[\)\)]?[\.\)]?)$",  # Numbers with brackets/dots: (1), 1., 1)
-            r"^([a-zA-Z" + INDIC_LETTER_CHARS + r"][\)\.]?)$",           # Single letters with brackets/dots: a), A.
+            r"^([a-zA-Z" + INDIC_WORD_CHARS + r"][\)\.]?)$",           # Single letters with brackets/dots: a), A.
             r"^([ivxlcdmIVXLCDM]+[\)\.]?)$",   # Roman numerals with brackets/dots: i), ii.
             r"^(\(?[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"]\d*\)[\.\:]?)",       # (1). or (1):
-            r"^([a-zA-Z" + INDIC_LETTER_CHARS + r"]\d+(\.\d+)?)$",       # Alphanumeric: a1, a2.1
-            r"^(\d+(\.\d+)?[a-zA-Z" + INDIC_LETTER_CHARS + r"])$",       # Numeric-letter: 1a, 2.1b
+            r"^([a-zA-Z" + INDIC_WORD_CHARS + r"]\d+(\.\d+)?)$",       # Alphanumeric: a1, a2.1
+            r"^(\d+(\.\d+)?[a-zA-Z" + INDIC_WORD_CHARS + r"])$",       # Numeric-letter: 1a, 2.1b
             r"^(sec|art|clause|section)\s*[\-\:]?\s*\d+",  # Legal references
             r"^(\d+\s*of\s*\d+)$",            # "1 of 10" pattern
         ]
@@ -401,7 +438,9 @@ class TableBuilder:
         text = str(cell).strip().lower()
         if not text or text in ["-", "—", "–", "na", "n/a", "nil", "none", "✓", "x"]:
             return True
-        if re.fullmatch(r"\d+(\.\d+)?(\s?(kg|g|mg|cm|mm|m|km|%|hrs?|days?|years?))?", text):
+        if re.fullmatch(indic_nil_alternation(), text):
+            return True
+        if re.fullmatch(r"\d+(\.\d+)?(\s?(kg|g|mg|cm|mm|m|km|%|hrs?|days?|years?|" + indic_unit_time_alternation() + r"))?", text):
             return True
         return False
 
@@ -625,18 +664,7 @@ class TableBuilder:
         try:
             if len(table1) == 0 or len(table2) == 0:
                 return 0.0
-                
-            header1 = table1.iloc[0]
-            header2 = table2.iloc[0]
-            
-            # Normalize headers for comparison
-            normalized1 = [self._normalize_header_cell(str(cell)) for cell in header1]
-            normalized2 = [self._normalize_header_cell(str(cell)) for cell in header2]
-            
-            # Calculate similarity ratio
-            similarity = SequenceMatcher(None, normalized1, normalized2).ratio()
-            return similarity
-            
+            return self._calculate_row_similarity(table1.iloc[0], table2.iloc[0])
         except Exception as e:
             self.logger.error(f"Error calculating header similarity: {e}")
             return 0.0
@@ -649,8 +677,9 @@ class TableBuilder:
         normalized = ' '.join(cell_text.split())
         normalized = normalized.lower()
         # Remove common table header prefixes/suffixes
-        normalized = re.sub(r'^(s\.no|sl\.?no|serial|item|part)\s*\.?\s*', '', normalized)
-        normalized = re.sub(r'\s*(no|num|number)\s*\.?\s*$', '', normalized)
+        normalized = re.sub(r'^(s\.no|sl\.?no|serial|item|part|' + indic_serial_no_alternation() + r'|'
+                            + indic_item_alternation() + r'|' + _term_alternation("part") + r')\s*\.?\s*', '', normalized)
+        normalized = re.sub(r'\s*(no|num|number|' + indic_number_word_alternation() + r')\s*\.?\s*$', '', normalized)
         
         return normalized.strip()
 
@@ -670,7 +699,7 @@ class TableBuilder:
             return True
             
         # Check for alphanumeric serial patterns
-        if re.fullmatch(r'[a-z' + INDIC_LETTER_CHARS + r']\d+|[a-z' + INDIC_LETTER_CHARS + r']+\d+', clean_text):
+        if re.fullmatch(r'[a-z' + INDIC_WORD_CHARS + r']\d+|[a-z' + INDIC_WORD_CHARS + r']+\d+', clean_text):
             return True
             
         return False
@@ -727,20 +756,24 @@ class TableBuilder:
 
     def _is_new_table_start(self, table1, table2):
         first_cell = str(table2.iloc[0, 0]).strip()
-        
+
+        if is_schedule(first_cell) or is_annexure(first_cell) or is_appendix(first_cell) \
+                or is_part(first_cell):
+            return True
+
         # Common new table patterns
         new_table_patterns = [
             r"^(\(?[1aAiI]\)?[\.\)]?)$",           # (1), 1., 1), a), A., (i)
-            r"^[\[\(]?(table|tbl|chart)\s*[\d\.]*",  # Table 1, Tbl. 2
-            r"^(schedule|annexure|appendix)\s*[A-Z0-9]*",  # Schedule A, Annexure 1
-            r"^part\s+[A-Z\d]+",                     # Part I, Part 1
-            r"^section\s+\d+",                      # Section 1
+            r"^[\[\(]?(table|tbl|chart)\s*[\d" + INDIC_DIGIT_CHARS + r"\.]*",  # Table 1, Tbl. 2
+            r"^(schedule|annexure|appendix)\s*[A-Z" + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r"0-9]*",  # Schedule A, Annexure 1
+            r"^part\s+[A-Z" + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r"\d]+",                     # Part I, Part 1
+            r"^section\s+[\d" + INDIC_DIGIT_CHARS + r"]+",                      # Section 1
         ]
-        
+
         for pattern in new_table_patterns:
             if re.match(pattern, first_cell, re.IGNORECASE):
                 return True
-                
+
         return False
 
     def _has_similar_structure(self, table1, table2):
@@ -795,10 +828,11 @@ class TableBuilder:
             table2_adjusted = self._handle_duplicate_headers(table1, table2)
             
             # Step 2: Intelligent column alignment
-            table2_aligned = self._align_columns(table1, table2_adjusted)
-            if table2_aligned is None:
+            aligned = self._align_columns(table1, table2_adjusted)
+            if aligned is None:
                 self.logger.warning("Failed to align columns, skipping merge")
                 return
+            table1, table2_aligned = aligned
 
             # Step 3: ENHANCED: Check for broken rows between tables (last row of table1 + first row of table2)
             merged_table = self._merge_table_boundaries(table1, table2_aligned)
@@ -856,19 +890,18 @@ class TableBuilder:
 
     def _calculate_row_similarity(self, row1, row2):
         try:
-            # Handle different length rows
             min_length = min(len(row1), len(row2))
             if min_length == 0:
                 return 0.0
-            
-            # Normalize cells for comparison
+
             normalized1 = [self._normalize_header_cell(str(cell)) for cell in row1[:min_length]]
             normalized2 = [self._normalize_header_cell(str(cell)) for cell in row2[:min_length]]
-            
-            # Calculate similarity ratio
-            similarity = SequenceMatcher(None, normalized1, normalized2).ratio()
-            return similarity
-            
+
+            compared = [(a, b) for a, b in zip(normalized1, normalized2) if a or b]
+            if len(compared) < min(2, min_length):
+                return 0.0
+            return sum(1 for a, b in compared if a == b) / len(compared)
+
         except Exception as e:
             self.logger.error(f"Error calculating row similarity: {e}")
             return 0.0
@@ -977,43 +1010,43 @@ class TableBuilder:
 
     def _align_columns(self, table1, table2):
         try:
-            col_diff = table2.shape[1] - table1.shape[1]
-            
-            if col_diff == 0:
-                return table2
-            elif col_diff < 0:
-                # Add padding columns to table2
-                table2_copy = table2.copy()
-                for i in range(abs(col_diff)):
-                    table2_copy[f"_pad{i}"] = ""
-                return table2_copy
-            else:
-                # Table2 has more columns - try to intelligently truncate or merge
-                if col_diff == 1:
-                    # Might be an extra column that can be merged with the last one
-                    table2_copy = table2.copy()
-                    # Merge last two columns if the last one looks like continuation
-                    if table2_copy.shape[1] >= 2:
-                        last_col = table2_copy.iloc[:, -1]
-                        second_last_col = table2_copy.iloc[:, -2]
-                        
-                        # If last column is mostly empty, merge with second last
-                        if last_col.isnull().sum() > len(last_col) * 0.7:
-                            table2_copy.iloc[:, -2] = (table2_copy.iloc[:, -2].astype(str) + 
-                                                      " " + table2_copy.iloc[:, -1].astype(str))
-                            table2_copy = table2_copy.iloc[:, :-1]
-                        else:
-                            # Truncate to match table1
-                            table2_copy = table2_copy.iloc[:, :table1.shape[1]]
-                    
-                    return table2_copy
-                else:
-                    # Too many columns difference, truncate to match table1
-                    return table2.iloc[:, :table1.shape[1]].copy()
+            width1, width2 = table1.shape[1], table2.shape[1]
+
+            if width2 < width1:
+                table2_out = table2.copy()
+                for i in range(width1 - width2):
+                    table2_out[f"_pad{i}"] = ""
+                table2_out.columns = list(table1.columns)
+                return table1, table2_out
+
+            if width2 > width1:
+                extra = table2.iloc[:, width1:]
+                if all(self._is_blank_cell(cell) for cell in extra.to_numpy().ravel()):
+                    table2_out = table2.iloc[:, :width1].copy()
+                    table2_out.columns = list(table1.columns)
+                    return table1, table2_out
+
+                table1_out = table1.copy()
+                for i in range(width1, width2):
+                    label = table2.columns[i]
+                    if label in table1_out.columns:
+                        label = f"_extra{i}"
+                    table1_out[label] = ""
+                table2_out = table2.copy()
+                table2_out.columns = list(table1_out.columns)
+                return table1_out, table2_out
+
+            table2_out = table2.copy()
+            table2_out.columns = list(table1.columns)
+            return table1, table2_out
 
         except Exception as e:
             self.logger.error(f"Error aligning columns: {e}")
             return None
+
+    def _is_blank_cell(self, cell):
+        text = str(cell).strip()
+        return text == '' or text.lower() in ('nan', 'none')
 
     def build_line_text(self, tb, textline):
         line_parts = []
@@ -1093,20 +1126,23 @@ class TableBuilder:
             chars.append((None, None, marker, False))
 
         widths = [c[1] - c[0] for c in chars
-                  if not c[3] and c[0] is not None and c[1] is not None and c[1] > c[0]]
+                  if not c[3] and c[0] is not None and c[1] is not None and c[1] > c[0]
+                  and not COMBINING_MARK_START_RE.match(c[2])]
         char_width = sorted(widths)[len(widths) // 2] if widths else 1.0
         threshold = char_width * 2.0
 
         cells = []
         current = None
         prev_x1 = None
+        saw_space = False
         for cx0, cx1, raw, is_space in chars:
             if is_space:
+                saw_space = True
                 if current is not None:
                     current['text'] += raw
                 continue
-            if (current is not None and prev_x1 is not None and cx0 is not None
-                    and cx0 - prev_x1 > threshold):
+            if (current is not None and prev_x1 is not None and cx0 is not None and saw_space
+                    and cx0 - prev_x1 > threshold and not COMBINING_MARK_START_RE.match(raw)):
                 if current['text'].strip():
                     cells.append(current)
                 current = None
@@ -1118,6 +1154,7 @@ class TableBuilder:
                     current['x1'] = cx1
             if cx1 is not None:
                 prev_x1 = cx1
+            saw_space = False
         if current is not None and current['text'].strip():
             cells.append(current)
         for cell in cells:
@@ -1148,12 +1185,149 @@ class TableBuilder:
                 if cell['x1'] is None:
                     cell['x1'] = x1
 
-            lines.append({
+            line = {
                 'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text,
                 'lead_bold': self.leading_token_is_bold(textline),
                 'cells': cells, 'char_width': char_width,
-            })
+            }
+            if self.track_text_styles:
+                line['styled'] = self.build_styled_line_text(tb, textline, (x0, y0, x1, y1))
+            lines.append(line)
         return lines
+
+    def get_char_style(self, text_el, underlines):
+        font = text_el.attrib.get('font', '')
+        bold = bool(STYLE_BOLD_FONT_RE.search(font))
+        italic = bool(STYLE_ITALIC_FONT_RE.search(font))
+        underlined = False
+        if underlines and 'bbox' in text_el.attrib:
+            try:
+                cx0, cy0, cx1, cy1 = map(float, text_el.attrib['bbox'].split(','))
+            except ValueError:
+                cx0 = None
+            if cx0 is not None:
+                mid = (cx0 + cx1) / 2
+                height = cy1 - cy0
+                low = cy0 - UNDERLINE_BELOW_TOLERANCE
+                high = cy0 + UNDERLINE_ABOVE_RATIO * height
+                for ux0, uy, ux1 in underlines:
+                    if low <= uy <= high and ux0 - UNDERLINE_X_TOLERANCE <= mid <= ux1 + UNDERLINE_X_TOLERANCE:
+                        underlined = True
+                        break
+        return (bold, italic, underlined)
+
+    def get_line_underlines(self, line_bbox):
+        if not self.page_underlines:
+            return []
+        lx0, ly0, lx1, ly1 = line_bbox
+        line_width = lx1 - lx0
+        height = ly1 - ly0
+        low = ly0 - UNDERLINE_BELOW_TOLERANCE
+        high = ly0 + UNDERLINE_ABOVE_RATIO * height
+        near = []
+        for ux0, uy, ux1 in self.page_underlines:
+            if not low <= uy <= high:
+                continue
+            if ux1 < lx0 or ux0 > lx1:
+                continue
+            if (ux1 - ux0) > line_width * UNDERLINE_MAX_WIDTH_RATIO + UNDERLINE_WIDTH_SLACK:
+                continue
+            near.append((ux0, uy, ux1))
+        return near
+
+    def build_styled_line_text(self, tb, textline, line_bbox):
+        underlines = self.get_line_underlines(line_bbox)
+        chars = []
+        pending_superscript = []
+
+        def add_placeholder():
+            marker = '{{^{{FOOTNOTE ' + ''.join(pending_superscript) + '}}}}'
+            chars.extend((ch, None) for ch in marker)
+
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+
+            is_super = False
+            if 'bbox' in text_el.attrib:
+                try:
+                    char_bbox = tuple(map(float, text_el.attrib['bbox'].split(',')))
+                    if char_bbox in tb.footnotes_superscript:
+                        pending_superscript.append(tb.footnotes_superscript[char_bbox])
+                        is_super = True
+                except Exception:
+                    pass
+
+            if is_super:
+                continue
+            if pending_superscript:
+                add_placeholder()
+                pending_superscript = []
+            style = self.get_char_style(text_el, underlines)
+            for ch in raw:
+                chars.append((' ' if ch == '\n' else ch, style))
+
+        if pending_superscript:
+            add_placeholder()
+
+        start = 0
+        end = len(chars)
+        while start < end and chars[start][0].isspace():
+            start += 1
+        while end > start and chars[end - 1][0].isspace():
+            end -= 1
+        chars = chars[start:end]
+
+        effective = []
+        for idx, (ch, style) in enumerate(chars):
+            if not ch.isspace():
+                effective.append(style)
+                continue
+            prev_style = None
+            for back in range(idx - 1, -1, -1):
+                if not chars[back][0].isspace():
+                    prev_style = chars[back][1]
+                    break
+            next_style = None
+            for ahead in range(idx + 1, len(chars)):
+                if not chars[ahead][0].isspace():
+                    next_style = chars[ahead][1]
+                    break
+            if prev_style is None or next_style is None:
+                effective.append(None)
+            else:
+                effective.append(tuple(p and n for p, n in zip(prev_style, next_style)))
+
+        parts = []
+        stack = []
+        for (ch, _), style in zip(chars, effective):
+            wanted = {name for name, on in zip(STYLE_TAGS, style) if on} if style else set()
+            keep = 0
+            while keep < len(stack) and stack[keep] in wanted:
+                keep += 1
+            for name in reversed(stack[keep:]):
+                parts.append(f'</{name}>')
+            stack = stack[:keep]
+            for name in STYLE_TAGS:
+                if name in wanted and name not in stack:
+                    parts.append(f'<{name}>')
+                    stack.append(name)
+            parts.append(ch)
+        for name in reversed(stack):
+            parts.append(f'</{name}>')
+        return ''.join(parts)
+
+    @staticmethod
+    def join_styled(left, right):
+        close = STYLE_SEAM_CLOSE_RE.search(left)
+        opened = STYLE_SEAM_OPEN_RE.match(right)
+        if close and opened:
+            closes = re.findall(r'</([biu])>', close.group(1))
+            opens = re.findall(r'<([biu])>', opened.group(2))
+            if closes[::-1] == opens:
+                return left[:close.start()] + opened.group(1) + right[opened.end():]
+        return left + right
 
     def cluster_rows_by_position(self, items):
         rows = []
@@ -1201,13 +1375,13 @@ class TableBuilder:
         for item in lines:
             if 'raw' in item:
                 if current_chunk:
-                    ordered.append(('text', current_chunk))
+                    ordered.append(('text', self._dedupe_overlapping_lines(current_chunk)))
                     current_chunk = []
                 ordered.append(('raw', item))
                 continue
             current_chunk.append(item)
         if current_chunk:
-            ordered.append(('text', current_chunk))
+            ordered.append(('text', self._dedupe_overlapping_lines(current_chunk)))
 
         all_text_items = [cell for kind, chunk in ordered if kind == 'text'
                           for item in chunk for cell in self.pre_line_cells(item)]
@@ -1238,3 +1412,337 @@ class TableBuilder:
             return
 
         self.builder += '<pre>\n' + '\n'.join(body_lines) + '\n</pre>\n'
+
+    def _line_cell_starts(self, tb, textline):
+        chars = []
+        after_space = False
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+            if raw.isspace():
+                after_space = True
+                continue
+            bbox = text_el.attrib.get('bbox')
+            if not bbox:
+                continue
+            try:
+                cx0, cy0, cx1, cy1 = map(float, bbox.split(','))
+            except ValueError:
+                continue
+            chars.append((cx0, cx1, raw, after_space))
+            after_space = False
+        if not chars:
+            return [], None, []
+        chars.sort(key=lambda c: c[0])
+        widths = [x1 - x0 for x0, x1, raw, gap in chars
+                  if x1 > x0 and not COMBINING_MARK_START_RE.match(raw)]
+        char_width = sorted(widths)[len(widths) // 2] if widths else 1.0
+        threshold = char_width * PRE_GRID_COLUMN_GAP_FACTOR
+        starts = [chars[0][0]]
+        ink = [[chars[0][0], chars[0][1]]]
+        prev_x1 = chars[0][1]
+        for x0, x1, raw, after_gap in chars[1:]:
+            if x0 - prev_x1 > threshold and after_gap and not COMBINING_MARK_START_RE.match(raw):
+                starts.append(x0)
+            if x0 - ink[-1][1] > char_width:
+                ink.append([x0, x1])
+            else:
+                ink[-1][1] = max(ink[-1][1], x1)
+            prev_x1 = max(prev_x1, x1)
+        return starts, char_width, ink
+
+    def _collect_grid_lines(self, tbs):
+        lines = []
+        for tb in tbs:
+            for textline in tb.tbox.findall('.//textline'):
+                bbox = textline.attrib.get('bbox')
+                if not bbox:
+                    continue
+                try:
+                    x0, y0, x1, y1 = map(float, bbox.split(','))
+                except ValueError:
+                    continue
+                text = self.build_line_text(tb, textline)
+                if not text.strip():
+                    continue
+                starts, char_width, ink = self._line_cell_starts(tb, textline)
+                if not starts:
+                    continue
+                cells, _ = self.line_cells_from_chars(tb, textline)
+                lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                              'text': text, 'starts': starts, 'char_width': char_width,
+                              'ink': ink, 'cells': cells})
+        return self._dedupe_overlapping_lines(lines)
+
+    def _dedupe_overlapping_lines(self, lines):
+        kept = []
+        for line in lines:
+            duplicate = False
+            for other in kept:
+                if line['text'] != other['text']:
+                    continue
+                y_span = max(line['y1'], other['y1']) - min(line['y0'], other['y0'])
+                x_span = max(line['x1'], other['x1']) - min(line['x0'], other['x0'])
+                if y_span <= 0 or x_span <= 0:
+                    continue
+                y_overlap = min(line['y1'], other['y1']) - max(line['y0'], other['y0'])
+                x_overlap = min(line['x1'], other['x1']) - max(line['x0'], other['x0'])
+                if y_overlap / y_span > PRE_GRID_DUPLICATE_OVERLAP_RATIO \
+                        and x_overlap / x_span > PRE_GRID_DUPLICATE_OVERLAP_RATIO:
+                    duplicate = True
+                    break
+            if not duplicate:
+                kept.append(line)
+        return kept
+
+    def _cluster_values(self, values, tol):
+        clusters = []
+        for v in sorted(values):
+            if clusters and v - clusters[-1][-1] <= tol:
+                clusters[-1].append(v)
+            else:
+                clusters.append([v])
+        return clusters
+
+    def pre_grid_span(self, tbs):
+        span = self._pre_grid_span_strict(tbs)
+        if span is not None:
+            return span
+        return self._pre_grid_passthrough(tbs)
+
+    def _pre_grid_passthrough(self, tbs):
+        spine = self._pre_grid_spine
+        if not spine:
+            return None
+        spine_lo, spine_hi, char_w, tol = spine
+        lines = self._collect_grid_lines(tbs)
+        if len(lines) < PRE_GRID_MIN_COLUMN_ROWS:
+            return None
+        band = max(char_w * PRE_GRID_GUTTER_FACTOR, tol)
+        aligned = [l for l in lines if abs(l['x0'] - spine_lo) <= band]
+        min_aligned = max(PRE_GRID_MIN_COLUMN_ROWS,
+                          math.ceil(len(lines) * PRE_GRID_COLUMN_SUPPORT_FRAC))
+        if len(aligned) < min_aligned or len(aligned) < len(lines) * PRE_GRID_SPINE_FRAC:
+            return None
+        tokens = []
+        for line in aligned:
+            for cell in line.get('cells', []):
+                tokens.extend(cell['text'].split())
+        if not tokens:
+            return None
+        datalike = sum(1 for t in tokens if any(ch.isdigit() for ch in t))
+        if datalike < len(tokens) * PRE_GRID_MIN_DATA_FRAC:
+            return None
+        heights = [l['y1'] - l['y0'] for l in lines if l['y1'] > l['y0']]
+        med_h = sorted(heights)[len(heights) // 2] if heights else 1.0
+        y_bottom = min(l['y0'] for l in lines)
+        y_top = max(l['y1'] for l in lines)
+        return (y_bottom - med_h, y_top + med_h)
+
+    def _pre_grid_span_strict(self, tbs):
+        lines = self._collect_grid_lines(tbs)
+        if len(lines) < PRE_GRID_MIN_ROWS:
+            return None
+        rows = self.cluster_rows_by_position(lines)
+        if len(rows) < PRE_GRID_MIN_ROWS:
+            return None
+
+        heights = [l['y1'] - l['y0'] for l in lines if l['y1'] > l['y0']]
+        med_h = sorted(heights)[len(heights) // 2] if heights else 1.0
+        tol = max(med_h * PRE_GRID_ALIGN_FACTOR, 1.0)
+        char_widths = [l['char_width'] for l in lines
+                       if l.get('char_width') and l['char_width'] > 0]
+        char_w = sorted(char_widths)[len(char_widths) // 2] if char_widths else 1.0
+        gutter = max(char_w * PRE_GRID_GUTTER_FACTOR, tol)
+
+        row_starts = [sorted({s for line in row for s in line['starts']})
+                      for row in rows]
+        row_ink = [sorted(iv for line in row for iv in line.get('ink', []))
+                   for row in rows]
+        pairs = [(s, i) for i, starts in enumerate(row_starts) for s in starts]
+        if not pairs:
+            return None
+
+        gutter_min = char_w * PRE_GRID_GUTTER_FACTOR
+        bin_w = max(char_w * 0.5, 1.0)
+        gutter_thresh = len(rows) * (1.0 - PRE_GRID_SPINE_FRAC)
+
+        def has_gutter_between(a, b):
+            if b - a < gutter_min:
+                return False
+            n = int((b - a) / bin_w) + 1
+            counts = [0] * n
+            for iv in row_ink:
+                for x0, x1 in iv:
+                    if x1 <= a or x0 >= b:
+                        continue
+                    i0 = max(0, int((max(x0, a) - a) / bin_w))
+                    i1 = min(n - 1, int((min(x1, b) - a) / bin_w))
+                    for i in range(i0, i1 + 1):
+                        counts[i] += 1
+            run = 0
+            for c in counts:
+                if c <= gutter_thresh:
+                    run += 1
+                    if run * bin_w >= gutter_min:
+                        return True
+                else:
+                    run = 0
+            return False
+
+        min_support = max(PRE_GRID_MIN_COLUMN_ROWS,
+                          math.ceil(len(rows) * PRE_GRID_COLUMN_SUPPORT_FRAC))
+
+        columns = []
+        for cluster in self._cluster_values([s for s, _ in pairs], tol):
+            lo, hi = cluster[0], cluster[-1]
+            support = {i for s, i in pairs if lo - tol <= s <= hi + tol}
+            if len(support) >= min_support:
+                columns.append([lo, hi, len(support)])
+        if len(columns) < 2:
+            return None
+
+        columns.sort(key=lambda c: c[0])
+        merged = [columns[0]]
+        for lo, hi, sup in columns[1:]:
+            if lo - merged[-1][1] < gutter:
+                merged[-1][1] = max(merged[-1][1], hi)
+                merged[-1][2] = max(merged[-1][2], sup)
+            else:
+                merged.append([lo, hi, sup])
+
+        kept = [merged[0]]
+        for col in merged[1:]:
+            if has_gutter_between(kept[-1][0], col[0]):
+                kept.append(col)
+            else:
+                kept[-1][1] = max(kept[-1][1], col[1])
+                kept[-1][2] = max(kept[-1][2], col[2])
+        merged = kept
+        if len(merged) < PRE_GRID_MIN_TOTAL_COLUMNS:
+            return None
+
+        left_x = (merged[0][0] + merged[0][1]) / 2.0
+        interior = [k for k, c in enumerate(merged)
+                    if (c[0] + c[1]) / 2.0 > left_x + gutter]
+        if len(interior) < PRE_GRID_MIN_INTERIOR_COLUMNS:
+            return None
+
+        def band_of(s):
+            for k, col in enumerate(merged):
+                if col[0] - tol <= s <= col[1] + tol:
+                    return k
+            return None
+
+        spine_k = max(interior, key=lambda k: merged[k][2])
+        spine_rows = [i for i, starts in enumerate(row_starts)
+                      if any(band_of(s) == spine_k for s in starts)]
+        if len(spine_rows) < PRE_GRID_MIN_SPINE_ROWS:
+            return None
+
+        best_start = best_end = run_start = prev = spine_rows[0]
+        for idx in spine_rows[1:]:
+            if idx - prev <= PRE_GRID_MAX_ROW_SKIP + 1:
+                prev = idx
+                continue
+            if prev - run_start > best_end - best_start:
+                best_start, best_end = run_start, prev
+            run_start = prev = idx
+        if prev - run_start > best_end - best_start:
+            best_start, best_end = run_start, prev
+
+        block = range(best_start, best_end + 1)
+        if len(block) < PRE_GRID_MIN_ROWS:
+            return None
+
+        spine_set = set(spine_rows)
+        block_spine = sum(1 for i in block if i in spine_set)
+        if block_spine < max(PRE_GRID_MIN_SPINE_ROWS,
+                             math.ceil(len(block) * PRE_GRID_SPINE_FRAC)):
+            return None
+
+        multicol = 0
+        for i in block:
+            occupied = {band_of(s) for s in row_starts[i]}
+            occupied.discard(None)
+            if len(occupied) >= 2:
+                multicol += 1
+        if multicol < PRE_GRID_MIN_MULTICOL_ROWS:
+            return None
+
+        if multicol < len(block) * PRE_GRID_INDEX_FRACTION:
+            spine_lo, spine_hi = merged[spine_k][0], merged[spine_k][1]
+            tokens = []
+            for i in block:
+                for line in rows[i]:
+                    for cell in line.get('cells', []):
+                        if spine_lo - tol <= cell['x0'] <= spine_hi + tol:
+                            tokens.extend(cell['text'].split())
+            if not tokens:
+                return None
+            datalike = sum(1 for t in tokens if any(ch.isdigit() for ch in t))
+            if datalike < len(tokens) * PRE_GRID_MIN_DATA_FRAC:
+                return None
+        elif not self._pre_grid_block_is_tabular(rows, block, merged, band_of, multicol):
+            return None
+
+        grid_rows = rows[best_start:best_end + 1]
+        y_bottom = min(line['y0'] for row in grid_rows for line in row)
+        y_top = max(line['y1'] for row in grid_rows for line in row)
+        self._pre_grid_spine = (merged[spine_k][0], merged[spine_k][1], char_w, tol)
+        return (y_bottom - med_h, y_top + med_h)
+
+    def _pre_grid_block_is_tabular(self, rows, block, merged, band_of, multicol):
+        cells = [cell for i in block for line in rows[i] for cell in line.get('cells', [])]
+        tokens = [t for cell in cells for t in cell['text'].split()]
+        if not tokens:
+            return True
+        datalike = sum(1 for t in tokens if any(ch.isdigit() for ch in t))
+        if datalike >= len(tokens) * PRE_GRID_MIN_DATA_FRAC:
+            return True
+        if multicol < len(block) * PRE_GRID_SPINE_FRAC and len(merged) <= PRE_GRID_RAGGED_MAX_COLUMNS:
+            return False
+        left = min(cell['x0'] for cell in cells)
+        total = max(cell['x1'] for cell in cells) - left
+        if total <= 0:
+            return True
+        wide = 0
+        for k, col in enumerate(merged):
+            right = max((cell['x1'] for cell in cells if band_of(cell['x0']) == k), default=col[0])
+            if right - col[0] >= total * PRE_GRID_WIDE_COLUMN_FRAC:
+                wide += 1
+        return wide < 2
+
+    PRE_GRID_RECLAIMABLE_LABELS = {"header", "footer"}
+
+    def apply_pre_grid_labels(self, all_items, is_multicolumn=False):
+        if is_multicolumn:
+            return all_items
+        result = list(all_items)
+        total = len(result)
+
+        def is_open(item):
+            tb, label = item
+            if label is None:
+                return True
+            return label in self.PRE_GRID_RECLAIMABLE_LABELS and not getattr(tb, 'recurring_furniture', False)
+
+        i = 0
+        while i < total:
+            if not is_open(result[i]):
+                i += 1
+                continue
+            j = i
+            while j < total and is_open(result[j]):
+                j += 1
+            span = self.pre_grid_span([result[k][0] for k in range(i, j)])
+            if span is not None:
+                y_bottom, y_top = span
+                for k in range(i, j):
+                    tb = result[k][0]
+                    cy = (tb.coords[1] + tb.coords[3]) / 2.0
+                    if y_bottom <= cy <= y_top:
+                        result[k] = (tb, "pre")
+            i = j
+        return result

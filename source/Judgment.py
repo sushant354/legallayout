@@ -12,7 +12,7 @@ from .SentenceEndDetector import (
     INDIC_SENTENCE_END_CHARS,
     INDIC_SEMICOLON_CHARS,
 )
-from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS
 
 
 TAG_FOR_LABEL = {
@@ -29,7 +29,7 @@ ABBREVIATIONS = {abbr.lower() for abbr in LEGAL_ABBREVIATIONS} | EXTENDED_LEGAL_
 
 LAST_TOKEN_RE = re.compile(r'(\S+?)([.?!:;' + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r']+)\s*$')
 
-BULLET_TOKEN_RE = re.compile(r'^\s*(\()?([A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4})(?(1)\)|[.\):-])\s+\S')
+BULLET_TOKEN_RE = re.compile(r'^\s*(\()?([A-Za-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']{1,4})(?(1)\)|[.\):-])\s+\S')
 NUMERIC_PARA_MARKER_RE = re.compile(r'^\s*\d{1,3}(?:\.\d{1,3}){0,4}\.?\s+\S')
 STRICT_ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.IGNORECASE)
 
@@ -37,11 +37,25 @@ PARA_GAP_FACTOR = 1.15
 FULL_LINE_WIDTH_RATIO = 0.92
 PARA_END_RE = re.compile(r'[.?!' + INDIC_SENTENCE_END_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
 MERGE_BOUNDARY_RE = re.compile(r'[.?!:;' + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
+STRICT_MARKER_RE = re.compile(r'^(?:\d{1,3}(?:\.\d{1,3}){0,4}[.)]|\(\d{1,3}\)|\([^\W\d_]{1,5}\)|(?:[ivxlcdmIVXLCDM]{1,5}|[^\W\d_])[.)]|[•●▪◦\-–—*])\s+\S')
+IGNORABLE_TAIL_RE = re.compile(r'(?:\s|<img [^>]*>)*')
 QUOTE_OPEN_RE = re.compile(r'^["\'“‘«‹「『]')
 LEADING_WRAP_RE = re.compile(r'^[\(\[\{"\'“‘«‹「『]+')
-TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_LETTER_CHARS + r'])\.\s+\S|^Re:\s+\S')
+TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_WORD_CHARS + r'])\.\s+\S|^Re:\s+\S')
 QUOTE_ANNOTATION_RE = re.compile(r'^[\(\[（［][^\(\[\)\]（）［］]+[\)\]）］]$')
+INDIC_TEXT_RE = re.compile('[' + INDIC_LETTER_CHARS + ']')
+INDIC_TERMINAL_RE = re.compile('[' + INDIC_SENTENCE_END_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
+INDIC_INDENT_RATIO = 0.6
+JUSTIFIED_BLOCK_RATIO = 0.6
+ENUM_MARKER_RE = re.compile(r'^\s*(?:\((?P<p>[ivxlcdm]{1,8}|[IVXLCDM]{1,8}|[A-Za-z]|\d{1,3})\)'
+                            r'|(?P<c>[ivxlcdm]{1,8}|[a-z]|\d{1,3})\)'
+                            r'|(?P<d>[ivxlcdm]{1,8}|[IVXLCDM]{1,8}|[a-z]|\d{1,3})\.(?!\d))\s*\S')
+ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
+ENUM_ALIGN_RATIO = 0.5
 BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
+
+WIDE_SPACE_RE = re.compile(r'[ \t]{2,}')
+STYLE_TOKEN_RE = re.compile(r'<(/?)([biu])>')
 
 FOOTNOTE_MARKER_RE = re.compile(r'\{\{\^\{\{FOOTNOTE\s+(\d+)\}\}\}\}')
 FOOTNOTE_ABBREVIATION_RE = re.compile(
@@ -52,8 +66,12 @@ FOOTNOTE_ABBREVIATION_RE = re.compile(
 
 class JudgmentBuilder(TableBuilder):
 
-    def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation=tuple(), pdf_type=None):
+    track_text_styles = True
+
+    def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation=tuple(), pdf_type=None,
+                 table_extract=False):
         TableBuilder.__init__(self)
+        self.table_extract = table_extract
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
         self.unique_images = unique_images
@@ -172,6 +190,7 @@ class JudgmentBuilder(TableBuilder):
                     'x0': min(l['x0'] for l in current_row),
                     'x1': max(l['x1'] for l in current_row),
                     'lead_bold': current_row[0].get('lead_bold', False),
+                    'styled': self.join_styled_parts([l.get('styled', l['text']) for l in current_row]),
                 })
 
         for item in lines:
@@ -196,6 +215,12 @@ class JudgmentBuilder(TableBuilder):
         flush_row()
         return units
 
+    def join_styled_parts(self, parts):
+        joined = ''
+        for part in parts:
+            joined = self.join_styled(joined, ' ' + part) if joined else part
+        return joined
+
     def normalize_units(self, units):
         result = []
         for unit in units:
@@ -206,6 +231,7 @@ class JudgmentBuilder(TableBuilder):
             if text.strip():
                 new_unit = dict(unit)
                 new_unit['value'] = text
+                new_unit['styled'] = self.normalize_text(unit.get('styled', unit['value']), unit.get('page_num'))
                 result.append(new_unit)
         return result
 
@@ -240,7 +266,7 @@ class JudgmentBuilder(TableBuilder):
         stripped = self.strip_trailing_footnote_markers(text.strip())
         return bool(MERGE_BOUNDARY_RE.search(stripped))
 
-    def is_block_starter(self, text, allow_bullet=True):
+    def is_block_starter(self, text, allow_bullet=True, roman_ok=False):
         stripped = text.strip()
         if not stripped:
             return True
@@ -250,7 +276,7 @@ class JudgmentBuilder(TableBuilder):
             return True
         if self.is_title_row(stripped):
             return True
-        return allow_bullet and self.is_bullet_row(stripped)
+        return allow_bullet and self.is_bullet_row(stripped, roman_ok=roman_ok)
 
     def local_line_width_entries(self):
         if self._doc_line_width_xs is None:
@@ -275,6 +301,8 @@ class JudgmentBuilder(TableBuilder):
         lo = bisect.bisect_left(xs, last['x0'] - x0_tol)
         hi = bisect.bisect_right(xs, last['x0'] + x0_tol)
         nearby = sorted(ws[lo:hi])
+        if len(nearby) < 5:
+            nearby = sorted(ws)
         if len(nearby) < 5:
             return False
         idx = min(len(nearby) - 1, int(len(nearby) * 0.9))
@@ -322,7 +350,7 @@ class JudgmentBuilder(TableBuilder):
     def is_roman_numeral(self, token):
         return bool(token) and bool(STRICT_ROMAN_RE.match(token))
 
-    def is_bullet_row(self, row):
+    def is_bullet_row(self, row, roman_ok=False):
         match = BULLET_TOKEN_RE.match(row)
         if not match:
             return False
@@ -337,7 +365,7 @@ class JudgmentBuilder(TableBuilder):
 
         low_token = token.lower()
         if low_token in ABBREVIATIONS or (low_token + '.') in ABBREVIATIONS:
-            return False
+            return roman_ok and self.is_roman_numeral(token)
 
         if len(token) == 1 and token.isalpha() and token.islower():
             return True
@@ -388,31 +416,212 @@ class JudgmentBuilder(TableBuilder):
             return ordered[mid]
         return (ordered[mid - 1] + ordered[mid]) / 2.0
 
+    def unit_style_signature(self, unit):
+        styled = unit.get('styled')
+        if not styled:
+            return 'n'
+        open_tags = set()
+        total = 0
+        bold = 0
+        italic = 0
+        pos = 0
+        for match in STYLE_TOKEN_RE.finditer(styled):
+            chunk = styled[pos:match.start()]
+            count = len(chunk.replace(' ', '').strip())
+            total += count
+            if 'b' in open_tags:
+                bold += count
+            if 'i' in open_tags:
+                italic += count
+            if match.group(1):
+                open_tags.discard(match.group(2))
+            else:
+                open_tags.add(match.group(2))
+            pos = match.end()
+        chunk = styled[pos:]
+        count = len(chunk.replace(' ', '').strip())
+        total += count
+        if 'b' in open_tags:
+            bold += count
+        if 'i' in open_tags:
+            italic += count
+        if not total:
+            return 'n'
+        if bold == total:
+            return 'b'
+        if italic == total:
+            return 'i'
+        return 'n'
+
+    def reaches_block_right(self, unit):
+        edge = getattr(self, '_block_right', None)
+        if edge is None or 'x1' not in unit:
+            return False
+        row_height = unit.get('y1', 0) - unit.get('y0', 0) or 8.0
+        return unit['x1'] >= edge - 2.5 * row_height
+
+    def style_breaks_paragraph(self, prev_unit, unit, normal):
+        prev_sig = self.unit_style_signature(prev_unit)
+        sig = self.unit_style_signature(unit)
+        if prev_sig == 'n' and sig == 'n':
+            return False
+        large_gap = bool(
+            normal and prev_unit.get('page_num') == unit.get('page_num')
+            and 'y0' in prev_unit and 'y0' in unit
+            and prev_unit['y0'] - unit['y0'] > normal * PARA_GAP_FACTOR
+        )
+        plain_next = STYLE_TOKEN_RE.sub('', unit['value']).lstrip()
+        if (plain_next[:1].islower() and not self.ends_with_punct_loose(prev_unit['value'])
+                and not self.is_bullet_row(plain_next)):
+            return False
+        prev_full = self.is_anchor_line_full([prev_unit]) or self.reaches_block_right(prev_unit)
+        if large_gap and (self.ends_with_punct_loose(prev_unit['value']) or not prev_full):
+            return True
+        if prev_sig == sig:
+            return False
+        continues = (prev_full
+                     and not self.ends_with_punct_loose(prev_unit['value']))
+        return not continues
+
+    def ends_indic_sentence(self, text):
+        stripped = self.strip_trailing_footnote_markers(text.strip())
+        if INDIC_TERMINAL_RE.search(stripped):
+            return True
+        return self.line_completes_sentence(stripped)
+
+    def unit_reaches_right(self, unit):
+        return self.is_anchor_line_full([unit]) or self.reaches_block_right(unit)
+
+    def block_is_justified(self, units):
+        texts = [u for u in units if u['kind'] == 'text' and 'x1' in u]
+        if len(texts) < 4 or self._block_right is None:
+            return False
+        body = texts[:-1]
+        full = sum(1 for u in body if self.unit_reaches_right(u))
+        return full >= len(body) * JUSTIFIED_BLOCK_RATIO
+
+    def indic_layout_starts_paragraph(self, prev_unit, unit, block_left, justified):
+        if 'x0' not in unit or 'x0' not in prev_unit:
+            return False
+        if not (INDIC_TEXT_RE.search(prev_unit['value']) or INDIC_TEXT_RE.search(unit['value'])):
+            return False
+        if not self.ends_indic_sentence(prev_unit['value']):
+            return False
+        prev_full = self.unit_reaches_right(prev_unit)
+        if block_left is not None:
+            row_height = unit.get('y1', 0) - unit.get('y0', 0) or 8.0
+            indent = row_height * INDIC_INDENT_RATIO
+            if unit['x0'] - block_left >= indent:
+                prev_indented = prev_unit['x0'] - block_left >= indent
+                return not (prev_indented and prev_full)
+        return justified and not prev_full
+
+    def roman_value(self, token):
+        if not self.is_roman_numeral(token):
+            return None
+        total = 0
+        values = [ROMAN_VALUES[ch] for ch in token.lower()]
+        for idx, value in enumerate(values):
+            if idx + 1 < len(values) and values[idx + 1] > value:
+                total -= value
+            else:
+                total += value
+        return total or None
+
+    def enum_marker(self, text):
+        match = ENUM_MARKER_RE.match(STYLE_TOKEN_RE.sub('', text))
+        if not match:
+            return None
+        style = next(name for name in ('p', 'c', 'd') if match.group(name))
+        token = match.group(style)
+        readings = set()
+        if token.isdigit():
+            readings.add(('num', style, None, int(token)))
+            return readings
+        case = 'u' if token.isupper() else 'l'
+        roman = self.roman_value(token)
+        if roman:
+            readings.add(('roman', style, case, roman))
+        if len(token) == 1:
+            readings.add(('alpha', style, case, ord(token.lower()) - ord('a') + 1))
+        return readings or None
+
+    def enum_follows(self, prev_readings, readings):
+        for kind, style, case, value in readings:
+            if (kind, style, case, value - 1) in prev_readings:
+                return True
+        return False
+
+    def enum_aligned(self, prev_x0, unit):
+        row_height = unit.get('y1', 0) - unit.get('y0', 0) or 8.0
+        return abs(prev_x0 - unit['x0']) <= max(3.0, row_height * ENUM_ALIGN_RATIO)
+
+    def enum_item_starts(self, units):
+        markers = []
+        starts = set()
+        for idx, unit in enumerate(units):
+            if unit['kind'] != 'text' or 'x0' not in unit:
+                continue
+            readings = self.enum_marker(unit['value'])
+            if not readings:
+                continue
+            for prev_idx, prev_readings, prev_x0 in reversed(markers):
+                if self.enum_aligned(prev_x0, unit) and self.enum_follows(prev_readings, readings):
+                    starts.add(prev_idx)
+                    starts.add(idx)
+                    break
+            markers.append((idx, readings, unit['x0']))
+        return starts
+
+    def hanging_continuation(self, prev_unit, unit):
+        if 'x0' not in prev_unit or 'x0' not in unit:
+            return False
+        row_height = unit.get('y1', 0) - unit.get('y0', 0) or 8.0
+        if unit['x0'] - prev_unit['x0'] < row_height:
+            return False
+        if self.ends_with_punct_loose(prev_unit['value']):
+            return False
+        return self.unit_reaches_right(prev_unit)
+
     def split_rows_into_paragraphs(self, units):
         normal = self.median_line_gap(units)
+        rights = sorted(u['x1'] for u in units if u['kind'] == 'text' and 'x1' in u)
+        self._block_right = rights[int(0.9 * (len(rights) - 1))] if len(rights) >= 3 else None
+        lefts = sorted(u['x0'] for u in units if u['kind'] == 'text' and 'x0' in u)
+        block_left = lefts[int(0.1 * (len(lefts) - 1))] if len(lefts) >= 3 else None
+        justified = self.block_is_justified(units)
+        item_starts = self.enum_item_starts(units)
         groups = []
         current = []
         prev_text = None
         prev_was_marker = True
 
-        for unit in units:
+        for idx, unit in enumerate(units):
             if unit['kind'] != 'text':
                 current.append(unit)
                 continue
 
-            prev_at_boundary = (prev_text is None or prev_was_marker
+            marker_boundary = prev_was_marker and not (
+                prev_text is not None and self.hanging_continuation(prev_text, unit))
+            prev_at_boundary = (prev_text is None or marker_boundary
                                  or self.ends_with_punct_loose(prev_text['value']))
             is_marker_row = self.is_bold_numbered_marker_row(unit) or (
                 prev_at_boundary and (
                     bool(NUMERIC_PARA_MARKER_RE.match(unit['value'].strip()))
                     or self.is_title_row(unit['value'])
-                    or self.is_bullet_row(unit['value'])
+                    or self.is_bullet_row(unit['value'], roman_ok=True)
                 )
             )
 
             starts_para = False
+            if idx in item_starts:
+                unit['enum_item_start'] = True
             if current and any(u['kind'] == 'text' for u in current):
-                if is_marker_row:
+                if is_marker_row or idx in item_starts:
+                    starts_para = True
+                elif prev_text is not None and self.style_breaks_paragraph(prev_text, unit, normal):
+                    starts_para = True
+                elif prev_text is not None and self.indic_layout_starts_paragraph(prev_text, unit, block_left, justified):
                     starts_para = True
                 elif (normal and prev_text is not None
                         and prev_text.get('page_num') == unit.get('page_num')
@@ -444,35 +653,38 @@ class JudgmentBuilder(TableBuilder):
 
     def emit_paragraph(self, tag, units, is_heading=False):
         text_parts = [u['value'].strip() for u in units if u['kind'] == 'text' and u['value'].strip()]
+        styled_parts = [u.get('styled', u['value']).strip() for u in units if u['kind'] == 'text' and u['value'].strip()]
         raws = [u['value'] for u in units if u['kind'] == 'raw']
         if not text_parts:
             if raws:
                 self.builder += ''.join(raws) + '\n'
             return
-        body_text = ' '.join(text_parts)
+        body_text = WIDE_SPACE_RE.sub(' ', ' '.join(text_parts))
+        styled_text = WIDE_SPACE_RE.sub(' ', self.join_styled_parts(styled_parts))
         if is_heading:
             anchor = self._merge_anchor
             if self.line_completes_sentence(body_text):
                 is_heading = False
             elif (anchor is not None
                     and not anchor['boundary']
-                    and not self.is_block_starter(body_text, allow_bullet=not anchor['line_full'])
-                    and self.has_continuation_evidence(body_text)):
+                    and not self.is_block_starter(body_text, allow_bullet=not anchor['line_full'] or anchor['boundary'], roman_ok=anchor['boundary'])
+                    and (self.has_continuation_evidence(body_text)
+                         or (not STRICT_MARKER_RE.match(body_text.strip())
+                             and self.anchor_wrapped(anchor)))):
                 is_heading = False
                 anchor['is_heading'] = False
         if tag == "p" and QUOTE_ANNOTATION_RE.match(body_text):
             idx = self.last_block_is_blockquote()
             if idx != -1:
-                self.builder = (self.builder[:idx]
-                                + ' ' + body_text
+                self.builder = (self.join_styled(self.builder[:idx], ' ' + styled_text)
                                 + self.builder[idx:])
                 if raws:
                     self.builder += ''.join(raws) + '\n'
                 self._merge_anchor = None
                 return
-        if self.try_continuation_merge(tag, body_text, raws, is_heading, units):
+        if self.try_continuation_merge(tag, body_text, styled_text, raws, is_heading, units):
             return
-        body = body_text + ''.join(raws)
+        body = styled_text + ''.join(raws)
         start = len(self.builder)
         self.builder += f"<{tag}>{body}</{tag}>\n"
         if tag in ("p", "blockquote"):
@@ -483,31 +695,134 @@ class JudgmentBuilder(TableBuilder):
                 'boundary': self.is_merge_boundary(body_text),
                 'is_heading': is_heading,
                 'line_full': self.is_anchor_line_full(units),
+                'geometry': self.last_text_geometry(units),
+                'enum': self.anchor_enum(units),
             }
         else:
             self._merge_anchor = None
 
-    def try_continuation_merge(self, tag, body_text, raws, is_heading, units):
+    def last_text_geometry(self, units):
+        last = None
+        ys = []
+        for unit in units:
+            if unit.get('kind') == 'text' and 'y0' in unit:
+                last = unit
+                ys.append((unit.get('page_num'), unit['y0']))
+        if last is None:
+            return None
+        pitches = sorted(a[1] - b[1] for a, b in zip(ys, ys[1:]) if a[0] == b[0] and a[1] > b[1])
+        pitch = pitches[len(pitches) // 2] if pitches else 0
+        height = last.get('y1', 0) - last['y0']
+        texts = [u for u in units if u.get('kind') == 'text' and 'x1' in u]
+        block_right = max(u['x1'] for u in texts) if len(texts) >= 2 else None
+        return (last.get('page_num'), last['y0'], pitch, last.get('x1'), height, last.get('x0'), block_right)
+
+    def first_text_geometry(self, units):
+        for unit in units:
+            if unit.get('kind') == 'text' and 'y0' in unit:
+                return (unit.get('page_num'), unit['y0'])
+        return None
+
+    def gap_separates(self, anchor, units):
+        before = anchor.get('geometry')
+        after = self.first_text_geometry(units)
+        normal = self.doc_line_gap
+        if not (before and after and normal) or before[0] != after[0]:
+            return False
+        own = self.last_text_geometry(units)
+        local = max(before[2], own[2] if own else 0)
+        return before[1] - after[1] > max(normal, local) * PARA_GAP_FACTOR
+
+    def doc_right_edge(self):
+        if getattr(self, '_doc_right_edge', None) is None:
+            entries = self.doc_max_line_width or []
+            rights = sorted(e[0] + e[1] for e in entries)
+            self._doc_right_edge = rights[int(0.9 * (len(rights) - 1))] if rights else False
+        return self._doc_right_edge or None
+
+    def anchor_wrapped(self, anchor):
+        if anchor['line_full']:
+            return True
+        geometry = anchor.get('geometry')
+        if not geometry or geometry[3] is None:
+            return False
+        x1, height, x0, block_right = geometry[3], geometry[4] or 0, geometry[5], geometry[6]
+        tolerance = 2 * height
+        if block_right is not None and x1 >= block_right - tolerance:
+            return True
+        xs, ws = self.local_line_width_entries()
+        if xs and x0 is not None:
+            x0_tol = max(10.0, 1.5 * height)
+            lo = bisect.bisect_left(xs, x0 - x0_tol)
+            hi = bisect.bisect_right(xs, x0 + x0_tol)
+            rights = sorted(xs[n] + ws[n] for n in range(lo, hi))
+            if len(rights) >= 3:
+                return x1 >= rights[int(0.9 * (len(rights) - 1))] - tolerance
+        edge = self.doc_right_edge()
+        return edge is not None and x1 >= edge - tolerance
+
+    def first_text_unit(self, units):
+        for unit in units:
+            if unit.get('kind') == 'text':
+                return unit
+        return None
+
+    def continues_enum_list(self, anchor, units):
+        first = self.first_text_unit(units)
+        if first is None:
+            return False
+        if first.get('enum_item_start'):
+            return True
+        enum = anchor.get('enum')
+        if not enum or 'x0' not in first:
+            return False
+        readings = self.enum_marker(first['value'])
+        return bool(readings) and self.enum_aligned(enum[1], first) and self.enum_follows(enum[0], readings)
+
+    def anchor_enum(self, units):
+        first = self.first_text_unit(units)
+        if first is None or 'x0' not in first:
+            return None
+        readings = self.enum_marker(first['value'])
+        return (readings, first['x0']) if readings else None
+
+    def try_continuation_merge(self, tag, body_text, styled_text, raws, is_heading, units):
         anchor = self._merge_anchor
         if anchor is None or is_heading or anchor['is_heading']:
             return False
+        if self.continues_enum_list(anchor, units):
+            return False
         if anchor['complete'] or tag not in ("p", "blockquote"):
             return False
-        allow_bullet = not anchor['line_full']
-        if self.is_block_starter(body_text, allow_bullet=allow_bullet) or not self.has_continuation_evidence(body_text):
+        allow_bullet = not anchor['line_full'] or anchor['boundary']
+        if self.gap_separates(anchor, units):
+            return False
+        mid_sentence = not anchor['boundary']
+        weak_start = mid_sentence and not STRICT_MARKER_RE.match(body_text.strip())
+        wrapped_line = self.anchor_wrapped(anchor)
+        lowercase_start = body_text.strip()[:1].islower()
+        if weak_start and not lowercase_start and not wrapped_line:
+            return False
+        if not (weak_start and (not body_text.strip()[:1].isupper() or wrapped_line)):
+            if (self.is_block_starter(body_text, allow_bullet=allow_bullet, roman_ok=anchor['boundary'])
+                    or not self.has_continuation_evidence(body_text)):
+                return False
+        lead = LEADING_WRAP_RE.sub('', body_text.strip())[:1]
+        if lead.isupper() and not wrapped_line:
             return False
         close = f"</{anchor['tag']}>"
         idx = anchor['close_idx']
-        if (len(self.builder) != idx + len(close)
-                or self.builder[idx:idx + len(close)] != close):
+        if (self.builder[idx:idx + len(close)] != close
+                or not IGNORABLE_TAIL_RE.fullmatch(self.builder[idx + len(close):])):
             self._merge_anchor = None
             return False
-        insert = ' ' + body_text + ''.join(raws)
-        self.builder = self.builder[:idx] + insert + self.builder[idx:]
-        anchor['close_idx'] = idx + len(insert)
+        head = self.join_styled(self.builder[:idx], ' ' + styled_text + ''.join(raws))
+        self.builder = head + self.builder[idx:]
+        anchor['close_idx'] = len(head)
         anchor['complete'] = self.line_completes_sentence(body_text)
         anchor['boundary'] = self.is_merge_boundary(body_text)
         anchor['line_full'] = self.is_anchor_line_full(units)
+        anchor['geometry'] = self.last_text_geometry(units)
         return True
 
     def group_units_for_render(self, units):
@@ -636,7 +951,7 @@ class JudgmentBuilder(TableBuilder):
                 text_content = img_data.get("text", "")
                 if text_content:
                     self.builder += f'<p class="figure-text">{text_content}</p>\n'
-                self._merge_anchor = None
+                    self._merge_anchor = None
         except Exception as e:
             self.logger.warning(f'While adding figure to judgment html, {e}')
 
@@ -733,11 +1048,35 @@ class JudgmentBuilder(TableBuilder):
 
         self.footnote_refs_used = []
 
+    def collect_page_underlines(self, page):
+        underlines = []
+        try:
+            for tag in ('rect', 'line', 'curve'):
+                for el in page.page_in_xml.findall(f'.//{tag}'):
+                    try:
+                        bbox = tuple(map(float, el.attrib['bbox'].split(',')))
+                    except (KeyError, ValueError):
+                        continue
+                    x0, y0, x1, y1 = bbox
+                    if x1 - x0 <= 0 or x1 - x0 > 0.7 * page.pg_width:
+                        continue
+                    if not page.is_line_like(bbox) or page.is_table_line(bbox):
+                        continue
+                    underlines.append((x0, max(y0, y1), x1))
+        except Exception as e:
+            self.logger.warning("Could not collect underlines on page %s: %s", page.pg_num, e)
+            return []
+        return underlines
+
     def build(self, page, has_side_notes):
         self.current_page_num = int(page.pg_num)
+        self.page_underlines = self.collect_page_underlines(page)
         visited_for_table = set()
 
-        for tb, label in page.all_tbs.items():
+        all_items = list(page.all_tbs.items())
+        if not self.table_extract:
+            all_items = self.apply_pre_grid_labels(all_items, page.is_multicolumn)
+        for tb, label in all_items:
             is_table_label = isinstance(label, tuple) and label[0] in ("table", "borderless_table")
             is_table_boilerplate_label = isinstance(label, tuple) and label[0] in (
                 "table_boilerplate", "borderless_table_boilerplate"

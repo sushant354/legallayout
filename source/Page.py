@@ -14,6 +14,7 @@ from .CompareLevel import CompareLevel, CompareLevelSebi
 from .NormalizeText import NormalizeText
 from .Figure import Figure,Pictures
 from .Utils import *
+from .Utils import _term_alternation
 
 ARTICLE      = 4
 DECIMAL      = 3
@@ -194,7 +195,7 @@ class Page:
                     self.logger.warning("Body boundaries (body_startX, body_endX) are not defined for page %s", self.pg_num)
                     return  # Skip if body region not defined
                 
-                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|(?:' + _term_alternation("ordinance") + r')\.?\s*\d+\s+of\s+\d+\.)$', re.IGNORECASE)
 
                 
 
@@ -281,7 +282,7 @@ class Page:
             right_tb_coords = None
             right_sn_start_coords = None
             if self.has_side_notes:
-                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|(?:' + _term_alternation("ordinance") + r')\.?\s*\d+\s+of\s+\d+\.)$', re.IGNORECASE)
 
                 for tb, label in list(self.all_tbs.items()):
                     if label != 'side notes':
@@ -292,7 +293,7 @@ class Page:
                             if  texts.strip() and not pattern.match(texts.strip()):
                                 texts = texts.strip()
                                 if not texts.endswith("."):
-                                    if not re.match(r'\s*[A-Z]', texts):
+                                    if not re.match(r'\s*[A-Z' + INDIC_WORD_CHARS + r']', texts):
                                         if tb.coords[2] < self.body_startX:
                                             # Left side note
                                             if left_tb_coords:#and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
@@ -310,7 +311,7 @@ class Page:
                                             right_previous_text = texts
                                             right_tb_coords = tb.coords
 
-                                    elif re.match(r'\s*[A-Z]', texts) and\
+                                    elif re.match(r'\s*[A-Z' + INDIC_WORD_CHARS + r']', texts) and\
                                         not (left_previous_text or right_previous_text):
                                         if tb.coords[2] < self.body_startX:
                                             # Left side note
@@ -532,7 +533,7 @@ class Page:
         for tb, label in self.all_tbs.items():
             if label is not None:
                 continue
-            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)?[.)]', tb.extract_text_from_tb().strip()):
+            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+\)?[.)]', tb.extract_text_from_tb().strip()):
                 self.all_tbs[tb] = ('italic', 'blockquote')
 
     # def detect_pre(self):
@@ -1084,7 +1085,7 @@ class Page:
             return False
         
     def find_sidenote_leftend_rightstart_coords(self):
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         left_sidenote_end_coords = []
         right_sidenote_start_coords = []
         for tb, label in self.all_tbs.items():
@@ -1129,8 +1130,9 @@ class Page:
                 ''',
                 re.IGNORECASE | re.VERBOSE
             )
-        match = re.search(pattern, text)
-        return bool(match)
+        if re.search(pattern, text):
+            return True
+        return bool(re.search(indic_enact_alternation(), text) or re.search(indic_long_title_end_alternation(), text, re.M))
     
     def inner_group_assign(self, rest_text, sectionState, group_re, findtype):
         match = group_re.match(rest_text)
@@ -1192,9 +1194,9 @@ class Page:
     #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,sectionState, main):  #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         group_re = re.compile(
-            r'^\(\s*((?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2})|(?:[A-Z' + INDIC_LETTER_CHARS + r']{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+            r'^\(\s*((?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2})|(?:[A-Z' + INDIC_WORD_CHARS + r']{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
             re.IGNORECASE
         )
         try:
@@ -1265,15 +1267,10 @@ class Page:
     def is_schedule(self, text):
         roman_re = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
 
-        ordinals = [
-            "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
-            "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
-            "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
-            "nineteenth", "twentieth"
-        ]
-        ordinals_re = r"(?:{})".format("|".join(ordinals))
+        schedule_alt = _term_alternation("schedule")
+        ordinals_re = ordinal_word_alternation()
 
-        numbers_re = r"(?:[1-9][0-9]?)"
+        numbers_re = r"(?:[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"][0-9" + INDIC_DIGIT_CHARS + r"]?)"
 
         pattern = rf"""(?ix)
                 ^
@@ -1281,7 +1278,7 @@ class Page:
 
                 (?:
                     # schedule + optional separators + number/ordinal/roman
-                    schedule
+                    {schedule_alt}
                     [\s\-–—:.\u2013\u2014]*     # optional separators
                     (?:{ordinals_re}|{numbers_re}|{roman_re})
                     \b
@@ -1290,13 +1287,11 @@ class Page:
                     # number/ordinal/roman + optional separators + schedule
                     (?:{ordinals_re}|{numbers_re}|{roman_re})
                     [\s\-–—:.\u2013\u2014]*
-                    schedule
-                    \b
+                    {schedule_alt}
                     |
 
                     # just 'schedule'
-                    schedule
-                    \b
+                    {schedule_alt}
                 )
 
                 [\s\(\)\.\-–—:]*$               # optional trailing punctuation
@@ -1308,17 +1303,17 @@ class Page:
         hierarchy_type = ("article","subsection","para","subpara","subsubpara")
         
         roman_re = r"[IVXLCDM]+"
-        article_number = rf"({roman_re}|\d+)"
+        article_number = rf"({roman_re}|\d+|[0-9{INDIC_DIGIT_CHARS}]+)"
 
         section_re = re.compile(
-            rf"(?:^\s*ARTICLE\s+{article_number}$)",
+            rf"(?:^\s*(?:ARTICLE|{_term_alternation('article')})\s+{article_number}$)",
             re.IGNORECASE
         )
   
         group_re = re.compile(
             r'^\s*'
             r'(?:'
-                r'(?P<marker>\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)'
+                r'(?P<marker>\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)'
                 r'|'
                 r'\(\s*(?P<marker_paren>[^\s\)]+)\s*\)'
             r')\s*(?P<text>.*)$',
@@ -1516,13 +1511,13 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_WORD_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[a-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([a-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[a-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|\([a-z' + INDIC_WORD_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -1545,7 +1540,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1588,13 +1583,13 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_WORD_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_WORD_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -1622,7 +1617,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1938,10 +1933,10 @@ class Page:
             if not unlabeled_in_order:
                 return
 
-            leading_marker_re = re.compile(r'^\s*\(?([0-9*†‡]{1,3})\)?[.\s]')
+            leading_marker_re = re.compile(r'^\s*\(?([0-9' + INDIC_DIGIT_CHARS + r'*†‡]{1,3})\)?[.\s]')
             bare_number_re = re.compile(r'^\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?$')
             dotted_clause_re = re.compile(r'^\d+\.\d+(\.\d+)*[.\s]')
-            embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9*†‡]{1,3})\}\}\}\}')
+            embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9' + INDIC_DIGIT_CHARS + r'*†‡]{1,3})\}\}\}\}')
 
             texts = [tb.extract_text_from_tb().strip() for tb in unlabeled_in_order]
 
@@ -2097,7 +2092,7 @@ class Page:
         hierarchy_type = ("level0","level1","level2","level3","level4")
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_WORD_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -2234,7 +2229,7 @@ class Page:
         MIN_GROUP = 2
         GAP_SHORT_ITEM_WORD_LIMIT = 6
         TRAILING_ANNOTATION_RE = re.compile(
-            r'[\(\[](emphasis (supplied|added|mine)|underlined?|sic)[\)\]]\.?\s*$',
+            r'[\(\[](emphasis (supplied|added|mine)|underlined?|sic|' + indic_annotation_alternation() + r')[\)\]]\.?\s*$',
             re.IGNORECASE,
         )
 

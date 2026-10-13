@@ -2,7 +2,7 @@ import os
 import argparse
 from difflib import SequenceMatcher
 from pathlib import Path
-from collections import defaultdict
+from collections import Counter, defaultdict
 import re
 import codecs
 import logging
@@ -2086,7 +2086,8 @@ class Main:
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
                 + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                               table_extract=self.table_extract)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
@@ -2107,10 +2108,12 @@ class Main:
         elif pdf_type == 'judgments':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
                 + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                                   table_extract=self.table_extract)
         else:
             sentence_completion_punctutation = ('.', ':') + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                               table_extract=self.table_extract)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
@@ -2179,6 +2182,7 @@ class Main:
             # page.print_tbs()
 
     def process_pages_sebi(self, pdf_type):
+        self.amendment.compute_document_margin(self.all_pgs.values())
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.is_single_column_page = page.is_single_column_page()
@@ -2201,6 +2205,7 @@ class Main:
             # page.print_tbs()
 
     def process_pages_judgments(self, pdf_type):
+        self.amendment.compute_document_margin(self.all_pgs.values())
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.is_single_column_page = page.is_single_column_page()
@@ -2313,6 +2318,16 @@ class Main:
         return nums
 
     # --- NEW ADAPTIVE HEADER/FOOTER DETECTION ---
+    @staticmethod
+    def is_recurring_furniture(texts):
+        texts = [t.strip() for t in texts if t and t.strip()]
+        if len(texts) < 2:
+            return False
+        if all(t.isdigit() for t in texts):
+            return True
+        most_common = Counter(texts).most_common(1)[0][1]
+        return most_common >= len(texts) * 0.5
+
     def get_page_header_footer(self, pages, base_name_of_file, output_dir):
         image_page_nums = self.get_image_page_nums(pages)
         page_images = None
@@ -2355,8 +2370,10 @@ class Main:
 
         protected_tbs_by_page = defaultdict(set)
         for group in self.adaptive_headers + self.adaptive_footers:
+            recurring = self.is_recurring_furniture([elem['text'] for elem in group['elements']])
             for elem in group['elements']:
                 protected_tbs_by_page[elem['page_num']].add(elem['textbox'])
+                elem['textbox'].recurring_furniture = recurring
 
         previous_page_footnote_font_size  = None
         seen_footnote = set()
@@ -2524,9 +2541,22 @@ class Main:
             MIN_OCCURRENCE_RATE =   0.6     # Must appear on at least 40% of pages
             LINE_TOLERANCE = 0.02 
 
+        ZONE_CANDIDATE_MARGIN = 0.03
+        SMALL_DOC_MAX_PAGES = 4
+        SMALL_DOC_SIMILARITY_THRESHOLD = 0.92
+        SMALL_DOC_MIN_TEXT_SIMILARITY = 0.9
+
         try:
             total_pages = len(pages)
             self.logger.info("Starting adaptive header/footer detection on %d pages", total_pages)
+
+            is_small_doc = total_pages <= SMALL_DOC_MAX_PAGES
+            min_pages = None
+            min_text_sim = 0.0
+            if is_small_doc and total_pages > 1:
+                SIMILARITY_THRESHOLD = max(SIMILARITY_THRESHOLD, SMALL_DOC_SIMILARITY_THRESHOLD)
+                min_text_sim = SMALL_DOC_MIN_TEXT_SIMILARITY
+                min_pages = max(2, total_pages - 1)
             
             # Special handling for single-page PDFs
             if total_pages == 1:
@@ -2559,9 +2589,9 @@ class Main:
                         width_pct = x1_pct - x0_pct
                         height_pct = y1_pct - y0_pct
                         
-                        # Calculate relative position zones
-                        is_header_zone = y0_pct >= (1 - HEADER_ZONE_THRESHOLD)
-                        is_footer_zone = y0_pct <= FOOTER_ZONE_THRESHOLD
+                        center_y_pct = (y0_pct + y1_pct) / 2
+                        is_header_zone = center_y_pct >= 1 - (HEADER_ZONE_THRESHOLD + ZONE_CANDIDATE_MARGIN)
+                        is_footer_zone = center_y_pct <= FOOTER_ZONE_THRESHOLD + ZONE_CANDIDATE_MARGIN
                         
                         page_elements.append({
                             'page_num': page_num,
@@ -2616,8 +2646,18 @@ class Main:
             # Step 2: Simple similarity calculation
             def calculate_similarity(elem1, elem2):
                 if re.fullmatch(r'\d+', elem1['text'].strip()) and re.fullmatch(r'\d+', elem2['text'].strip()):
+                    if min_pages is not None:
+                        close = abs(elem1['y0_pct'] - elem2['y0_pct']) <= 0.02 and abs(elem1['x0_pct'] - elem2['x0_pct']) <= 0.05
+                        return 1.0 if close else 0.0
                     return 1.0
-                text_sim = SequenceMatcher(None, elem1['text'], elem2['text']).ratio()
+                text1 = elem1['text']
+                text2 = elem2['text']
+                if min_pages is not None:
+                    text1 = re.sub(r'\d', '0', text1)
+                    text2 = re.sub(r'\d', '0', text2)
+                text_sim = SequenceMatcher(None, text1, text2).ratio()
+                if text_sim < min_text_sim:
+                    return 0.0
                 x_sim = 1 - abs(elem1['x0_pct'] - elem2['x0_pct'])
                 y_sim = 1 - abs(elem1['y0_pct'] - elem2['y0_pct'])
                 width_sim = 1 - abs(elem1['width_pct'] - elem2['width_pct'])
@@ -2641,8 +2681,13 @@ class Main:
                     header_candidates.append(header_elem)
             
             header_groups = self._group_similar_elements(header_candidates, calculate_similarity, 
-                                                       SIMILARITY_THRESHOLD, total_pages, MIN_OCCURRENCE_RATE)
+                                                       SIMILARITY_THRESHOLD, total_pages, MIN_OCCURRENCE_RATE, min_pages)
             
+            if min_pages is None:
+                header_groups.extend(self._find_deep_header_groups(
+                    page_elements, header_groups, total_pages, MIN_OCCURRENCE_RATE,
+                    1 - (HEADER_ZONE_THRESHOLD + ZONE_CANDIDATE_MARGIN)))
+
             # Step 4: Find footer candidates with adaptive detection
             footer_candidates = [elem for elem in page_elements if elem['is_footer_zone']]
             
@@ -2719,7 +2764,7 @@ class Main:
             regular_footer_candidates = [elem for elem in footer_candidates 
                                        if not re.search(r'^uploaded\s*by\s*\S*\s*', elem['text'].lower().strip())]
             footer_groups = self._group_similar_elements(regular_footer_candidates, calculate_similarity,
-                                                       SIMILARITY_THRESHOLD, total_pages, MIN_OCCURRENCE_RATE)
+                                                       SIMILARITY_THRESHOLD, total_pages, MIN_OCCURRENCE_RATE, min_pages)
             
             # Add special groups for "uploaded by" patterns with relaxed criteria
             uploaded_by_groups = self._group_uploaded_by_patterns(uploaded_by_candidates, total_pages)
@@ -2794,7 +2839,7 @@ class Main:
         # Content that's unlikely to be header/footer
         unlikely_patterns = [
             r'\w{50,}',              # Very long words (likely body text)
-            r'[.!?]\s+[A-Z]',        # Sentences (multiple sentences)
+            r'[.!?' + INDIC_SENTENCE_END_CHARS + r']\s+[A-Z' + INDIC_WORD_CHARS + r']',  # Sentences (multiple sentences)
             r'\w+\s+\w+\s+\w+\s+\w+\s+\w+',  # 5+ words (likely paragraph)
         ]
         
@@ -3043,7 +3088,7 @@ class Main:
         except Exception as e:
             self.logger.exception("Error marking related textboxes for 'uploaded by' pattern: %s", e)
     
-    def _group_similar_elements(self, candidates, similarity_func, threshold, total_pages, min_occurrence_rate):
+    def _group_similar_elements(self, candidates, similarity_func, threshold, total_pages, min_occurrence_rate, min_pages=None):
         groups = []
         used_elements = set()
 
@@ -3059,12 +3104,17 @@ class Main:
                 if id(other) in used_elements:
                     continue
                     
+                if min_pages is not None and other['page_num'] == candidate['page_num']:
+                    continue
                 if similarity_func(candidate, other) >= threshold:
                     similar_elements.append(other)
                     used_elements.add(id(other))
             
             # Check if this group meets minimum occurrence criteria
-            occurrence_rate = len(similar_elements) / total_pages
+            distinct_pages = len(set(elem['page_num'] for elem in similar_elements))
+            if min_pages is not None and distinct_pages < min_pages:
+                continue
+            occurrence_rate = distinct_pages / total_pages
             self.logger.debug("Group with %d elements has occurrence rate %.3f (min required: %.3f)", 
                             len(similar_elements), occurrence_rate, min_occurrence_rate)
             if occurrence_rate >= min_occurrence_rate:
@@ -3086,6 +3136,70 @@ class Main:
         
         return groups
     
+    def _find_deep_header_groups(self, page_elements, header_groups, total_pages, min_occurrence_rate,
+                                 zone_floor, max_depth=0.35, y_tolerance=0.015, x_tolerance=0.05):
+        known = set(id(e) for g in header_groups for e in g['elements'])
+        by_page = {}
+        for elem in page_elements:
+            by_page.setdefault(elem['page_num'], []).append(elem)
+
+        def center(e):
+            return (e['y0_pct'] + e['y1_pct']) / 2
+
+        deep = [e for e in page_elements
+                if id(e) not in known and 1 - max_depth <= center(e) < zone_floor]
+
+        def key_of(e):
+            text = e['text'].strip()
+            if re.fullmatch(r'\d+', text):
+                return '#'
+            return re.sub(r'\s+', ' ', re.sub(r'\d', '0', text)).lower()
+
+        clusters = []
+        for elem in sorted(deep, key=lambda e: e['page_num']):
+            key = key_of(elem)
+            for cluster in clusters:
+                head = cluster[0]
+                if (key_of(head) == key and abs(head['y0_pct'] - elem['y0_pct']) <= y_tolerance
+                        and abs(head['x0_pct'] - elem['x0_pct']) <= x_tolerance
+                        and all(c['page_num'] != elem['page_num'] for c in cluster)):
+                    cluster.append(elem)
+                    break
+            else:
+                clusters.append([elem])
+
+        accepted = []
+        accepted_ids = set(known)
+        for cluster in sorted(clusters, key=lambda c: -sum(e['y0_pct'] for e in c) / len(c)):
+            pages = [c['page_num'] for c in cluster]
+            if len(pages) < max(3, min_occurrence_rate * total_pages):
+                continue
+            if key_of(cluster[0]) == '#':
+                offsets = [int(c['text'].strip()) - c['page_num'] for c in cluster]
+                top_offset = max(set(offsets), key=offsets.count)
+                if offsets.count(top_offset) < 0.7 * len(offsets):
+                    continue
+            cluster_ids = set(id(c) for c in cluster)
+            kept = []
+            for elem in cluster:
+                above = [o for o in by_page[elem['page_num']]
+                         if o is not elem and o['y0_pct'] > elem['y0_pct'] + y_tolerance
+                         and id(o) not in accepted_ids and id(o) not in cluster_ids]
+                if not above:
+                    kept.append(elem)
+            if len(kept) < max(3, min_occurrence_rate * total_pages):
+                continue
+            accepted_ids.update(id(e) for e in kept)
+            accepted.append({
+                'elements': kept,
+                'representative_text': max(set(e['text'] for e in kept), key=[e['text'] for e in kept].count),
+                'avg_x0_pct': sum(e['x0_pct'] for e in kept) / len(kept),
+                'avg_y0_pct': sum(e['y0_pct'] for e in kept) / len(kept),
+                'occurrence_rate': len(kept) / total_pages,
+                'pages': [e['page_num'] for e in kept],
+            })
+        return accepted
+
     def _extend_headers_footers_by_line(self, page_elements, line_tolerance=0.02):
         try:
             
@@ -3130,7 +3244,10 @@ class Main:
                     
                 # Check if it's on the same line (within tolerance)
                 y_diff = abs(other_elem['y0_pct'] - element_y)
-                if y_diff <= line_tolerance:
+                overlap = min(other_elem['y1_pct'], element['y1_pct']) - max(other_elem['y0_pct'], element['y0_pct'])
+                smaller = min(other_elem['y1_pct'] - other_elem['y0_pct'], element['y1_pct'] - element['y0_pct'])
+                shares_line = smaller > 0 and overlap >= 0.5 * smaller
+                if y_diff <= line_tolerance and shares_line:
                     # Check if this element is not already marked as header/footer
                     if not self._is_already_marked_as_header_footer(other_elem):
                         same_line_elements.append(other_elem)
@@ -3803,6 +3920,66 @@ class Main:
                 re.I
             ),
 
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u09b0\u09be\u09af\u09bc")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0986\u09a6\u09c7\u09b6")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{spaced("\u0a9a\u0ac1\u0a95\u0abe\u0aa6\u0acb")}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0ab9\u0ac1\u0a95\u0aae")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{spaced("\u0a2b\u0a48\u0a38\u0a32\u0a3e")}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0a39\u0a41\u0a15\u0a2e")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{spaced("\u0b30\u0b3e\u0b5f")}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0b06\u0b26\u0b47\u0b36")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{spaced("\u0c24\u0c40\u0c30\u0c4d\u0c2a\u0c41")}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u0c09\u0c24\u0c4d\u0c24\u0c30\u0c4d\u0c35\u0c41")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{spaced("\u0641\u06cc\u0635\u0644\u06c1")}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*[-:]*[\s_]*{spaced("\u062d\u06a9\u0645")}[\s_]*[-:]*[\s_]*\n?',
+                re.I
+            ),
+
 
 
             # AWARD
@@ -3832,6 +4009,11 @@ class Main:
 
             re.compile(
                 rf'\n[\s_]*{phrase("DISTRIBUTION ORDER")}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_order_alternation()}[\s_]*(\(.+\))?[\s_]*(:|\n)?',
                 re.I
             ),
 
@@ -3865,6 +4047,36 @@ class Main:
                 rf'({spaced("JUDGMENT")}|{spaced("ORDER")})[\s_]*(\n|:)?',
                 re.I
             ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_award_alternation()}[\s_]*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_common_order_alternation()}[\s_]*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_judgment_alternation()}[\s_]*(\(.+\))?[\s_]*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_qualified_alternation()}[\s_]*(\(.+\))?[\s_]*(:|\n)?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_distribution_order_alternation()}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_order_under_alternation()}[\s_]*\n',
+                re.I
+            ),
         ]
 
         
@@ -3894,6 +4106,18 @@ class Main:
 
             re.compile(
                 r'\n[\s_]*(Per|PER).+,[\s_]*J[\s_]*(:[\s_]*)?\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf',[ \xa0]*{indic_justice_alternation()}'
+                rf'([. ]+\(?{indic_oral_alternation()}\)?)?:?[ ]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n?[{INDIC_WORD_CHARS} .]{{3,120}},[\s_]*{indic_justice_alternation()}[\s_.]*'
+                rf'\(?{indic_oral_alternation()}\)?[\s_]*\n?',
                 re.I
             ),
 
@@ -3930,6 +4154,31 @@ class Main:
                 rf'([\s_]+{phrase("IN COURT")})?',
                 re.I
             ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_coram_alternation()}.*',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_honble_alternation()}.{{0,40}}',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_justice_alternation()}.{{0,30}}',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_present_alternation()}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_pronounced_alternation()}[\s_]*\n?',
+                re.I
+            ),
         ]
 
 
@@ -3951,8 +4200,20 @@ class Main:
             ),
 
             re.compile(
+                rf'\n[\s_]*({indic_chairman_alternation()}|{indic_judicial_member_alternation()}|'
+                rf'{indic_administrative_member_alternation()}|{indic_technical_member_alternation()}|'
+                rf'{indic_accountant_member_alternation()})[\s_]*:?[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
                 rf'\n[ \r\t]*{spaced("PER")}[ \r\t]+.*,[ \r\t]+'
                 rf'({phrase("JUDICIAL MEMBER")}|A\.?M|J\.?M|{phrase("ACCOUNTANT MEMBER")}).*',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_member_alternation()}[ .:-]*\n?',
                 re.I
             ),
         ]
@@ -4003,7 +4264,17 @@ class Main:
             ),
 
             re.compile(
+                rf'\n[ ]*({indic_background_alternation()}|{indic_facts_of_case_alternation()})[\s_]*:?[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
                 rf'\n[\s_]*{spaced("EXORDIUM")}[\s_]*:?[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_introduction_alternation()}[\s_]*:?[\s_]*\n?',
                 re.I
             ),
 
@@ -4013,7 +4284,17 @@ class Main:
             ),
 
             re.compile(
+                rf'\n[ \r]*{indic_information_sought_alternation()}',
+                re.I
+            ),
+
+            re.compile(
                 rf'\n[\s_]*{spaced("RESPONDENT")}(S)?.{{0,15}}',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_respondent_alternation()}.{{0,15}}',
                 re.I
             ),
         ]
@@ -4034,6 +4315,16 @@ class Main:
             ),
 
             re.compile(
+                rf'\n[\s_]*{indic_dated_alternation()}[\s_]*:.*',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_dated_alternation()}[\s:,_.\-]*{indic_date_alternation()}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
                 r'\n(\d+[ /]+)?\d+[/.-]\d+[/.-]\d+',
                 re.I
             ),
@@ -4045,6 +4336,16 @@ class Main:
 
             re.compile(
                 rf'\n[\s_]*{phrase("ORDER DATED")}[\s_]*:[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_order_dated_alternation()}[\s_]*:?[\s_]*{indic_date_alternation()}[\s_]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_order_dated_alternation()}[\s_]*:[\s_]*\n?',
                 re.I
             ),
         ]
@@ -4069,6 +4370,21 @@ class Main:
 
             re.compile(
                 r'\n[ \t]*([-]+|=+|\*+|[.]+)[ \t]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_by_the_court_alternation()}.*',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*{indic_for_petitioner_alternation()}[\s.]*\n?',
+                re.I
+            ),
+
+            re.compile(
+                rf'\n[\s_]*({indic_public_prosecutor_alternation()}|{indic_for_respondent_alternation()})[\s.]*\n?',
                 re.I
             ),
         ]
@@ -4225,7 +4541,7 @@ class Main:
 
     def detect_sebi_header_pre(self, pages):
         body_start_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_WORD_CHARS + r']?\.(?!\))(?:\s+.*)?$',
         )
 
         rows = []
@@ -4283,13 +4599,17 @@ class Main:
         TOC_HEADING_RE = re.compile(
             r'^\s*(TABLE\s+OF\s+CONTENTS?|INDEX|CONTENTS?|SYNOPSIS|'
             r'LIST\s+OF\s+CONTENTS?|'
-            r'ARRANGEMENT\s+OF\s+(?:SECTIONS?|CLAUSES?|PARAGRAPHS?|REGULATIONS?))\s*$',
+            r'ARRANGEMENT\s+OF\s+(?:SECTIONS?|CLAUSES?|PARAGRAPHS?|REGULATIONS?)|'
+            + indic_toc_alternation() + r')\s*$',
             re.I
         )
-        PAGE_NO_HEADER_RE = re.compile(r'^\s*PAGE\s*(?:NO\.?|NUMBER)\s*$', re.I)
+        PAGE_NO_HEADER_RE = re.compile(
+            r'^\s*(?:PAGE\s*(?:NO\.?|NUMBER)|' + indic_page_word_alternation() + r')\s*$',
+            re.I
+        )
         ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.I)
         TOC_PAGE_REF_RE = re.compile(
-            r'[.․…\s]*[.․…]{2,}[.․…\s]*(\(?[A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,7}\)?)\.?(?=\s|$)'
+            r'[.․…\s]*[.․…]{2,}[.․…\s]*(\(?[A-Za-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']{1,7}\)?)\.?(?=\s|$)'
         )
         MAX_MISS_STREAK = 3
         MAX_CONTINUATION_LEN = 160

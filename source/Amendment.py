@@ -3,13 +3,13 @@ import re
 import unicodedata
 
 from .SentenceEndDetector import SENTENCE_END_CHAR_CLASS, INDIC_SENTENCE_END_CHARS
-from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, indic_annotation_alternation
 
-SECTION_HEADING_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_LETTER_CHARS + r'])\.\s+\S|^Re:\s+\S')
+SECTION_HEADING_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_WORD_CHARS + r'])\.\s+\S|^Re:\s+\S')
 LIST_ITEM_RE = re.compile(
-    r'^\s*(?:\([A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)'
+    r'^\s*(?:\([A-Za-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)'
     r'|\d{1,3}(?:\.\d{1,3})+\.?'
-    r'|[A-Za-z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']{1,3}[.\)])(?=\s|$)'
+    r'|[A-Za-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']{1,3}[.\)])(?=\s|$)'
 )
 
 _ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
@@ -28,13 +28,16 @@ def _roman_to_int(text):
     return total
 
 
+SUBITEM_MARKER_RE = re.compile(r'^\(?(?:[ivxlcdm]{1,5}|[^\W\d_])[\.\)]$', re.IGNORECASE)
+
+
 class ClauseTracker:
 
     _PATTERNS = (
         ("roman", re.compile(r'^\(([ivxlcdmIVXLCDM]{2,6})\)(?=[\s.:;]|$)')),
-        ("arabic_dot", re.compile(r'^(\d{1,3})[.\)]?(?=[\s]|$|[A-Z' + INDIC_LETTER_CHARS + r'])')),
+        ("arabic_dot", re.compile(r'^(\d{1,3})[.\)]?(?=[\s]|$|[A-Z' + INDIC_WORD_CHARS + r'])')),
         ("paren_num", re.compile(r'^\((\d{1,3})\)(?=[\s.:;]|$)')),
-        ("alpha", re.compile(r'^\(([A-Za-z' + INDIC_LETTER_CHARS + r'])\)(?=[\s.:;]|$)')),
+        ("alpha", re.compile(r'^\(([A-Za-z' + INDIC_WORD_CHARS + r'])\)(?=[\s.:;]|$)')),
     )
 
     def __init__(self):
@@ -85,6 +88,19 @@ class ClauseTracker:
         delta_indent = abs(row_x0 - indent_x0)
         return delta_outer < delta_indent
 
+    def snapshot_next_siblings(self):
+        return [
+            {"kind": level["kind"], "value": level["value"] + 1, "x0": level.get("x0")}
+            for level in reversed(self.stack)
+        ]
+
+    @staticmethod
+    def matches_any_with_indent(marker, expected_list, row_x0, indent_x0, row_height):
+        return any(
+            ClauseTracker.matches_with_indent(marker, expected, row_x0, indent_x0, row_height)
+            for expected in (expected_list or [])
+        )
+
     def snapshot_next_sibling(self):
         if not self.stack:
             return None
@@ -116,12 +132,17 @@ class Amendment:
         self.bq_quote_stack = []
         self.bq_pending_trigger = False
         self.bq_return_marker = None
+        self.bq_return_markers = []
         self.bq_indent_x0 = None
         self.bq_outer_x0 = None
         self.bq_active_run_length = 0
         self.bq_has_evidence = False
         self.bq_seen_row = False
         self.bq_prev_block_boundary = True
+        self.bq_style_mode = False
+        self.bq_all_styled = False
+        self.doc_margin = None
+        self.doc_right = None
         self.clause_tracker = ClauseTracker()
 
     # --- func to classify the textbox if it is detected with sign of amendments properties ---
@@ -439,12 +460,44 @@ class Amendment:
     #      outer sibling ("4.") reappears - whether or not the quote ever closes punctually.
     # Either signal closes the excerpt on its own; state persists across a page break since
     # excerpts routinely run past one.
+    def compute_document_margin(self, pages):
+        lefts = []
+        rights = []
+        bin_width = 6.0
+        for page in pages:
+            bin_width = max(4.0, 0.01 * (getattr(page, 'pg_width', 0) or 600))
+            for tb, label in page.all_tbs.items():
+                if label is not None:
+                    continue
+                try:
+                    text = tb.extract_text_from_tb().strip()
+                except Exception:
+                    continue
+                if len(text) < 30:
+                    continue
+                lefts.append(tb.coords[0])
+                rights.append(tb.coords[2])
+        self.doc_margin = None
+        self.doc_right = None
+        if len(lefts) < 8:
+            return
+        counts = {}
+        for x in lefts:
+            counts[int(x // bin_width)] = counts.get(int(x // bin_width), 0) + 1
+        best = max(counts, key=lambda b: counts.get(b - 1, 0) + counts[b] + counts.get(b + 1, 0))
+        near = sorted(x for x in lefts if best - 1 <= int(x // bin_width) <= best + 1)
+        self.doc_margin = near[len(near) // 2]
+        rights.sort()
+        self.doc_right = rights[int(0.9 * (len(rights) - 1))]
+
     def check_for_blockquotes_judgments(self, page, judgments_mode=False):
-        trigger_re = re.compile(r'[:：][-‐‑‒–—―−]?\s*$')
-        heading_max_words = 8
+        trigger_re = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
+        is_scanned = bool(getattr(page, 'scanned_copy', False))
+        scan_factor = 1.5 if is_scanned else 1.0
         row_y_tolerance = 3.0
         annotation_re = re.compile(
-            r'\s*[\(\[](emphasis (supplied|added|mine)|underlined?|sic)[\)\]]\.?\s*$',
+            r'\s*[\(\[](emphasis (supplied|added|mine)|underlined?|sic|'
+            + indic_annotation_alternation() + r')[\)\]]\.?\s*$',
             re.IGNORECASE,
         )
 
@@ -459,6 +512,9 @@ class Amendment:
             text = text.replace('\u2018', "'").replace('\u2019', "'").replace('\u201A', "'").replace('\u201B', "'")
             text = text.replace('\u2039', "'").replace('\u203A', "'").replace('\uFF07', "'")
             text = re.sub(r'\s+', ' ', text).strip()
+            if is_scanned:
+                text = re.sub(r"^(?:''|,,)\s*", '"', text)
+                text = re.sub(r"\s*(?:''|,,)$", '"', text)
             return text
 
         def is_closing(text, quote_char):
@@ -468,6 +524,20 @@ class Amendment:
                 text.endswith('.' + quote_char) or text.endswith(';' + quote_char) or
                 text.endswith('…' + quote_char) or text.endswith(quote_char)
             )
+
+        def line_height_of(tb, fallback):
+            heights = []
+            try:
+                for textline in tb.tbox.findall(".//textline"):
+                    coords = [float(v) for v in textline.attrib["bbox"].split(",")]
+                    if coords[3] - coords[1] > 0:
+                        heights.append(coords[3] - coords[1])
+            except Exception:
+                return fallback
+            if not heights:
+                return fallback
+            heights.sort()
+            return heights[len(heights) // 2]
 
         boxes = []
         for tb, label in page.all_tbs.items():
@@ -482,12 +552,20 @@ class Amendment:
                 continue
             x0, y0, x1, y1 = tb.coords
             boxes.append({
-                "tb": tb, "text": text, "x0": x0, "y_top": y1,
-                "height": y1 - y0,
+                "tb": tb, "text": text, "x0": x0, "x1": tb.coords[2], "y_top": y1,
+                "height": line_height_of(tb, y1 - y0),
             })
 
         if not boxes:
             return
+
+        def row_style(row):
+            row_boxes = row["boxes"]
+            if not row_boxes:
+                return False, False
+            italic = all(b["tb"].textFont_is_italic() for b in row_boxes)
+            styled = all(b["tb"].textFont_is_bold() or b["tb"].textFont_is_italic() for b in row_boxes)
+            return italic, styled
 
         boxes.sort(key=lambda b: (-b["y_top"], b["x0"]))
 
@@ -514,6 +592,26 @@ class Amendment:
 
         rows.sort(key=lambda r: -max(b["y_top"] for b in r["boxes"]))
 
+        body_rows = [r for r in rows if len(r["text"]) >= 30 and r["boxes"]]
+        page_margin = None
+        if len(body_rows) >= 4:
+            heights = sorted((r["boxes"][0]["height"] or 0) for r in body_rows)
+            bin_width = max(heights[len(heights) // 2], 4.0)
+            bins = {}
+            for r in body_rows:
+                bins.setdefault(int(r["boxes"][0]["x0"] // bin_width), []).append(r["boxes"][0]["x0"])
+            best = max(bins.values(), key=len)
+            if len(best) >= 0.3 * len(body_rows):
+                page_margin = min(best)
+        page_right = None
+        if len(body_rows) >= 4:
+            rights = sorted(max(b["x1"] for b in r["boxes"]) for r in body_rows)
+            page_right = rights[int(0.9 * (len(rights) - 1))]
+        if self.doc_margin is not None:
+            page_margin = self.doc_margin
+        if self.doc_right is not None:
+            page_right = self.doc_right
+
         for row_idx, row in enumerate(rows):
             text = row["text"]
             if not text:
@@ -525,15 +623,26 @@ class Amendment:
                 marker = ClauseTracker.parse_marker(text)
                 row_x0 = row["boxes"][0]["x0"]
                 row_height = row["boxes"][0]["height"]
+                text_x0 = row_x0
+                if len(row["boxes"]) > 1 and SUBITEM_MARKER_RE.match(row["boxes"][0]["text"].strip()):
+                    text_x0 = row["boxes"][1]["x0"]
                 is_first_row = not self.bq_seen_row
                 self.bq_seen_row = True
 
+                row_is_italic, row_is_styled = row_style(row)
                 has_boxes = bool(row["boxes"])
                 row_is_bold = has_boxes and all(b["tb"].textFont_is_bold() for b in row["boxes"])
                 row_is_bold_or_italic = has_boxes and all(
                     b["tb"].textFont_is_bold() or b["tb"].textFont_is_italic() for b in row["boxes"])
+                unit_h = row_height or 8.0
+                return_ref = page_margin if page_margin is not None else self.bq_outer_x0
+                inside_quote_geometry = bool(
+                    self.bq_active and row_x0 is not None and return_ref is not None
+                    and row_x0 > return_ref + max(6.0, 0.75 * unit_h) * scan_factor
+                )
                 row_is_section_heading = (
                     not self.bq_quote_stack
+                    and not inside_quote_geometry
                     and (
                         (row_is_bold_or_italic and bool(SECTION_HEADING_ENUM_RE.match(text)))
                         or (row_is_bold and not LIST_ITEM_RE.match(text)
@@ -621,21 +730,18 @@ class Amendment:
                     # quote - so it must NOT be marked, and processing falls through
                     # to treat it as ordinary content (including re-checking it as a
                     # fresh trigger).
-                    marker_closed = (not quote_closed) and ClauseTracker.matches_with_indent(
-                        marker, self.bq_return_marker, row_x0, self.bq_indent_x0, row_height
+                    marker_closed = (not quote_closed) and ClauseTracker.matches_any_with_indent(
+                        marker, self.bq_return_markers, row_x0, self.bq_indent_x0, row_height
                     )
                     indent_returned = False
                     if not quote_closed and not marker_closed and \
-                            self.bq_outer_x0 is not None and row_x0 is not None:
+                            return_ref is not None and row_x0 is not None:
                         unit = row_height or 8.0
-                        tight = max(4.0, 0.4 * unit)
-                        delta_outer = abs(row_x0 - self.bq_outer_x0)
-                        delta_indent = abs(row_x0 - self.bq_indent_x0) if self.bq_indent_x0 is not None else None
+                        tight = max(4.0, 0.4 * unit) * scan_factor
                         indent_distinct = self.bq_indent_x0 is None or \
-                            abs(self.bq_indent_x0 - self.bq_outer_x0) > tight
-                        indent_returned = indent_distinct and delta_outer <= tight and (
-                            delta_indent is None or delta_outer < delta_indent
-                        )
+                            abs(self.bq_indent_x0 - return_ref) > tight
+                        indent_returned = (indent_distinct and text_x0 <= return_ref + tight
+                                           and not (self.bq_all_styled and row_is_styled))
                         # A margin match can be a false alarm rather than a genuine
                         # return to outer flow: a hanging-indent wrapped continuation
                         # line (a citation's overflow text, a list item's second line)
@@ -648,7 +754,7 @@ class Amendment:
                             if next_boxes:
                                 next_x0 = next_boxes[0]["x0"]
                                 next_delta_indent = abs(next_x0 - self.bq_indent_x0)
-                                next_delta_outer = abs(next_x0 - self.bq_outer_x0)
+                                next_delta_outer = abs(next_x0 - return_ref)
                                 if next_delta_indent <= tight and next_delta_indent < next_delta_outer:
                                     indent_returned = False
 
@@ -659,14 +765,23 @@ class Amendment:
                         elif self.bq_active_run_length > 300:
                             safety_closed = True
 
-                    if marker_closed or indent_returned or safety_closed:
+                    style_closed = (
+                        self.bq_style_mode and not self.bq_quote_stack
+                        and not quote_closed and not marker_closed and not indent_returned
+                        and not row_is_styled and not annotation_re.match(text)
+                    )
+
+                    if marker_closed or indent_returned or safety_closed or style_closed:
                         self.bq_active = False
+                        self.bq_style_mode = False
                         self.bq_quote_stack = []
                         self.bq_return_marker = None
                         self.bq_indent_x0 = None
                         self.bq_active_run_length = 0
                         self.bq_has_evidence = False
-                        if marker_closed:
+                        if style_closed:
+                            reason = "return to unstyled text"
+                        elif marker_closed:
                             reason = "clause marker"
                         elif indent_returned:
                             reason = "indentation return to outer margin"
@@ -675,6 +790,7 @@ class Amendment:
                         self.logger.debug(f"Page {page.pg_num}: blockquote closed by {reason} before row '{text}'")
                         # falls through: this row is ordinary outer-flow content
                     else:
+                        self.bq_all_styled = self.bq_all_styled and row_is_styled
                         for b in row["boxes"]:
                             page.all_tbs[b["tb"]] = "blockquote"
                         if quote_closed:
@@ -690,18 +806,30 @@ class Amendment:
                 self.bq_pending_trigger = False
                 opened_ongoing = False
                 opened_self_contained = False
+                style_opened = False
+                next_row_styled = row_idx + 1 < len(rows) and row_style(rows[row_idx + 1])[1]
                 unit = row_height or 8.0
-                indent_step = max(6.0, 0.75 * unit)
-                measurable_indent = self.bq_outer_x0 is not None and row_x0 is not None
-                row_indented = measurable_indent and row_x0 > self.bq_outer_x0 + indent_step
+                indent_step = max(6.0, 0.75 * unit) * scan_factor
+                ref_candidates = [v for v in (self.bq_outer_x0, page_margin) if v is not None]
+                ref_x0 = min(ref_candidates) if ref_candidates else None
+                measurable_indent = ref_x0 is not None and row_x0 is not None
+                row_indented = measurable_indent and row_x0 > ref_x0 + indent_step
                 has_structure = marker is not None or bool(LIST_ITEM_RE.match(text))
                 next_line_indented = False
                 if measurable_indent and row_idx + 1 < len(rows):
                     peek_boxes = rows[row_idx + 1]["boxes"]
                     if peek_boxes:
-                        next_line_indented = peek_boxes[0]["x0"] > self.bq_outer_x0 + indent_step
-                is_outer_sibling = marker is not None and ClauseTracker.matches_with_indent(
-                    marker, self.clause_tracker.snapshot_next_sibling(), row_x0, None, row_height
+                        next_line_indented = peek_boxes[0]["x0"] > ref_x0 + indent_step
+                row_x1 = max(b["x1"] for b in row["boxes"])
+                right_inset = bool(
+                    page_right is not None and row_x1 < page_right - max(8.0, unit) * scan_factor
+                )
+                indent_signal = bool(
+                    row_indented
+                    and (next_line_indented or row_x0 > ref_x0 + 2 * indent_step or right_inset)
+                )
+                is_outer_sibling = marker is not None and ClauseTracker.matches_any_with_indent(
+                    marker, self.clause_tracker.snapshot_next_siblings(), row_x0, None, row_height
                 )
                 quote_open_ok = pending_trigger or self.bq_prev_block_boundary or (
                     self.bq_outer_x0 is not None and row_x0 is not None
@@ -717,22 +845,31 @@ class Amendment:
                     opened_self_contained = True
                 elif pending_trigger and not is_outer_sibling and (
                         (has_structure
-                         and (self.bq_outer_x0 is None
-                              or row_x0 > self.bq_outer_x0 + (row_height or 0) * 0.5))
-                        or (judgments_mode and not has_structure
-                            and row_indented and next_line_indented)):
+                         and (ref_x0 is None
+                              or row_x0 > ref_x0 + (row_height or 0) * 0.5 * scan_factor))
+                        or (judgments_mode and not has_structure and indent_signal)):
                     opened_ongoing = True
+                elif (judgments_mode and pending_trigger and not is_outer_sibling and row_is_styled
+                        and (row_is_italic or row_indented or next_row_styled)):
+                    opened_ongoing = True
+                    style_opened = True
 
                 if opened_ongoing:
                     return_marker = self.clause_tracker.snapshot_next_sibling()
+                    return_markers = self.clause_tracker.snapshot_next_siblings()
                     if not judgments_mode and not self.bq_quote_stack and return_marker is None:
                         self.bq_quote_stack = []
                     else:
                         self.bq_active = True
                         self.bq_return_marker = return_marker
+                        self.bq_return_markers = return_markers
                         self.bq_indent_x0 = row_x0
+                        if ref_x0 is not None:
+                            self.bq_outer_x0 = ref_x0
                         self.bq_active_run_length = 0
-                        self.bq_has_evidence = bool(self.bq_quote_stack) or row_indented
+                        self.bq_has_evidence = bool(self.bq_quote_stack) or row_indented or style_opened
+                        self.bq_style_mode = style_opened and not self.bq_quote_stack
+                        self.bq_all_styled = row_is_styled
                         for b in row["boxes"]:
                             page.all_tbs[b["tb"]] = "blockquote"
                         self.logger.debug(f"Page {page.pg_num}: blockquote opened on row '{text}'")
@@ -751,30 +888,7 @@ class Amendment:
                 self.bq_outer_x0 = row_x0
                 self.bq_prev_block_boundary = bool(re.search(r'[' + SENTENCE_END_CHAR_CLASS + r'][)\'"”’\]]*$', text.strip()))
 
-                # A line ending in ':' is only rejected as a standalone label/heading
-                # (e.g. "CORAM:", "Present:", "Scope of review and analysis:") when it
-                # also *looks* like one - starting with a capital, as institutional
-                # headers and section titles do - and it isn't long enough or doesn't
-                # carry the row's own font style (bold), rather than English wording, to
-                # tell a heading apart from a genuine lead-in - a section heading is set
-                # in a visually distinct (bold) font in the PDF regardless of the
-                # document's language/script, while a lead-in sentence is just the tail
-                # of an ordinary body-text paragraph in the regular font. A short
-                # fragment like "follows:-" that line-wrapped off the end of a longer
-                # lead-in sentence is regular-weight body text and must still be allowed
-                # to open a quote.
-                words = text.split()
-                row_is_bold = bool(row["boxes"]) and all(
-                    b["tb"].textFont_is_bold() for b in row["boxes"]
-                )
-                looks_like_standalone_label = row_is_bold and len(words) < heading_max_words
-                next_row_indented = False
-                if row["boxes"] and row_idx + 1 < len(rows):
-                    next_boxes = rows[row_idx + 1]["boxes"]
-                    if next_boxes:
-                        next_step = max(6.0, 0.75 * (row["boxes"][0]["height"] or 8.0))
-                        next_row_indented = next_boxes[0]["x0"] > row["boxes"][0]["x0"] + next_step
-                if trigger_re.search(text) and (not looks_like_standalone_label or (judgments_mode and next_row_indented)):
+                if trigger_re.search(text) and not row_is_styled:
                     self.bq_pending_trigger = True
                     self.logger.debug(f"Page {page.pg_num}: blockquote trigger detected in row '{text}'")
 

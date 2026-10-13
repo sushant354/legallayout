@@ -11,7 +11,8 @@ from sklearn.cluster import DBSCAN
 from .Table import TableBuilder
 from .NormalizeText import NormalizeText
 from .SentenceEndDetector import SentenceMaker
-from .Utils import INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS, INDIC_LETTER_CHARS
+from .Utils import INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS, INDIC_WORD_CHARS, \
+    ordinal_word_alternation, _term_alternation, indic_enact_alternation, indic_long_title_end_alternation
 
 COMBINED_RE = re.compile(
                 r"""
@@ -89,8 +90,9 @@ class Acts(TableBuilder, SentenceMaker):
                 ''',
                 re.IGNORECASE | re.VERBOSE
             )
-        match = re.search(pattern, text)
-        return bool(match)
+        if re.search(pattern, text):
+            return True
+        return bool(re.search(indic_enact_alternation(), text) or re.search(indic_long_title_end_alternation(), text, re.M))
     
     def close_bluebell(self):
        bluebell = self.main_builder + self.builder 
@@ -102,13 +104,13 @@ class Acts(TableBuilder, SentenceMaker):
         return self.close_bluebell()
     
     def is_chapter(self, text):
-        # pattern = rf"^\s*chapter\s+(\d+|{self.roman_re})"
+        chapter_alt = _term_alternation("chapter")
         pattern = rf"""
-            ^\s*chapter              # word 'chapter'
+            ^\s*{chapter_alt}        # word 'chapter'
             \s*                      # optional spaces
             [\-–—:.\u2013\u2014]?    # one optional separator
             \s*                      # optional spaces
-            (\d+|{self.roman_re})    # number or roman
+            (\d+|[{INDIC_DIGIT_CHARS}]+|{self.roman_re})    # number or roman
         """
         match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
         if match:
@@ -116,13 +118,13 @@ class Acts(TableBuilder, SentenceMaker):
         return False, None
     
     def is_part(self, text):
-        # pattern = rf"^\s*chapter\s+(\d+|{self.roman_re})"
+        part_alt = _term_alternation("part")
         pattern = rf"""
-            ^\s*part              # word 'chapter'
+            ^\s*{part_alt}           # word 'part'
             \s*                      # optional spaces
             [\-–—:.\u2013\u2014]?    # one optional separator
             \s*                      # optional spaces
-            (\d+|[A-Z]+|{self.roman_re})\b    # number or roman
+            (\d+|[A-Z{INDIC_WORD_CHARS}]+|{self.roman_re})\b    # number or roman
         """
         match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
         if match:
@@ -130,13 +132,13 @@ class Acts(TableBuilder, SentenceMaker):
         return False, None
 
     def is_article(self, text):
-        # pattern = rf"^\s*article\s+(\d+|{self.roman_re})"
+        article_alt = _term_alternation("article")
         pattern = rf"""
-            ^\s*article              # word 'article'
+            ^\s*{article_alt}        # word 'article'
             \s*                      # optional spaces
             [\-–—:.\u2013\u2014]?    # one optional separator
             \s*                      # optional spaces
-            (\d+|{self.roman_re})    # number or roman
+            (\d+|[{INDIC_DIGIT_CHARS}]+|{self.roman_re})    # number or roman
         """
         match = re.match(pattern, text, re.IGNORECASE | re.VERBOSE)
         if match:
@@ -147,15 +149,10 @@ class Acts(TableBuilder, SentenceMaker):
     def is_schedule(self, text):
         roman_re = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
 
-        ordinals = [
-            "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
-            "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
-            "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
-            "nineteenth", "twentieth"
-        ]
-        ordinals_re = r"(?:{})".format("|".join(ordinals))
+        schedule_alt = _term_alternation("schedule")
+        ordinals_re = ordinal_word_alternation()
 
-        numbers_re = r"(?:[1-9][0-9]?)"
+        numbers_re = r"(?:[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"][0-9" + INDIC_DIGIT_CHARS + r"]?)"
 
         # pattern = rf"""(?ix)
         #     ^
@@ -175,7 +172,7 @@ class Acts(TableBuilder, SentenceMaker):
 
                 (?:
                     # schedule + optional separators + number/ordinal/roman
-                    schedule
+                    {schedule_alt}
                     [\s\-–—:.\u2013\u2014]*     # optional separators
                     (?:{ordinals_re}|{numbers_re}|{roman_re})
                     \b
@@ -184,13 +181,11 @@ class Acts(TableBuilder, SentenceMaker):
                     # number/ordinal/roman + optional separators + schedule
                     (?:{ordinals_re}|{numbers_re}|{roman_re})
                     [\s\-–—:.\u2013\u2014]*
-                    schedule
-                    \b
+                    {schedule_alt}
                     |
 
                     # just 'schedule'
-                    schedule
-                    \b
+                    {schedule_alt}
                 )
 
                 [\s\(\)\.\-–—:]*$               # optional trailing punctuation
@@ -344,6 +339,8 @@ class Acts(TableBuilder, SentenceMaker):
                                 self.is_body_added = True
                                 self.curr_tab_level = tab_level
 
+                        if self.builder.rstrip().endswith(f"CHAP {val} -"):
+                            continue
                         tab_level = self.get_tab_level('CHAP')
                         if tab_level is not None:
                             self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} -"
@@ -361,6 +358,8 @@ class Acts(TableBuilder, SentenceMaker):
                                 self.is_body_added = True
                                 self.curr_tab_level = tab_level
 
+                        if self.builder.rstrip().endswith(f"PART {val} -"):
+                            continue
                         tab_level = self.get_tab_level('PART')
                         if tab_level is not None:
                             self.builder += "\n" + ("\t" * tab_level) + f"PART {val} -"
@@ -439,6 +438,8 @@ class Acts(TableBuilder, SentenceMaker):
                                 self.is_body_added = True
                                 self.curr_tab_level = tab_level
 
+                        if self.builder.rstrip().endswith(f"CHAP {val} -"):
+                            continue
                         tab_level = self.get_tab_level('CHAP')
                         if tab_level is not None:
                             self.builder += "\n" + ("\t" * tab_level) + f"CHAP {val} -"
@@ -456,6 +457,8 @@ class Acts(TableBuilder, SentenceMaker):
                                 self.is_body_added = True
                                 self.curr_tab_level = tab_level
 
+                        if self.builder.rstrip().endswith(f"PART {val} -"):
+                            continue
                         tab_level = self.get_tab_level('PART')
                         if tab_level is not None:
                             self.builder += "\n" + ("\t" * tab_level) + f"PART {val} -"
@@ -550,7 +553,7 @@ class Acts(TableBuilder, SentenceMaker):
         #     re.IGNORECASE
         # )
         group_re = re.compile(
-                r'^\s*(\(\s*(?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}|[A-Z' + INDIC_LETTER_CHARS + r']{1,3}|(?:CM|CD|D?C{0,3})?'
+                r'^\s*(\(\s*(?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}|[A-Z' + INDIC_WORD_CHARS + r']{1,3}|(?:CM|CD|D?C{0,3})?'
                 r'(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3}))\s*\))\s*(.*)',
                 re.IGNORECASE
             )
@@ -566,7 +569,7 @@ class Acts(TableBuilder, SentenceMaker):
     def find_value_and_text(self,text):
         group_re = re.compile(
                 r'^\s*('
-                r'(?:\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)'   # section: 1. , 2A. , 3A-B.
+                r'(?:\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)'   # section: 1. , 2A. , 3A-B.
                 r'|'
                 r'(?:\(\s*[^\s\)]+\s*\))'           # group: (A), (1), (B1)
                 r')\s*(.*)$',                       # group 2 = remaining text
@@ -603,7 +606,7 @@ class Acts(TableBuilder, SentenceMaker):
             side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
             self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
             if not has_side_notes:
-                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 prefix = match.group(1)
                 rest_text = match.group(2).strip()
                 rest_text_type, value, remain_text = self.findType(rest_text)
@@ -622,7 +625,7 @@ class Acts(TableBuilder, SentenceMaker):
                         self.previous_sentence_end_status = True
                 return
             if side_note_text:
-                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', text.strip())
+                match = re.match(r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', text.strip())
                 if match:
                     prefix = match.group(1)
                     short_title = self.normalize_text((side_note_text or "").strip()) or ""
@@ -654,7 +657,7 @@ class Acts(TableBuilder, SentenceMaker):
 
                 check_re = re.compile(
                         r'^'
-                        r'(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)'   # Group 1: Number/marker like '13.'
+                        r'(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)'   # Group 1: Number/marker like '13.'
                         r'(?!\s*\([^)]+\))'                       # Negative lookahead: fail if second group starts with anything in parentheses
                         r'(.*?(?:\.\s*(?:-|—)?|:\s*(?:-|—)?))'   # Group 2: Text up to first . or : optionally followed by -/—
                         r'(.*)$',                                 # Group 3: Rest of text
@@ -688,7 +691,7 @@ class Acts(TableBuilder, SentenceMaker):
                 #         self.section_shorttitle_notend_status = True
 
                 match = re.match(
-                                r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)',
+                                r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)',
                                 text.strip()
                             )
 
@@ -1026,7 +1029,7 @@ class Acts(TableBuilder, SentenceMaker):
             self.logger.warning("Exception while adding section amendment [%s]: %s",text, e)
     
     def is_section_amended(self, text):
-        section_letter_class = 'A-Z' + INDIC_LETTER_CHARS
+        section_letter_class = 'A-Z' + INDIC_WORD_CHARS
         pattern = (
             r'''^\s*['"]?              # optional leading ' or "'''
             rf'''
@@ -1038,7 +1041,7 @@ class Acts(TableBuilder, SentenceMaker):
         return match
 
     def remove_unwanted_sidenotes(self, side_note_datas):
-        pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+        pattern = re.compile(r'^(\d+\s+of\s+\d+\.|(?:' + _term_alternation("ordinance") + r')\.?\s*\d+\s+of\s+\d+\.)$', re.IGNORECASE)
         for sn_bbox, sn_text in list(side_note_datas.items()):
             if pattern.search(sn_text.strip()):
                 try:
