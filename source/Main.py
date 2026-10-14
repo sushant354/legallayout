@@ -23,6 +23,8 @@ from .Utils import *
 from .FontMapper import DynamicFontMapper
 from .Manifest import IIIFManifest
 from .Figure import PageImages
+from .Watermark import WatermarkDetector
+from .FontStyle import FontStyleReader, normalize_font_name
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
 from .Table import table_dataframe_cell_match_ratio
 from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS, INDIC_SEMICOLON_CHARS
@@ -1322,6 +1324,20 @@ class Main:
             )
 
         return self.type3_font_names
+
+    # --- func to mark every char drawn in a font whose program says bold/italic ---
+    def annotate_font_styles(self, pages):
+        styles = FontStyleReader(self.pdf_path).read()
+
+        if not styles:
+            return
+
+        for page in pages:
+            for char in page.iter('text'):
+                style = styles.get(normalize_font_name(char.attrib.get('font')))
+
+                if style:
+                    char.set('fstyle', style)
 
     # --- func to get the text drawn in each font that nothing else identifies ---
     def get_unknown_font_texts(self, pages):
@@ -3447,6 +3463,11 @@ class Main:
                 self.detect_unknown_fonts(pages)
                 self.logger.debug("Converting text in legacy indic fonts to unicode...")
                 self.convert_indic_fonts(pages)
+                if pdf_type not in BLUEBELL_PDF_TYPES:
+                    self.logger.debug("Reading bold and italic from the embedded fonts...")
+                    self.annotate_font_styles(pages)
+                self.logger.debug("Marking watermark text...")
+                WatermarkDetector(pages).mark()
                 self.set_htmlbuilder()
                 self.logger.debug("Extracting header and footer info...")
                 self.get_page_header_footer(pages, base_name_of_file, self.output_dir)
@@ -4040,6 +4061,13 @@ class Main:
                 re.I
             ),
 
+            re.compile(
+                rf'\n[\s_]*{spaced("CAV")}[\s_]+'
+                rf'({spaced("ORDER")}|{spaced("JUDGMENT")}|{spaced("JUDGEMENT")})'
+                rf'[\s_]*(\(.+\))?[\s_]*(:|\n)?',
+                re.I
+            ),
+
 
             # COMMON
             re.compile(
@@ -4456,6 +4484,7 @@ class Main:
 
             for i, row in enumerate(rows):
 
+                row_start = len(built)
                 built += "\n" + row["text"]
 
                 matched = False
@@ -4477,6 +4506,8 @@ class Main:
 
                 for rgx in tier:
                     m = rgx.search(built)
+                    if m and (len(built) - m.end()) > trailing_slack:
+                        m = rgx.search(built, row_start)
                     if m and (len(built) - m.end()) <= trailing_slack:
                         hit = i
                         hit_row = row

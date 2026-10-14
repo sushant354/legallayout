@@ -52,6 +52,10 @@ ENUM_MARKER_RE = re.compile(r'^\s*(?:\((?P<p>[ivxlcdm]{1,8}|[IVXLCDM]{1,8}|[A-Za
                             r'|(?P<d>[ivxlcdm]{1,8}|[IVXLCDM]{1,8}|[a-z]|\d{1,3})\.(?!\d))\s*\S')
 ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
 ENUM_ALIGN_RATIO = 0.5
+TRIGGER_END_RE = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
+SEPARATOR_MARKER_CHARS = '*.\u2026\u00b7\u2022\u2217\u204e\u2042\u273b\u273a\u25cf\u25cb\u25e6\u25aa-\u2013\u2014_=~#+'
+SEPARATOR_LINE_RE = re.compile(r'^[\s\[\]\(\){}' + re.escape(SEPARATOR_MARKER_CHARS) + r']+$')
+SEPARATOR_MARKER_COUNT = 3
 BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
 
 WIDE_SPACE_RE = re.compile(r'[ \t]{2,}')
@@ -93,6 +97,7 @@ class JudgmentBuilder(TableBuilder):
         self.current_tag = None
         self.current_lines = []
         self._merge_anchor = None
+        self._enum_history = []
         self.main_builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -111,7 +116,7 @@ class JudgmentBuilder(TableBuilder):
     display: none;
   }
 
-  span.header-text, span.footer-text {
+  span.header-text, span.footer-text, span.watermark-text {
     display: none;
   }
 
@@ -496,7 +501,9 @@ class JudgmentBuilder(TableBuilder):
         texts = [u for u in units if u['kind'] == 'text' and 'x1' in u]
         if len(texts) < 4 or self._block_right is None:
             return False
-        body = texts[:-1]
+        body = [u for u in texts[:-1] if not self.ends_with_punct_loose(u['value'])]
+        if len(body) < 3:
+            return False
         full = sum(1 for u in body if self.unit_reaches_right(u))
         return full >= len(body) * JUSTIFIED_BLOCK_RATIO
 
@@ -556,6 +563,17 @@ class JudgmentBuilder(TableBuilder):
         row_height = unit.get('y1', 0) - unit.get('y0', 0) or 8.0
         return abs(prev_x0 - unit['x0']) <= max(3.0, row_height * ENUM_ALIGN_RATIO)
 
+    def enum_same_list(self, prev_readings, readings):
+        kinds = {(kind, style, case) for kind, style, case, _ in prev_readings}
+        return any((kind, style, case) in kinds for kind, style, case, _ in readings)
+
+    def enum_follows_history(self, readings, unit):
+        for prev_readings, prev_x0 in reversed(self._enum_history):
+            if not self.enum_aligned(prev_x0, unit) or not self.enum_same_list(prev_readings, readings):
+                continue
+            return self.enum_follows(prev_readings, readings)
+        return False
+
     def enum_item_starts(self, units):
         markers = []
         starts = set()
@@ -570,8 +588,24 @@ class JudgmentBuilder(TableBuilder):
                     starts.add(prev_idx)
                     starts.add(idx)
                     break
+            else:
+                if self.enum_follows_history(readings, unit):
+                    starts.add(idx)
             markers.append((idx, readings, unit['x0']))
+        self._enum_history.extend((readings, x0) for _, readings, x0 in markers)
         return starts
+
+    def page_break_ends_paragraph(self, prev_unit, unit, justified):
+        if prev_unit.get('page_num') is None or prev_unit.get('page_num') == unit.get('page_num'):
+            return False
+        if 'x0' not in prev_unit or 'x0' not in unit:
+            return False
+        if not self.is_merge_boundary(prev_unit['value']) or self.unit_reaches_right(prev_unit):
+            return False
+        row_height = unit.get('y1', 0) - unit.get('y0', 0) or 8.0
+        if abs(prev_unit['x0'] - unit['x0']) >= row_height:
+            return True
+        return justified and self.line_completes_sentence(prev_unit['value'])
 
     def hanging_continuation(self, prev_unit, unit):
         if 'x0' not in prev_unit or 'x0' not in unit:
@@ -595,6 +629,7 @@ class JudgmentBuilder(TableBuilder):
         current = []
         prev_text = None
         prev_was_marker = True
+        prev_was_separator = False
 
         for idx, unit in enumerate(units):
             if unit['kind'] != 'text':
@@ -623,6 +658,8 @@ class JudgmentBuilder(TableBuilder):
                     starts_para = True
                 elif prev_text is not None and self.indic_layout_starts_paragraph(prev_text, unit, block_left, justified):
                     starts_para = True
+                elif prev_text is not None and self.page_break_ends_paragraph(prev_text, unit, justified):
+                    starts_para = True
                 elif (normal and prev_text is not None
                         and prev_text.get('page_num') == unit.get('page_num')
                         and 'y0' in prev_text and 'y0' in unit):
@@ -630,6 +667,11 @@ class JudgmentBuilder(TableBuilder):
                     if (gap > normal * PARA_GAP_FACTOR
                             and self.is_merge_boundary(prev_text['value'])):
                         starts_para = True
+
+            is_separator = self.is_separator_text(unit['value'])
+            if current and any(u['kind'] == 'text' for u in current) and (is_separator or prev_was_separator):
+                starts_para = True
+            prev_was_separator = is_separator
 
             prev_was_marker = is_marker_row
             if starts_para:
@@ -641,6 +683,14 @@ class JudgmentBuilder(TableBuilder):
         if current:
             groups.append(current)
         return groups
+
+    @staticmethod
+    def is_separator_text(text):
+        stripped = (text or '').strip()
+        if not stripped or not SEPARATOR_LINE_RE.match(stripped):
+            return False
+        markers = [ch for ch in stripped if ch in SEPARATOR_MARKER_CHARS]
+        return len(markers) >= SEPARATOR_MARKER_COUNT or '\u2026' in markers
 
     def last_block_is_blockquote(self):
         idx = self.builder.rfind('</blockquote>')
@@ -673,6 +723,11 @@ class JudgmentBuilder(TableBuilder):
                              and self.anchor_wrapped(anchor)))):
                 is_heading = False
                 anchor['is_heading'] = False
+        if self.is_separator_text(body_text):
+            separator_tag = tag if tag in ("p", "blockquote") else "p"
+            self.builder += f"<{separator_tag}>{styled_text}{''.join(raws)}</{separator_tag}>\n"
+            self._merge_anchor = None
+            return
         if tag == "p" and QUOTE_ANNOTATION_RE.match(body_text):
             idx = self.last_block_is_blockquote()
             if idx != -1:
@@ -694,6 +749,7 @@ class JudgmentBuilder(TableBuilder):
                 'complete': self.line_completes_sentence(body_text),
                 'boundary': self.is_merge_boundary(body_text),
                 'is_heading': is_heading,
+                'ends_with_trigger': bool(TRIGGER_END_RE.search(body_text.strip())),
                 'line_full': self.is_anchor_line_full(units),
                 'geometry': self.last_text_geometry(units),
                 'enum': self.anchor_enum(units),
@@ -793,6 +849,8 @@ class JudgmentBuilder(TableBuilder):
         if self.continues_enum_list(anchor, units):
             return False
         if anchor['complete'] or tag not in ("p", "blockquote"):
+            return False
+        if tag == "blockquote" and anchor['tag'] != "blockquote" and anchor.get('ends_with_trigger'):
             return False
         allow_bullet = not anchor['line_full'] or anchor['boundary']
         if self.gap_separates(anchor, units):
@@ -961,6 +1019,9 @@ class JudgmentBuilder(TableBuilder):
     def add_footer(self, text):
         self.add_hidden_span(f'<span class="footer-text">{text}</span>')
 
+    def add_watermark(self, text):
+        self.add_hidden_span(f'<span class="watermark-text">{text}</span>')
+
     def add_table_boilerplate(self, table_obj, position):
         text_html = self.render_table_boilerplate_text(table_obj, position)
         if text_html:
@@ -1048,30 +1109,13 @@ class JudgmentBuilder(TableBuilder):
 
         self.footnote_refs_used = []
 
-    def collect_page_underlines(self, page):
-        underlines = []
-        try:
-            for tag in ('rect', 'line', 'curve'):
-                for el in page.page_in_xml.findall(f'.//{tag}'):
-                    try:
-                        bbox = tuple(map(float, el.attrib['bbox'].split(',')))
-                    except (KeyError, ValueError):
-                        continue
-                    x0, y0, x1, y1 = bbox
-                    if x1 - x0 <= 0 or x1 - x0 > 0.7 * page.pg_width:
-                        continue
-                    if not page.is_line_like(bbox) or page.is_table_line(bbox):
-                        continue
-                    underlines.append((x0, max(y0, y1), x1))
-        except Exception as e:
-            self.logger.warning("Could not collect underlines on page %s: %s", page.pg_num, e)
-            return []
-        return underlines
-
     def build(self, page, has_side_notes):
         self.current_page_num = int(page.pg_num)
         self.page_underlines = self.collect_page_underlines(page)
         visited_for_table = set()
+
+        for watermark in page.watermark_texts:
+            self.add_watermark(self.normalize_text(watermark))
 
         all_items = list(page.all_tbs.items())
         if not self.table_extract:

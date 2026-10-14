@@ -141,9 +141,44 @@ class Amendment:
         self.bq_prev_block_boundary = True
         self.bq_style_mode = False
         self.bq_all_styled = False
+        self.bq_closed_indent_x0 = None
+        self.body_margins = {}
         self.doc_margin = None
         self.doc_right = None
         self.clause_tracker = ClauseTracker()
+
+    @staticmethod
+    def block_between_rows(rows, row_idx, block_spans):
+        if not block_spans:
+            return False
+        row_top = max(b["y_top"] for b in rows[row_idx]["boxes"])
+        if row_idx == 0:
+            return any(y0 >= row_top - 1.0 for y0, y1 in block_spans)
+        previous_bottom = min(b["tb"].coords[1] for b in rows[row_idx - 1]["boxes"])
+        return any(y1 <= previous_bottom + 1.0 and y0 >= row_top - 1.0 for y0, y1 in block_spans)
+
+    @staticmethod
+    def get_hanging_text_x0(tb, row_height):
+        try:
+            textline = tb.tbox.find(".//textline")
+            chars = []
+            for char in textline.findall("text"):
+                if char.text is None or "bbox" not in char.attrib:
+                    continue
+                x0, _, x1, _ = map(float, char.attrib["bbox"].split(","))
+                chars.append((char.text, x0, x1))
+        except Exception:
+            return None
+        marker_end = None
+        for idx, (ch, x0, x1) in enumerate(chars):
+            if ch.isspace():
+                if marker_end is None and idx:
+                    marker_end = chars[idx - 1][2]
+                continue
+            if marker_end is not None:
+                gap = x0 - marker_end
+                return x0 if gap >= (row_height or 8.0) else None
+        return None
 
     # --- func to classify the textbox if it is detected with sign of amendments properties ---
     def check_for_amendment_acts(self, page): #,startPage,endPage):
@@ -463,9 +498,12 @@ class Amendment:
     def compute_document_margin(self, pages):
         lefts = []
         rights = []
+        page_lefts = []
         bin_width = 6.0
         for page in pages:
             bin_width = max(4.0, 0.01 * (getattr(page, 'pg_width', 0) or 600))
+            own_lefts = []
+            page_lefts.append((getattr(page, 'pg_num', None), own_lefts))
             for tb, label in page.all_tbs.items():
                 if label is not None:
                     continue
@@ -476,9 +514,11 @@ class Amendment:
                 if len(text) < 30:
                     continue
                 lefts.append(tb.coords[0])
+                own_lefts.append(tb.coords[0])
                 rights.append(tb.coords[2])
         self.doc_margin = None
         self.doc_right = None
+        self.body_margins = {}
         if len(lefts) < 8:
             return
         counts = {}
@@ -489,6 +529,47 @@ class Amendment:
         self.doc_margin = near[len(near) // 2]
         rights.sort()
         self.doc_right = rights[int(0.9 * (len(rights) - 1))]
+        self.body_margins = self.recurring_page_margins(page_lefts, bin_width)
+
+    def leftmost_supported_left(self, lefts, bin_width):
+        if not lefts:
+            return None
+        counts = {}
+        for x in lefts:
+            counts[int(x // bin_width)] = counts.get(int(x // bin_width), 0) + 1
+        need = max(2, 0.2 * len(lefts))
+        supported = [b for b in counts
+                     if counts.get(b - 1, 0) + counts[b] + counts.get(b + 1, 0) >= need]
+        if not supported:
+            return None
+        best = min(supported)
+        near = sorted(x for x in lefts if best - 1 <= int(x // bin_width) <= best + 1)
+        return near[len(near) // 2]
+
+    def recurring_page_margins(self, page_lefts, bin_width):
+        min_pages = max(3, 0.1 * len(page_lefts))
+        runs = []
+        for pg_num, lefts in page_lefts:
+            if len(lefts) < 4:
+                continue
+            margin = self.leftmost_supported_left(lefts, bin_width)
+            if margin is None:
+                continue
+            if runs and abs(margin - runs[-1]["margin"]) <= bin_width:
+                runs[-1]["margins"].append(margin)
+                runs[-1]["pages"].append(pg_num)
+            elif runs and margin > runs[-1]["margin"]:
+                runs[-1]["pages"].append(pg_num)
+            else:
+                runs.append({"margin": margin, "margins": [margin], "pages": [pg_num]})
+        margins = {}
+        for run in runs:
+            if len(run["margins"]) < min_pages:
+                continue
+            values = sorted(run["margins"])
+            for pg_num in run["pages"]:
+                margins[pg_num] = values[len(values) // 2]
+        return margins
 
     def check_for_blockquotes_judgments(self, page, judgments_mode=False):
         trigger_re = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
@@ -567,6 +648,13 @@ class Amendment:
             styled = all(b["tb"].textFont_is_bold() or b["tb"].textFont_is_italic() for b in row_boxes)
             return italic, styled
 
+        block_spans = [
+            (tb.coords[1], tb.coords[3]) for tb, label in page.all_tbs.items()
+            if label == "figure" or (
+                isinstance(label, tuple) and label[0] in ("table", "borderless_table")
+            )
+        ]
+
         boxes.sort(key=lambda b: (-b["y_top"], b["x0"]))
 
         # --- group textboxes that sit on the same visual line into a single row, so a
@@ -594,6 +682,7 @@ class Amendment:
 
         body_rows = [r for r in rows if len(r["text"]) >= 30 and r["boxes"]]
         page_margin = None
+        bin_width = None
         if len(body_rows) >= 4:
             heights = sorted((r["boxes"][0]["height"] or 0) for r in body_rows)
             bin_width = max(heights[len(heights) // 2], 4.0)
@@ -608,7 +697,13 @@ class Amendment:
             rights = sorted(max(b["x1"] for b in r["boxes"]) for r in body_rows)
             page_right = rights[int(0.9 * (len(rights) - 1))]
         if self.doc_margin is not None:
-            page_margin = self.doc_margin
+            run_margin = self.body_margins.get(getattr(page, 'pg_num', None))
+            doc_margin_on_page = bin_width is None or any(
+                abs(r["boxes"][0]["x0"] - self.doc_margin) <= bin_width for r in body_rows)
+            if run_margin is not None and not doc_margin_on_page:
+                page_margin = run_margin
+            else:
+                page_margin = self.doc_margin
         if self.doc_right is not None:
             page_right = self.doc_right
 
@@ -626,6 +721,11 @@ class Amendment:
                 text_x0 = row_x0
                 if len(row["boxes"]) > 1 and SUBITEM_MARKER_RE.match(row["boxes"][0]["text"].strip()):
                     text_x0 = row["boxes"][1]["x0"]
+                open_x0 = text_x0
+                if text_x0 == row_x0 and SUBITEM_MARKER_RE.match(text.split(' ')[0]):
+                    hanging_x0 = self.get_hanging_text_x0(row["boxes"][0]["tb"], row_height)
+                    if hanging_x0 is not None:
+                        open_x0 = hanging_x0
                 is_first_row = not self.bq_seen_row
                 self.bq_seen_row = True
 
@@ -740,7 +840,13 @@ class Amendment:
                         tight = max(4.0, 0.4 * unit) * scan_factor
                         indent_distinct = self.bq_indent_x0 is None or \
                             abs(self.bq_indent_x0 - return_ref) > tight
+                        at_quote_indent = bool(
+                            self.bq_indent_x0 is not None
+                            and abs(text_x0 - self.bq_indent_x0) <= tight
+                            and abs(text_x0 - return_ref) > tight
+                        )
                         indent_returned = (indent_distinct and text_x0 <= return_ref + tight
+                                           and not at_quote_indent
                                            and not (self.bq_all_styled and row_is_styled))
                         # A margin match can be a false alarm rather than a genuine
                         # return to outer flow: a hanging-indent wrapped continuation
@@ -749,6 +855,12 @@ class Amendment:
                         # the next row disambiguates - if it snaps straight back to the
                         # excerpt's own indent (e.g. the list's next lettered item),
                         # this row was the anomaly, not a real close.
+                        if indent_returned and judgments_mode and self.bq_indent_x0 is not None \
+                                and self.bq_indent_x0 < return_ref - tight and row_idx > 0 \
+                                and marker is None and not LIST_ITEM_RE.match(text) \
+                                and not re.search(r'[' + SENTENCE_END_CHAR_CLASS + r'][)\'"”’\]]*$',
+                                                  rows[row_idx - 1]["text"].strip()):
+                            indent_returned = False
                         if indent_returned and self.bq_indent_x0 is not None and row_idx + 1 < len(rows):
                             next_boxes = rows[row_idx + 1]["boxes"]
                             if next_boxes:
@@ -794,6 +906,7 @@ class Amendment:
                         for b in row["boxes"]:
                             page.all_tbs[b["tb"]] = "blockquote"
                         if quote_closed:
+                            self.bq_closed_indent_x0 = self.bq_indent_x0
                             self.bq_active = False
                             self.bq_quote_stack = []
                             self.bq_return_marker = None
@@ -802,8 +915,13 @@ class Amendment:
                             self.bq_has_evidence = False
                         continue
 
+                if self.bq_pending_trigger and self.block_between_rows(rows, row_idx, block_spans):
+                    self.bq_pending_trigger = False
+
                 pending_trigger = self.bq_pending_trigger
                 self.bq_pending_trigger = False
+                closed_indent_x0 = self.bq_closed_indent_x0
+                self.bq_closed_indent_x0 = None
                 opened_ongoing = False
                 opened_self_contained = False
                 style_opened = False
@@ -814,6 +932,10 @@ class Amendment:
                 ref_x0 = min(ref_candidates) if ref_candidates else None
                 measurable_indent = ref_x0 is not None and row_x0 is not None
                 row_indented = measurable_indent and row_x0 > ref_x0 + indent_step
+                if row_indented and page_margin is not None:
+                    body_tol = max(4.0, 0.4 * unit) * scan_factor
+                    if ref_x0 < page_margin - body_tol and abs(row_x0 - page_margin) <= body_tol:
+                        row_indented = False
                 has_structure = marker is not None or bool(LIST_ITEM_RE.match(text))
                 next_line_indented = False
                 if measurable_indent and row_idx + 1 < len(rows):
@@ -824,9 +946,18 @@ class Amendment:
                 right_inset = bool(
                     page_right is not None and row_x1 < page_right - max(8.0, unit) * scan_factor
                 )
+                first_line_indent = bool(
+                    not next_line_indented and not right_inset and row_idx + 1 < len(rows)
+                    and not re.search(r'[' + SENTENCE_END_CHAR_CLASS + r'][)\'"”’\]]*$', text.strip())
+                )
                 indent_signal = bool(
                     row_indented
-                    and (next_line_indented or row_x0 > ref_x0 + 2 * indent_step or right_inset)
+                    and (next_line_indented or right_inset
+                         or (row_x0 > ref_x0 + 2 * indent_step and not first_line_indent))
+                )
+                outdented_sub_item = bool(
+                    measurable_indent and SUBITEM_MARKER_RE.match(text.split(' ')[0])
+                    and row_x0 < ref_x0 - indent_step
                 )
                 is_outer_sibling = marker is not None and ClauseTracker.matches_any_with_indent(
                     marker, self.clause_tracker.snapshot_next_siblings(), row_x0, None, row_height
@@ -846,8 +977,13 @@ class Amendment:
                 elif pending_trigger and not is_outer_sibling and (
                         (has_structure
                          and (ref_x0 is None
-                              or row_x0 > ref_x0 + (row_height or 0) * 0.5 * scan_factor))
+                              or open_x0 > ref_x0 + (row_height or 0) * 0.5 * scan_factor
+                              or (judgments_mode and outdented_sub_item)))
                         or (judgments_mode and not has_structure and indent_signal)):
+                    opened_ongoing = True
+                elif (judgments_mode and closed_indent_x0 is not None and has_structure
+                        and not is_outer_sibling and row_indented
+                        and row_x0 >= closed_indent_x0 - max(4.0, 0.4 * unit) * scan_factor):
                     opened_ongoing = True
                 elif (judgments_mode and pending_trigger and not is_outer_sibling and row_is_styled
                         and (row_is_italic or row_indented or next_row_styled)):
@@ -875,6 +1011,7 @@ class Amendment:
                         self.logger.debug(f"Page {page.pg_num}: blockquote opened on row '{text}'")
                         continue
                 elif opened_self_contained:
+                    self.bq_closed_indent_x0 = row_x0
                     for b in row["boxes"]:
                         page.all_tbs[b["tb"]] = "blockquote"
                     self.logger.debug(f"Page {page.pg_num}: self-contained blockquote on row '{text}'")

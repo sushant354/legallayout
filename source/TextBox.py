@@ -311,14 +311,7 @@ class TextBox:
             return ""
     
     # --- the same text these two return, with the font of every character ---
-    def get_char_lines(self, use_footnotes=None):
-        r"""One list of (character, font) per textline, as extract_text_from_tb()
-        assembles them: '\n' turned into a space, the line stripped and dropped
-        when nothing is left of it.
-
-        Whitespace and the footnote placeholder carry no font of their own (see
-        mark_font_runs), so they never break a run in two.
-        """
+    def get_char_lines(self, use_footnotes=None, line_keyer=None):
         if use_footnotes is None:
             use_footnotes = bool(self.footnotes_superscript)
 
@@ -326,42 +319,7 @@ class TextBox:
 
         try:
             for textline in self.tbox.findall(".//textline"):
-                line = []
-                pending_superscript = []
-
-                for text in textline.findall(".//text"):
-                    raw = text.text or ""
-
-                    if not raw:
-                        continue
-
-                    if use_footnotes:
-                        if self.is_superscript_char(text):
-                            pending_superscript.append(
-                                self.footnotes_superscript[
-                                    tuple(map(float, text.attrib["bbox"].split(",")))
-                                ]
-                            )
-                            continue
-
-                        if pending_superscript:
-                            line.extend(
-                                self.get_footnote_placeholder_chars(pending_superscript)
-                            )
-                            pending_superscript = []
-
-                    font = text.attrib.get("font") or None
-
-                    for char in raw:
-                        char = " " if char == "\n" else char
-                        line.append((char, font if not char.isspace() else None))
-
-                if pending_superscript:
-                    line.extend(
-                        self.get_footnote_placeholder_chars(pending_superscript)
-                    )
-
-                line = self.strip_chars(line)
+                line = self.get_textline_chars(textline, use_footnotes, line_keyer)
 
                 if line:
                     all_lines.append(line)
@@ -371,6 +329,51 @@ class TextBox:
             return []
 
         return all_lines
+
+    def get_textline_chars(self, textline, use_footnotes=None, line_keyer=None):
+        if use_footnotes is None:
+            use_footnotes = bool(self.footnotes_superscript)
+
+        char_key = line_keyer(textline) if line_keyer else None
+        line = []
+        pending_superscript = []
+
+        for text in textline.findall(".//text"):
+            raw = text.text or ""
+
+            if not raw:
+                continue
+
+            if use_footnotes:
+                if self.is_superscript_char(text):
+                    pending_superscript.append(
+                        self.footnotes_superscript[
+                            tuple(map(float, text.attrib["bbox"].split(",")))
+                        ]
+                    )
+                    continue
+
+                if pending_superscript:
+                    line.extend(
+                        self.get_footnote_placeholder_chars(pending_superscript)
+                    )
+                    pending_superscript = []
+
+            if char_key:
+                font = char_key(text)
+            else:
+                font = text.attrib.get("font") or None
+
+            for char in raw:
+                char = " " if char == "\n" else char
+                line.append((char, font if not char.isspace() else None))
+
+        if pending_superscript:
+            line.extend(
+                self.get_footnote_placeholder_chars(pending_superscript)
+            )
+
+        return self.strip_chars(line)
 
     def is_superscript_char(self, text):
         if "bbox" not in text.attrib:
@@ -402,9 +405,9 @@ class TextBox:
 
         return chars[start:end]
 
-    def extract_text_with_fonts(self):
+    def extract_text_with_fonts(self, line_keyer=None):
         """extract_text_from_tb()'s text with a font mark at every font change."""
-        lines = self.get_char_lines()
+        lines = self.get_char_lines(line_keyer=line_keyer)
 
         chars = []
 
@@ -416,14 +419,14 @@ class TextBox:
 
         return mark_font_runs(chars)
 
-    def extract_lines_with_fonts(self):
+    def extract_lines_with_fonts(self, line_keyer=None):
         """The textbox's lines, each with the font marks of its own text.
 
         The footnote placeholder is deliberately left out, matching the line by
         line extraction the title path does inline.
         """
         return [mark_font_runs(line)
-                for line in self.get_char_lines(use_footnotes=False)]
+                for line in self.get_char_lines(use_footnotes=False, line_keyer=line_keyer)]
 
     # --- func to detect the textbox having texts font in bold for heading/title detection ---
     def textFont_is_bold(self, pdf_type = None):
@@ -437,7 +440,7 @@ class TextBox:
                     if text.text :
                         no_of_chars += 1
                         font_name = text.attrib.get("font", "")
-                        if bold_font_re.search(font_name):
+                        if bold_font_re.search(font_name) or 'b' in text.attrib.get('fstyle', ''):
                             no_of_bold_chars += 1
 
             if no_of_chars == 0:
@@ -468,7 +471,7 @@ class TextBox:
                     if text.text:
                         no_of_chars += 1
                         font_name = text.attrib.get("font", "")
-                        if italic_font_re.search(font_name):
+                        if italic_font_re.search(font_name) or 'i' in text.attrib.get('fstyle', ''):
                             no_of_italic_chars += 1
 
             if no_of_chars == 0:

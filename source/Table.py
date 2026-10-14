@@ -1092,7 +1092,7 @@ class TableBuilder:
                     break
                 continue
             total += 1
-            if BOLD_FONT_RE.search(text_el.attrib.get('font', '')):
+            if BOLD_FONT_RE.search(text_el.attrib.get('font', '')) or 'b' in text_el.attrib.get('fstyle', ''):
                 bold += 1
         if not total:
             return False
@@ -1197,8 +1197,9 @@ class TableBuilder:
 
     def get_char_style(self, text_el, underlines):
         font = text_el.attrib.get('font', '')
-        bold = bool(STYLE_BOLD_FONT_RE.search(font))
-        italic = bool(STYLE_ITALIC_FONT_RE.search(font))
+        fstyle = text_el.attrib.get('fstyle', '')
+        bold = bool(STYLE_BOLD_FONT_RE.search(font)) or 'b' in fstyle
+        italic = bool(STYLE_ITALIC_FONT_RE.search(font)) or 'i' in fstyle
         underlined = False
         if underlines and 'bbox' in text_el.attrib:
             try:
@@ -1215,6 +1216,26 @@ class TableBuilder:
                         underlined = True
                         break
         return (bold, italic, underlined)
+
+    def collect_page_underlines(self, page):
+        underlines = []
+        try:
+            for tag in ('rect', 'line', 'curve'):
+                for el in page.page_in_xml.findall(f'.//{tag}'):
+                    try:
+                        bbox = tuple(map(float, el.attrib['bbox'].split(',')))
+                    except (KeyError, ValueError):
+                        continue
+                    x0, y0, x1, y1 = bbox
+                    if x1 - x0 <= 0 or x1 - x0 > 0.7 * page.pg_width:
+                        continue
+                    if not page.is_line_like(bbox) or page.is_table_line(bbox):
+                        continue
+                    underlines.append((x0, max(y0, y1), x1))
+        except Exception as e:
+            self.logger.warning("Could not collect underlines on page %s: %s", page.pg_num, e)
+            return []
+        return underlines
 
     def get_line_underlines(self, line_bbox):
         if not self.page_underlines:
@@ -1277,8 +1298,10 @@ class TableBuilder:
             start += 1
         while end > start and chars[end - 1][0].isspace():
             end -= 1
-        chars = chars[start:end]
+        return self.styled_chars_to_html(chars[start:end])
 
+    @staticmethod
+    def styled_chars_to_html(chars):
         effective = []
         for idx, (ch, style) in enumerate(chars):
             if not ch.isspace():

@@ -7,17 +7,21 @@ import pandas as pd
 from difflib import SequenceMatcher
 import copy
 from pathlib import Path
-from .Table import TableBuilder, TOC_PLACEHOLDER
+from .Table import TableBuilder, TOC_PLACEHOLDER, STYLE_TAGS
 from .SentenceEndDetector import LegalSentenceDetector, SENTENCE_END_CHAR_CLASS
 from .Utils import INDIC_DIGIT_CHARS, INDIC_WORD_CHARS, \
     indic_background_alternation, indic_toc_alternation, indic_facts_of_case_alternation
 from .NormalizeText import NormalizeText
 from .TextBox import (FONT_MARK_START, FONT_MARK_RE, split_marked_text,
-                      strip_font_marks)
+                      strip_font_marks, mark_font_runs)
 from html import escape as html_escape
 
 
 HTML_PARA_GAP_FACTOR = 1.15
+STYLE_MARK_SEP = '\ufdd2'
+STYLE_ISOLATE_TAG_RE = re.compile(r'^<(/?)(?:a|sup|sub|span)\b', re.IGNORECASE)
+STYLE_BREAK_TAG_RE = re.compile(r'^<br\b', re.IGNORECASE)
+UNSTYLED_MARK = FONT_MARK_START + STYLE_MARK_SEP + '\ufdd1'
 
 RELEVANT_TAGS = {"body", "section", "p", "table", "tr", "td", "a", "blockquote", "br",
                  "h4", "center", "li"}
@@ -79,7 +83,8 @@ class RowMergedTextBox:
                 lx0, ly0, lx1, ly1 = map(float, bbox.split(','))
                 text = builder.build_line_text(part, textline)
                 if text:
-                    lines.append({'x0': lx0, 'y0': ly0, 'x1': lx1, 'y1': ly1, 'text': text})
+                    lines.append({'x0': lx0, 'y0': ly0, 'x1': lx1, 'y1': ly1, 'text': text,
+                                  'part': part, 'textline': textline})
 
         lines.sort(key=lambda item: (-item['y0'], item['x0']))
         rows = []
@@ -99,10 +104,19 @@ class RowMergedTextBox:
         if current_row:
             rows.append(current_row)
 
+        self._rows = rows
         return [' '.join(i['text'] for i in row) for row in rows]
 
     def extract_text_from_tb(self):
         return self._text
+
+    def extract_text_with_fonts(self, line_keyer=None):
+        return ' '.join(self.extract_lines_with_fonts(line_keyer))
+
+    def extract_lines_with_fonts(self, line_keyer=None):
+        return [' '.join(mark_font_runs(item['part'].get_textline_chars(item['textline'], None, line_keyer))
+                         for item in row)
+                for row in self._rows]
 
     def get_first_char_coords(self):
         return self.parts[0].get_first_char_coords()
@@ -139,7 +153,7 @@ class HTMLBuilder(TableBuilder):
         self.hierarchy = ("section","subsection","para","subpara","subsubpara")
         self.level_hierarchy = ('level1', 'level2', 'level3', 'level4','level5')
         self._sentence_detector = LegalSentenceDetector()
-        self.is_real_sentence_end = self._sentence_detector.is_real_sentence_end
+        self.is_real_sentence_end = self._is_real_sentence_end
         self._page_line_gap = None
         self.previous_sentence_end_status = True
         self.is_pre_added = False
@@ -211,6 +225,10 @@ class HTMLBuilder(TableBuilder):
     display:None;
   }
 
+  span.watermark-text{
+    display:None;
+  }
+
   span.table-header-text, span.table-footer-text{
     display:None;
   }
@@ -278,22 +296,61 @@ class HTMLBuilder(TableBuilder):
 
     def _is_real_sentence_end(self, text, next_text, at_page_end, text_tb,
                               next_text_tb, pg_height, pg_width):
-        return self._detect_sentence_end(self.plain(text), self.plain(next_text),
+        return self._sentence_detector.is_real_sentence_end(self.plain(text), self.plain(next_text),
                                          at_page_end, text_tb, next_text_tb,
                                          pg_height, pg_width)
 
     def get_tb_text(self, tb):
         """A textbox's text as it goes into the html."""
-        if self.show_fonts:
-            return self.normalize_text(tb.extract_text_with_fonts())
+        plain_text = tb.extract_text_from_tb()
+        try:
+            marked = tb.extract_text_with_fonts(self.style_line_keyer)
+        except Exception as e:
+            self.logger.debug("Could not mark the text styles of a textbox: %s", e)
+            return self.normalize_text(plain_text)
 
-        return self.normalize_text(tb.extract_text_from_tb())
+        if strip_font_marks(marked) != plain_text:
+            return self.normalize_text(plain_text)
+
+        return self.normalize_text(marked)
 
     def get_tb_lines(self, tb):
         """A textbox's text, a textline at a time, as it goes into the html."""
-        if self.show_fonts:
-            return tb.extract_lines_with_fonts()
+        lines = self.get_plain_tb_lines(tb)
+        try:
+            marked = tb.extract_lines_with_fonts(self.style_line_keyer)
+        except Exception as e:
+            self.logger.debug("Could not mark the text styles of a textbox: %s", e)
+            return lines
 
+        if [strip_font_marks(line) for line in marked] != lines:
+            return lines
+
+        return marked
+
+    @staticmethod
+    def unstyled(text):
+        if not text:
+            return text
+        return UNSTYLED_MARK + text
+
+    def style_line_keyer(self, textline):
+        underlines = []
+        bbox = textline.attrib.get('bbox')
+        if bbox:
+            try:
+                underlines = self.get_line_underlines(tuple(map(float, bbox.split(','))))
+            except ValueError:
+                underlines = []
+
+        def key(text_el):
+            style = ''.join(name for name, on in zip(STYLE_TAGS, self.get_char_style(text_el, underlines)) if on)
+            font = (text_el.attrib.get('font') or '') if self.show_fonts else ''
+            return font + STYLE_MARK_SEP + style
+
+        return key
+
+    def get_plain_tb_lines(self, tb):
         lines = []
 
         for textline in tb.tbox.findall('.//textline'):
@@ -322,26 +379,44 @@ class HTMLBuilder(TableBuilder):
 
         out = []
         position = 0
+        current = None
+        isolated = []
 
         for match in re.finditer(r'<[^>]*>', html):
-            out.append(self.wrap_font_runs(html[position:match.start()]))
-            out.append(match.group(0))
+            text, current = self.wrap_font_runs(html[position:match.start()], current)
+            out.append(text)
+            tag = match.group(0)
+            out.append(tag)
+            isolate = STYLE_ISOLATE_TAG_RE.match(tag)
+            if isolate and not isolate.group(1):
+                isolated.append(current)
+                current = None
+            elif isolate:
+                current = isolated.pop() if isolated else None
+            elif not STYLE_BREAK_TAG_RE.match(tag):
+                current = None
+                isolated = []
             position = match.end()
 
-        out.append(self.wrap_font_runs(html[position:]))
+        text, current = self.wrap_font_runs(html[position:], current)
+        out.append(text)
 
         return ''.join(out)
 
-    def wrap_font_runs(self, text):
+    def wrap_font_runs(self, text, inherited=None):
         """One stretch of text between two tags, with its marks turned into spans."""
-        if not text or FONT_MARK_START not in text:
-            return text
+        if not text:
+            return text, inherited
+        if FONT_MARK_START not in text:
+            if inherited is None:
+                return text, inherited
+            return ''.join(self.font_span(font, parts)
+                           for font, parts in self.group_runs_by_font([(inherited, [text])])), inherited
 
         # re.split() on a pattern with one group gives text, font, text, font...
         pieces = FONT_MARK_RE.split(text)
 
-        # whatever comes before the first mark is not claimed by any font
-        runs = [(None, pieces[0])]
+        runs = [(inherited, pieces[0])]
 
         for index in range(1, len(pieces), 2):
             runs.append((pieces[index], pieces[index + 1]))
@@ -358,10 +433,22 @@ class HTMLBuilder(TableBuilder):
             else:
                 out.append((font, [run_text]))
 
-        return ''.join(self.font_span(font, ''.join(parts))
-                       for font, parts in out)
+        last = runs[-1][0]
+        return ''.join(self.font_span(font, parts)
+                       for font, parts in self.group_runs_by_font(out)), last
 
-    def font_span(self, font, text):
+    @staticmethod
+    def group_runs_by_font(runs):
+        groups = []
+        for key, parts in runs:
+            font, _, style = key.partition(STYLE_MARK_SEP) if key is not None else (None, '', '')
+            if groups and groups[-1][0] == font:
+                groups[-1][1].append((style, ''.join(parts)))
+            else:
+                groups.append((font, [(style, ''.join(parts))]))
+        return groups
+
+    def font_span(self, font, styled_runs):
         """One run of text in one pdf font, named as the font that drew it.
 
         A font the detector was run on is named twice: data-font is the font the
@@ -375,7 +462,8 @@ class HTMLBuilder(TableBuilder):
         mapping or by the ToUnicode repair, one drawing too little text to tell,
         or any font at all when detection is off - carries data-font alone.
         """
-        if font is None:
+        text = self.style_runs(styled_runs)
+        if not font:
             return text
 
         attrs = f' data-font="{html_escape(font, quote=True)}"'
@@ -385,6 +473,15 @@ class HTMLBuilder(TableBuilder):
             attrs += f' data-detected-font="{html_escape(detected, quote=True)}"'
 
         return f'<span{attrs}>{text}</span>'
+
+    def style_runs(self, styled_runs):
+        if not any(style for style, text in styled_runs):
+            return ''.join(text for style, text in styled_runs)
+        chars = []
+        for style, text in styled_runs:
+            flags = tuple(name in style for name in STYLE_TAGS)
+            chars.extend((ch, flags) for ch in text)
+        return self.styled_chars_to_html(chars)
 
     # --- func to flush previous textbox text --
     def flushPrevious(self):
@@ -809,10 +906,10 @@ class HTMLBuilder(TableBuilder):
           side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
           self.logger.debug("Side note matched for section text [%s] : %s",text, side_note_text)
           if side_note_text:
-            match = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', text.strip())
+            match = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', plain.strip())
             if match:
               prefix, rest_text = split_marked_text(text.strip(), match.end(1))
-              short_title = self.normalize_text(side_note_text.strip())
+              short_title = self.unstyled(self.normalize_text(side_note_text.strip()))
               rest_text = rest_text.strip()
               rest_text_type = self.findType(rest_text)
               if rest_text_type is None:
@@ -833,7 +930,7 @@ class HTMLBuilder(TableBuilder):
                       self.stack_for_section.append(hierarchy_index+1)
                   
           else:
-            match = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', text.strip())
+            match = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', plain.strip())
             if match:
               prefix, rest_text = split_marked_text(text.strip(), match.end(1))
               rest_text = rest_text.strip()
@@ -1021,10 +1118,10 @@ class HTMLBuilder(TableBuilder):
         side_note_text = self.find_closest_side_note(tb.coords, side_note_datas,page_height)
         self.logger.debug("Side note matched for the amendments [%s]: %s",text, side_note_text)
         if side_note_text:
-          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', text.strip())
+          match = re.match(r'^(\s*[\' | \"]?\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', plain.strip())
           if match:
             prefix, rest_text = split_marked_text(text.strip(), match.end(1))
-            short_title = self.normalize_text(side_note_text.strip())
+            short_title = self.unstyled(self.normalize_text(side_note_text.strip()))
             rest_text = rest_text.strip()
             rest_text_type = self.findType(rest_text)
             self.logger.debug("Match groups — Prefix: '%s', Short Title: '%s', Remain Text: '%s', Remain Text Type: %s",
@@ -1059,7 +1156,7 @@ class HTMLBuilder(TableBuilder):
        
     def is_section(self,texts):
       section_re = re.compile(r'^\s*[\' | \"]?\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.\s*\S*', re.IGNORECASE) #
-      texts = texts.strip()
+      texts = self.plain(texts).strip()
       texts = texts.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
       if section_re.match(texts):
          return True 
@@ -1168,6 +1265,15 @@ class HTMLBuilder(TableBuilder):
         else:
            header = f'<span class="header-text">{text}</span>\n'
            self.pending_header_footer.append(header)
+
+    def add_watermark(self, text):
+        span = f'<span class="watermark-text">{text}</span>\n'
+        if self.pending_table:
+            self.pending_header_footer.append(span)
+        elif self.pending_tag and self.pending_text:
+            self.pending_text += span
+        else:
+            self.builder += span
 
     def add_footer(self, text):
         if not self.pending_table:
@@ -1339,6 +1445,9 @@ class HTMLBuilder(TableBuilder):
     def build(self, page, has_side_notes):#, section_end_page):
         visited_for_table = set()
         self.current_page_num = int(page.pg_num)
+        self.page_underlines = self.collect_page_underlines(page)
+        for watermark in page.watermark_texts:
+            self.add_watermark(watermark)
         self._sentence_detector.column_bounds = page.column_bounds if page.is_multicolumn else None
         # try:
         #   if section_end_page and int(section_end_page)+1 == int(page.pg_num):
@@ -1557,6 +1666,7 @@ class HTMLBuilder(TableBuilder):
         self.render_footnote_section()
         html = self.close_html()
         if html:
+            html = self.render_font_spans(html)
             html = self.finalize_toc(html)
         return html
 

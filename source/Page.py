@@ -47,6 +47,7 @@ class Page:
         self.pg_num = pg.attrib["id"]
         self.logger.debug(f"page: {self.pg_num} --- page_height: {self.pg_height} , page_width: {self.pg_width}")
         self.all_tbs = {}
+        self.watermark_texts = []
         self.all_figbox = {}
         self.has_side_notes = has_side_notes
         self.pdf_type = pdf_type
@@ -124,7 +125,10 @@ class Page:
                     tb_obj = TextBox(tb, self.pdf_type, self.font_mapper)
                     text = tb_obj.extract_text_from_tb()
                     if text and text.strip():
-                        self.all_tbs[tb_obj] = None
+                        if tb.attrib.get("watermark"):
+                            self.watermark_texts.append(text.strip())
+                        else:
+                            self.all_tbs[tb_obj] = None
                 except Exception as e:
                     self.logger.warning("Failed to process a textbox: %s", e)
                     continue
