@@ -1192,6 +1192,9 @@ class TableBuilder:
             }
             if self.track_text_styles:
                 line['styled'] = self.build_styled_line_text(tb, textline, (x0, y0, x1, y1))
+            for key in ('bq2', 'bq2_start', 'bq2_inline'):
+                if key in textline.attrib:
+                    line[key] = textline.attrib[key]
             lines.append(line)
         return lines
 

@@ -1,4 +1,5 @@
 import re
+import unicodedata
 import io
 import os
 import contextlib
@@ -2564,3 +2565,76 @@ def is_form(text):
             re.IGNORECASE | re.VERBOSE
         )
     )
+
+
+SEPARATOR_MARKER_CHARS = '*.\u2026\u00b7\u2022\u2217\u204e\u2042\u273b\u273a\u25cf\u25cb\u25e6\u25aa-\u2013\u2014_=~#+'
+SEPARATOR_LINE_RE = re.compile(r'^[\s\[\]\(\){}' + re.escape(SEPARATOR_MARKER_CHARS) + r']+$')
+SEPARATOR_SPLIT_RE = re.compile(r'[\s\[\]\(\){}"“”\'‘’' + re.escape(SEPARATOR_MARKER_CHARS) + r']+')
+SEPARATOR_MARKER_COUNT = 3
+
+
+def is_separator_line(text):
+    stripped = (text or '').strip()
+    if not stripped:
+        return False
+    if SEPARATOR_LINE_RE.match(stripped):
+        markers = [ch for ch in stripped if ch in SEPARATOR_MARKER_CHARS]
+        return len(markers) >= SEPARATOR_MARKER_COUNT or '\u2026' in markers
+    tokens = [t for t in SEPARATOR_SPLIT_RE.split(stripped) if t]
+    return bool(tokens) and all(
+        len(t) >= SEPARATOR_MARKER_COUNT and t[0].isalpha() and len(set(t.casefold())) == 1
+        for t in tokens
+    )
+
+
+BULLET_PREFIX_RE = re.compile('(?:</?[biu]>|\ufdd0[^\ufdd1]*\ufdd1)*')
+BULLET_PREFIX_END_RE = re.compile('(?:</?[biu]>|\ufdd0[^\ufdd1]*\ufdd1)*$')
+BULLET_FONT_MARK_RE = re.compile('\ufdd0[^\ufdd1]*\ufdd1')
+
+
+def is_bullet_glyph(char):
+    return unicodedata.category(char) in ('So', 'Co') or 'BULLET' in unicodedata.name(char, '')
+
+
+def starts_with_bullet_glyph(text):
+    stripped = (text or '').lstrip()
+    rest = stripped[BULLET_PREFIX_RE.match(stripped).end():].lstrip()
+    return bool(rest) and is_bullet_glyph(rest[0])
+
+
+def split_at_bullet_glyphs(text):
+    if not text:
+        return [text]
+    cuts = []
+    for index, char in enumerate(text):
+        if index == 0 or not is_bullet_glyph(char):
+            continue
+        start = BULLET_PREFIX_END_RE.search(text[:index]).start()
+        if start > 0 and text[start - 1].isspace() and text[:start].strip():
+            cuts.append(start)
+    if not cuts:
+        return [text]
+    segments = []
+    previous = 0
+    carried = ''
+    for cut in cuts + [len(text)]:
+        piece = carried + text[previous:cut]
+        open_tags = []
+        for match in re.finditer(r'<(/?)([biu])>', piece):
+            if match.group(1):
+                if open_tags and open_tags[-1] == match.group(2):
+                    open_tags.pop()
+            else:
+                open_tags.append(match.group(2))
+        marks = BULLET_FONT_MARK_RE.findall(piece)
+        if cut < len(text):
+            piece = piece.rstrip() + ''.join(f'</{tag}>' for tag in reversed(open_tags))
+            reopened = ''.join(f'<{tag}>' for tag in open_tags)
+            tail_start = text[cut:]
+            if marks and not tail_start.lstrip().startswith(('\ufdd0',) + tuple(f'<{t}>\ufdd0' for t in 'biu')):
+                reopened += marks[-1]
+            carried = reopened
+        if piece.strip():
+            segments.append(piece.strip())
+        previous = cut
+    return segments

@@ -10,7 +10,8 @@ from pathlib import Path
 from .Table import TableBuilder, TOC_PLACEHOLDER, STYLE_TAGS
 from .SentenceEndDetector import LegalSentenceDetector, SENTENCE_END_CHAR_CLASS
 from .Utils import INDIC_DIGIT_CHARS, INDIC_WORD_CHARS, \
-    indic_background_alternation, indic_toc_alternation, indic_facts_of_case_alternation
+    indic_background_alternation, indic_toc_alternation, indic_facts_of_case_alternation, \
+    starts_with_bullet_glyph, split_at_bullet_glyphs
 from .NormalizeText import NormalizeText
 from .TextBox import (FONT_MARK_START, FONT_MARK_RE, split_marked_text,
                       strip_font_marks, mark_font_runs)
@@ -163,6 +164,7 @@ class HTMLBuilder(TableBuilder):
         self.unique_images = unique_images
         self.pending_header_footer = []
         self.pending_pre_lines = []
+        self.level_bullet_open = False
         self.main_builder = '''<!DOCTYPE HTML>
 <html>
 <head>
@@ -501,6 +503,7 @@ class HTMLBuilder(TableBuilder):
 
     
     def close_levels(self):
+        self.level_bullet_open = False
         try:
             while self.stack_for_level:
                 tag = self.stack_for_level.pop()
@@ -686,6 +689,7 @@ class HTMLBuilder(TableBuilder):
         return str(value).replace("\n", "&#10;").strip()
 
     def close_sections(self):
+       self.level_bullet_open = False
        while self.stack_for_section:
           self.stack_for_section.pop()
           self.builder += "</section>\n"
@@ -693,7 +697,8 @@ class HTMLBuilder(TableBuilder):
     # --- func to add the unknown label of textbox in the html - classified as <p> tag ---
     def addItalicBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end, tb):
         try:
-            is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
+            bullet_follows = self.start_bullet_item(text, next_text)
+            is_sentence_completed = bullet_follows or self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
             if self.pending_tag and self.pending_tag != 'blockquote':
                 self.pending_text += f"</{self.pending_tag}>\n"
                 self.builder += self.pending_text
@@ -733,6 +738,12 @@ class HTMLBuilder(TableBuilder):
       
       try:
         gap_break = self.is_para_gap_break(text_tb, next_text_tb)
+        is_bullet = starts_with_bullet_glyph(self.plain(text))
+        bullet_follows = starts_with_bullet_glyph(self.plain(next_text or ''))
+        if bullet_follows:
+          gap_break = True
+        if not self.stack_for_section and not self.stack_for_level:
+          self.start_bullet_item(text, next_text)
         if self.stack_for_section:
           if re.fullmatch(r'—{3,}', self.plain(text).strip()):
             self.close_sections()
@@ -744,7 +755,13 @@ class HTMLBuilder(TableBuilder):
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = self.plain(text).strip().endswith(self.sentence_completion_punctuation)
-          if is_sentence_completed:
+          if is_bullet:
+            self.builder += f"<p>{text.strip()}</p>\n"
+            self.level_bullet_open = not is_sentence_completed
+          elif self.level_bullet_open and self.builder.endswith("</p>\n"):
+            self.builder = self.builder[:-len("</p>\n")] + ' ' + text.strip() + "</p>\n"
+            self.level_bullet_open = not is_sentence_completed
+          elif is_sentence_completed:
             self.builder += (' ' +text +"<br>")
           else:
             self.builder += (' ' + text)
@@ -758,7 +775,19 @@ class HTMLBuilder(TableBuilder):
             is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width)
           else:
             is_sentence_completed = self.plain(text).strip().endswith(self.sentence_completion_punctuation)
-          if is_sentence_completed:
+          if self.plain(text).strip() in set(["•","▪","▫","✓","✕","o"]) and self.pending_text == "" and not is_sentence_completed:
+            self.pending_tag = 'blockquote'
+            self.pending_text = f'<blockquote>{text}'
+            self.previous_sentence_end_status = is_sentence_completed
+          elif is_bullet:
+            self.builder += f"<p>{text.strip()}</p>\n"
+            self.level_bullet_open = not is_sentence_completed
+            self.previous_sentence_end_status = True
+          elif self.level_bullet_open and self.builder.endswith("</p>\n"):
+            self.builder = self.builder[:-len("</p>\n")] + ' ' + text.strip() + "</p>\n"
+            self.level_bullet_open = not is_sentence_completed
+            self.previous_sentence_end_status = True
+          elif is_sentence_completed:
             self.builder += (' ' +text +"<br>")
             self.previous_sentence_end_status = is_sentence_completed
           else:
@@ -887,6 +916,7 @@ class HTMLBuilder(TableBuilder):
 
     # --- func to add the section labelled textbox in the html ---
     def addSection(self,tb,side_note_datas,page_height,hierarchy_index):
+        self.level_bullet_open = False
         try:
           if not self.stack_for_section:
               self.flushPrevious()
@@ -1038,7 +1068,8 @@ class HTMLBuilder(TableBuilder):
         
     def addBlockQuote(self, text, next_text, text_tb, next_text_tb, pg_height, pg_width, at_page_end, tb):
         text = text.replace('“', '"').replace('”', '"').replace('‘‘','"').replace('’’','"').replace('‘', "'").replace('’', "'")
-        is_sentence_completed = self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width) #text.strip().endswith(self.sentence_completion_punctuation)
+        bullet_follows = self.start_bullet_item(text, next_text)
+        is_sentence_completed = bullet_follows or self.is_real_sentence_end(text, next_text, at_page_end, text_tb, next_text_tb, pg_height, pg_width) #text.strip().endswith(self.sentence_completion_punctuation)
 
         if self.pending_tag and self.pending_tag != "blockquote":
             self.pending_text += f"</{self.pending_tag}>\n"
@@ -1598,7 +1629,7 @@ class HTMLBuilder(TableBuilder):
             elif isinstance(label,list) and label[0] == "amendment":
                self.addAmendment(label,tb,page.side_notes_datas,page.pg_height)
             elif isinstance(label, tuple) and label[1] == 'blockquote':
-               self.addItalicBlockQuote(self.get_tb_text(tb), next_text, tb, next_text_tb, page.pg_height, page.pg_width, at_page_end, tb)
+               self.add_by_bullets(self.addItalicBlockQuote, self.get_tb_text(tb), next_text, tb, next_text_tb, page.pg_height, page.pg_width, at_page_end, tb)
             elif label == "title":
                 self.addTitle(tb,page.pg_width,page.pg_height, next_text, next_text_tb,at_page_end,next_label)
             elif label == "section":
@@ -1610,14 +1641,30 @@ class HTMLBuilder(TableBuilder):
             elif label == "subpara":
                 self.addSubpara(self.get_tb_text(tb),self.hierarchy.index(label))
             elif label == 'blockquote':
-                self.addBlockQuote(self.get_tb_text(tb), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end, tb)
+                self.add_by_bullets(self.addBlockQuote, self.get_tb_text(tb), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end, tb)
             elif label == 'level1' or label == 'level2' or label == 'level3' or label == 'level4':
                 self.addLevel(self.get_tb_text(tb), self.level_hierarchy.index(label), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
             elif label == "figure":
                self.addFigure(tb, page)
             elif label is None:
                 # if not self.is_pg_num(tb,page.pg_width):
-                  self.addUnlabelled(self.get_tb_text(tb), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
+                  self.add_by_bullets(self.addUnlabelled, self.get_tb_text(tb), next_text,tb, next_text_tb, page.pg_height, page.pg_width,  at_page_end)
+
+    def add_by_bullets(self, adder, text, next_text, *args):
+        segments = split_at_bullet_glyphs(text)
+        for index, segment in enumerate(segments):
+            following = segments[index + 1] if index + 1 < len(segments) else next_text
+            adder(segment, following, *args)
+
+    def start_bullet_item(self, text, next_text):
+        if starts_with_bullet_glyph(self.plain(text)):
+            if self.pending_tag and self.pending_text:
+                self.pending_text += f"</{self.pending_tag}>\n"
+                self.builder += self.pending_text
+                self.pending_tag = None
+                self.pending_text = ""
+            self.previous_sentence_end_status = True
+        return starts_with_bullet_glyph(self.plain(next_text or ''))
 
     def is_pg_num(self,tb,pg_width):
         if  tb.width < 0.04 * pg_width and self.check_isDigit(tb):
@@ -1678,6 +1725,7 @@ class HTMLBuilder(TableBuilder):
 
     
     def addLevel(self, text, hierarchy_index, next_text,tb, next_text_tb, pg_height,pg_width,  at_page_end):
+          self.level_bullet_open = False
           try:
               
               # if self.handle_pending_text_continuation(text, next_text,at_page_end, tb, next_text_tb, pg_height, pg_width):

@@ -12,7 +12,7 @@ from .SentenceEndDetector import (
     INDIC_SENTENCE_END_CHARS,
     INDIC_SEMICOLON_CHARS,
 )
-from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS, is_separator_line, starts_with_bullet_glyph
 
 
 TAG_FOR_LABEL = {
@@ -53,9 +53,6 @@ ENUM_MARKER_RE = re.compile(r'^\s*(?:\((?P<p>[ivxlcdm]{1,8}|[IVXLCDM]{1,8}|[A-Za
 ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
 ENUM_ALIGN_RATIO = 0.5
 TRIGGER_END_RE = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
-SEPARATOR_MARKER_CHARS = '*.\u2026\u00b7\u2022\u2217\u204e\u2042\u273b\u273a\u25cf\u25cb\u25e6\u25aa-\u2013\u2014_=~#+'
-SEPARATOR_LINE_RE = re.compile(r'^[\s\[\]\(\){}' + re.escape(SEPARATOR_MARKER_CHARS) + r']+$')
-SEPARATOR_MARKER_COUNT = 3
 BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
 
 WIDE_SPACE_RE = re.compile(r'[ \t]{2,}')
@@ -110,6 +107,10 @@ class JudgmentBuilder(TableBuilder):
 
   p, pre, blockquote {
     white-space: pre-wrap;
+  }
+
+  ul {
+    list-style-type: none;
   }
 
   p.figure-text {
@@ -196,6 +197,10 @@ class JudgmentBuilder(TableBuilder):
                     'x1': max(l['x1'] for l in current_row),
                     'lead_bold': current_row[0].get('lead_bold', False),
                     'styled': self.join_styled_parts([l.get('styled', l['text']) for l in current_row]),
+                    'list_depth': current_row[0].get('list_depth', 0),
+                    'list_start': current_row[0].get('bq2_start') == '1',
+                    'list_inline': [token for l in current_row if l.get('bq2_inline')
+                                    for token in l['bq2_inline'].split('|')],
                 })
 
         for item in lines:
@@ -271,9 +276,15 @@ class JudgmentBuilder(TableBuilder):
         stripped = self.strip_trailing_footnote_markers(text.strip())
         return bool(MERGE_BOUNDARY_RE.search(stripped))
 
+    @staticmethod
+    def is_glyph_bullet(text):
+        return starts_with_bullet_glyph(text)
+
     def is_block_starter(self, text, allow_bullet=True, roman_ok=False):
         stripped = text.strip()
         if not stripped:
+            return True
+        if self.is_glyph_bullet(stripped):
             return True
         if QUOTE_OPEN_RE.match(stripped):
             return True
@@ -640,7 +651,7 @@ class JudgmentBuilder(TableBuilder):
                 prev_text is not None and self.hanging_continuation(prev_text, unit))
             prev_at_boundary = (prev_text is None or marker_boundary
                                  or self.ends_with_punct_loose(prev_text['value']))
-            is_marker_row = self.is_bold_numbered_marker_row(unit) or (
+            is_marker_row = self.is_bold_numbered_marker_row(unit) or self.is_glyph_bullet(unit['value']) or (
                 prev_at_boundary and (
                     bool(NUMERIC_PARA_MARKER_RE.match(unit['value'].strip()))
                     or self.is_title_row(unit['value'])
@@ -686,11 +697,7 @@ class JudgmentBuilder(TableBuilder):
 
     @staticmethod
     def is_separator_text(text):
-        stripped = (text or '').strip()
-        if not stripped or not SEPARATOR_LINE_RE.match(stripped):
-            return False
-        markers = [ch for ch in stripped if ch in SEPARATOR_MARKER_CHARS]
-        return len(markers) >= SEPARATOR_MARKER_COUNT or '\u2026' in markers
+        return is_separator_line(text)
 
     def last_block_is_blockquote(self):
         idx = self.builder.rfind('</blockquote>')
@@ -941,6 +948,11 @@ class JudgmentBuilder(TableBuilder):
         if not units:
             return
 
+        if tag == "ul":
+            self.render_list(units)
+            self._merge_anchor = None
+            return
+
         if tag == "title":
             for group in self.split_rows_into_paragraphs(units):
                 self.emit_paragraph("p", group, is_heading=True)
@@ -953,6 +965,81 @@ class JudgmentBuilder(TableBuilder):
 
         for group in self.split_rows_into_paragraphs(units):
             self.emit_paragraph("p", group)
+
+    def render_list(self, units):
+        items = []
+        after_separator = False
+        leading_raw = ''
+        trailing_raw = ''
+        for unit in units:
+            if unit['kind'] == 'raw':
+                if items:
+                    trailing_raw += unit['value']
+                else:
+                    leading_raw += unit['value']
+                continue
+            if trailing_raw:
+                items[-1][1] += trailing_raw
+                trailing_raw = ''
+            text = WIDE_SPACE_RE.sub(' ', unit.get('styled', unit['value']).strip())
+            if not text:
+                continue
+            depth = unit.get('list_depth', 0)
+            pieces = self.split_at_inline_markers(text, unit.get('list_inline', []))
+            separator = self.is_separator_text(unit['value'])
+            if not items or depth != items[-1][0] or unit.get('list_start') or separator or after_separator:
+                items.append([depth, leading_raw + pieces[0]])
+                leading_raw = ''
+            else:
+                items[-1][1] = self.join_styled(items[-1][1], ' ' + pieces[0])
+            for piece in pieces[1:]:
+                items.append([depth, piece])
+            after_separator = separator
+        if not items:
+            if leading_raw:
+                self.builder += leading_raw + '\n'
+            return
+        html = ''
+        depths = []
+        for depth, text in items:
+            if not depths:
+                html += "<ul>\n<li>" + text
+                depths.append(depth)
+            elif depth > depths[-1]:
+                html += "\n<ul>\n<li>" + text
+                depths.append(depth)
+            else:
+                while len(depths) > 1 and depth < depths[-1]:
+                    html += "</li>\n</ul>\n"
+                    depths.pop()
+                html += "</li>\n<li>" + text
+        html += "</li>\n</ul>\n" * len(depths)
+        self.builder += html + trailing_raw
+
+    @staticmethod
+    def split_at_inline_markers(styled, tokens):
+        pieces = []
+        rest = styled
+        for token in tokens:
+            match = re.search(r'(?:(?<=\s)|(?<=>)|(?<=\[))' + re.escape(token) + r'(?=\s)', rest)
+            if not match or match.start() == 0:
+                continue
+            head = rest[:match.start()]
+            open_tags = []
+            for tag_match in re.finditer(r'<(/?)([biu])>', head):
+                if tag_match.group(1):
+                    if open_tags and open_tags[-1] == tag_match.group(2):
+                        open_tags.pop()
+                else:
+                    open_tags.append(tag_match.group(2))
+            head = re.sub(r'(?:\s|<[biu]>)+$', '', head)
+            closing = ''.join(f'</{t}>' for t in reversed(open_tags))
+            if head.endswith(closing) and closing:
+                closing = ''
+            pieces.append(head + closing)
+            rest = ''.join(f'<{t}>' for t in open_tags) + rest[match.start():]
+        pieces.append(rest)
+        return pieces
 
     def flush_block(self):
         if self.current_tag and self.current_lines:
@@ -1166,8 +1253,16 @@ class JudgmentBuilder(TableBuilder):
 
             if label == "figure":
                 if tb.figname in self.unique_images:
-                    self.flush_block()
-                    self.addFigure(tb, page)
+                    if self.current_tag == "ul" and self.current_lines:
+                        mark = len(self.builder)
+                        self.addFigure(tb, page)
+                        figure_html = self.builder[mark:]
+                        self.builder = self.builder[:mark]
+                        if figure_html:
+                            self.current_lines.append({'raw': figure_html})
+                    else:
+                        self.flush_block()
+                        self.addFigure(tb, page)
                 continue
 
             if is_table_label:
@@ -1199,14 +1294,33 @@ class JudgmentBuilder(TableBuilder):
                 visited_for_table.add(table_id)
                 continue
 
-            tag = TAG_FOR_LABEL.get(label, "p")
-            if tag != self.current_tag:
+            base_tag, base_depth = self.tag_for_label(label)
+            per_line = label is None or label == "blockquote" or (
+                isinstance(label, str) and label.startswith("list:"))
+            if base_tag != self.current_tag and not per_line:
                 self.flush_block()
-                self.current_tag = tag
+                self.current_tag = base_tag
             lines = self.extract_textlines(tb)
             for line in lines:
                 line['page_num'] = self.current_page_num
-            self.current_lines.extend(lines)
+                tag, depth = base_tag, base_depth
+                if per_line and line.get('bq2'):
+                    tag, depth = self.tag_for_label(line['bq2'])
+                if tag != self.current_tag:
+                    self.flush_block()
+                    self.current_tag = tag
+                if depth is not None:
+                    line['list_depth'] = depth
+                self.current_lines.append(line)
+            if per_line and not lines and base_tag != self.current_tag:
+                self.flush_block()
+                self.current_tag = base_tag
+
+    @staticmethod
+    def tag_for_label(label):
+        if isinstance(label, str) and label.startswith("list:"):
+            return "ul", int(label.split(":", 1)[1])
+        return TAG_FOR_LABEL.get(label, "p"), None
 
     def close_html(self):
         if not self.builder:

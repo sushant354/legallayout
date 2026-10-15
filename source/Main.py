@@ -2222,13 +2222,15 @@ class Main:
 
     def process_pages_judgments(self, pdf_type):
         self.amendment.compute_document_margin(self.all_pgs.values())
+        self.amendment.plan_main_clauses(self.all_pgs.values())
         for page in self.all_pgs.values():
             self.logger.info(f"Processing page num-{page.pg_num}")
             # page.is_single_column_page = page.is_single_column_page()
             # page.is_single_column_page = page.is_single_column_page_kmeans_elbow()
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
-            self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
+            # self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
+            self.amendment.judgment_blockquote_v2(page)
             page.detect_sparse_pre()
             # page.detect_pre()
 

@@ -3,7 +3,7 @@ import re
 import unicodedata
 
 from .SentenceEndDetector import SENTENCE_END_CHAR_CLASS, INDIC_SENTENCE_END_CHARS
-from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, indic_annotation_alternation
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, indic_annotation_alternation, is_separator_line
 
 SECTION_HEADING_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_WORD_CHARS + r'])\.\s+\S|^Re:\s+\S')
 LIST_ITEM_RE = re.compile(
@@ -146,6 +146,23 @@ class Amendment:
         self.doc_margin = None
         self.doc_right = None
         self.clause_tracker = ClauseTracker()
+        self.bq2_pending_trigger = False
+        self.bq2_mode = None
+        self.bq2_list_stack = []
+        self.bq2_list_parent = None
+        self.bq2_main_last = None
+        self.bq2_main_offset = None
+        self.bq2_main_x0 = None
+        self.bq2_main_fmt = None
+        self.bq2_prev_text = None
+        self.bq2_prev_x1 = None
+        self.bq2_suspended = None
+        self.bq2_prev_top = None
+        self.bq2_prev_page = None
+        self.bq2_prev_start = False
+        self.bq2_main_plan = set()
+        self.bq2_pitch = {}
+        self.bq2_section_plan = set()
 
     @staticmethod
     def block_between_rows(rows, row_idx, block_spans):
@@ -570,6 +587,670 @@ class Amendment:
             for pg_num in run["pages"]:
                 margins[pg_num] = values[len(values) // 2]
         return margins
+
+    BQ2_TRIGGER_RE = re.compile(r'(?:[:：]|;\s*[\-‐‑‒–—―−])[\s\-‐‑‒–—―−:：]*["“\'‘]?\s*$')
+    BQ2_ITALIC_FONT_RE = re.compile(r'italic|oblique', re.IGNORECASE)
+    BQ2_ITALIC_RATIO = 0.9
+    BQ2_MAIN_CLAUSE_RE = re.compile(r'^\s*(\d{1,3}(?:\.\d{1,3}){0,3})([.):]?)(?=\s)')
+    BQ2_LIST_MARKER_RE = re.compile(
+        r'^\s*(?:\((?P<p>[ivxlcdm]{1,6}|[IVXLCDM]{1,6}|[^\W\d_]|\d{1,3})\)\s*(?=\S)'
+        r'|(?P<c>[ivxlcdm]{1,6}|[IVXLCDM]{1,6}|[^\W\d_]|\d{1,3})\)\s*(?=\S)'
+        r'|(?P<d>[ivxlcdm]{1,6}|[IVXLCDM]{1,6}|[^\W\d_]|\d{1,3})\.(?!\d)\s+(?=\S))'
+    )
+    BQ2_SCRIPT_LETTERS = {}
+    BQ2_DECIMAL_MARKER_RE = re.compile(r'^\s*\(?(\d{1,3}(?:\.\d{1,3})+)\.?\)?\s+(?=\S)')
+    BQ2_QUOTE_OPEN_RE = re.compile(r'^["“‘\'«„]')
+    BQ2_TERMINAL_RE = re.compile(r'[.?!' + INDIC_SENTENCE_END_CHARS + r'][\)\'"”’\]]*\s*$')
+    BQ2_SECTION_RE = re.compile(r'^\s*([IVXLCDM]+|[ivxlcdm]+)\.?\s+(?=\S)')
+    BQ2_HEADING_MARKER_RE = re.compile(r'^\s*(?:\(?[^\W_]{1,6}[.)]\s*)+')
+
+    @classmethod
+    def parse_main_clause(cls, text):
+        match = cls.BQ2_MAIN_CLAUSE_RE.match(text)
+        if not match:
+            return None, None
+        return tuple(int(n) for n in match.group(1).split('.')), match.group(2)
+
+    @staticmethod
+    def quote_unclosed(text):
+        curly_open = text.count('“') - text.count('”')
+        return curly_open > 0 or text.count('"') % 2 == 1
+
+    @staticmethod
+    def ends_inside_sentence(text):
+        text = text.rstrip()
+        if not text:
+            return False
+        last = text[-1]
+        category = unicodedata.category(last)
+        return last == ',' or category in ('Ll', 'Lo') or category[0] == 'M'
+
+    @classmethod
+    def is_caps_heading(cls, text):
+        body = cls.BQ2_HEADING_MARKER_RE.sub('', text, count=1)
+        words = [w for w in re.findall(r'[^\W\d_]{2,}', body) if any(c.isupper() or c.islower() for c in w)]
+        if len(words) < 2:
+            return False
+        letters = [c for w in words for c in w if c.isupper() or c.islower()]
+        upper = sum(1 for c in letters if c.isupper())
+        return len(letters) >= 6 and upper / len(letters) >= 0.85
+
+    @classmethod
+    def marker_italic(cls, textline, text):
+        match = cls.BQ2_LIST_MARKER_RE.match(text) or cls.BQ2_DECIMAL_MARKER_RE.match(text)
+        if not match:
+            return False
+        size = len(match.group(0).strip())
+        chars = [c for c in textline.findall("text") if c.text and c.text.strip()][:size]
+        return bool(chars) and all(
+            cls.BQ2_ITALIC_FONT_RE.search(c.attrib.get("font", "")) or 'i' in c.attrib.get("fstyle", "")
+            for c in chars
+        )
+
+    @classmethod
+    def parse_list_marker(cls, text):
+        decimal = cls.BQ2_DECIMAL_MARKER_RE.match(text)
+        if decimal:
+            parts = decimal.group(1).split('.')
+            return {('num', 'dec:' + '.'.join(parts[:-1]), None, int(parts[-1]))}
+        match = cls.BQ2_LIST_MARKER_RE.match(text)
+        if not match:
+            return None
+        style = next(name for name in ('p', 'c', 'd') if match.group(name))
+        token = match.group(style)
+        if token.isdigit():
+            zero = chr(ord(token[0]) - unicodedata.digit(token[0]))
+            return {('num', style, None if zero == '0' else zero, int(token))}
+        if not token.isascii():
+            return cls.script_letter_readings(style, token)
+        case = 'u' if token.isupper() else 'l'
+        readings = set()
+        roman = _roman_to_int(token)
+        if roman and re.fullmatch(r'm{0,4}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})', token.lower()):
+            readings.add(('roman', style, case, roman))
+        if len(token) == 1:
+            readings.add(('alpha', style, case, ord(token.lower()) - ord('a') + 1))
+        return readings or None
+
+    @classmethod
+    def script_letters(cls, char):
+        block = ord(char) & ~0x7F
+        if block not in cls.BQ2_SCRIPT_LETTERS:
+            letters = [chr(code) for code in range(block, block + 0x80)
+                       if unicodedata.category(chr(code)) == 'Lo' and not unicodedata.decomposition(chr(code))]
+            anchors = {}
+            for index, letter in enumerate(letters):
+                name = unicodedata.name(letter, '')
+                for kind, suffix in (('vowel', ' LETTER A'), ('consonant', ' LETTER KA')):
+                    if name.endswith(suffix) and kind not in anchors:
+                        anchors[kind] = index
+            cls.BQ2_SCRIPT_LETTERS[block] = (letters, anchors)
+        return cls.BQ2_SCRIPT_LETTERS[block]
+
+    @classmethod
+    def script_letter_readings(cls, style, token):
+        if len(token) != 1 or unicodedata.category(token) != 'Lo':
+            return None
+        letters, anchors = cls.script_letters(token)
+        if token not in letters:
+            return None
+        block = ord(token) & ~0x7F
+        rank = letters.index(token)
+        for kind in ('consonant', 'vowel'):
+            if kind in anchors and rank >= anchors[kind]:
+                return {(kind, style, block, rank - anchors[kind] + 1)}
+        return None
+
+    @staticmethod
+    def list_follows(level, readings):
+        follows = set()
+        for r in readings:
+            steps = (1, 2) if r[0] in ('consonant', 'vowel') else (1,)
+            if any((r[0], r[1], r[2], r[3] - step) in level for step in steps):
+                follows.add(r)
+        return follows
+
+    def next_main_clauses(self):
+        last = self.bq2_main_last
+        candidates = {last + (1,)}
+        for depth in range(len(last)):
+            candidates.add(last[:depth] + (last[depth] + 1,))
+        return candidates
+
+    def main_clause_shift(self, row_x0, margin):
+        if self.bq2_main_offset is None:
+            return None
+        shift = abs(row_x0 - margin - self.bq2_main_offset)
+        if self.bq2_main_x0 is not None:
+            shift = min(shift, abs(row_x0 - self.bq2_main_x0))
+        return shift
+
+    def is_next_main_clause(self, nums, row_x0, tol, margin, in_context):
+        if nums is None:
+            return False
+        if self.bq2_main_last is None:
+            return not in_context or row_x0 <= margin + tol
+        shift = self.main_clause_shift(row_x0, margin)
+        tightly_aligned = shift is not None and shift <= 3.0
+        if not in_context and tightly_aligned:
+            last = self.bq2_main_last
+            if nums == (1,) or (nums > last and nums[0] <= last[0] + 1):
+                return True
+        if nums not in self.next_main_clauses():
+            return False
+        return shift is None or shift <= tol
+
+    def end_bq2_mode(self):
+        self.bq2_mode = None
+        self.bq2_list_stack = []
+        self.bq2_list_parent = None
+
+    def suspend_bq2_list(self):
+        if self.bq2_list_stack:
+            self.bq2_suspended = {"stack": [dict(level) for level in self.bq2_list_stack],
+                                  "parent": self.bq2_list_parent}
+
+    def resume_bq2_list(self, readings, row_x0, indent_tol):
+        suspended = self.bq2_suspended
+        if not suspended or not readings:
+            return False
+        stack = suspended["stack"]
+        for depth in range(len(stack) - 1, -1, -1):
+            matched = self.list_follows(stack[depth]["readings"], readings)
+            if matched and abs(row_x0 - stack[depth]["x0"]) <= indent_tol:
+                self.bq2_mode = "list"
+                self.bq2_list_parent = suspended["parent"]
+                self.bq2_list_stack = stack[:depth] + [{"readings": matched, "x0": row_x0}]
+                self.bq2_suspended = None
+                return True
+        return False
+
+    @staticmethod
+    def int_to_roman(value):
+        numerals = ((1000, 'm'), (900, 'cm'), (500, 'd'), (400, 'cd'), (100, 'c'), (90, 'xc'),
+                    (50, 'l'), (40, 'xl'), (10, 'x'), (9, 'ix'), (5, 'v'), (4, 'iv'), (1, 'i'))
+        out = ''
+        for number, numeral in numerals:
+            while value >= number:
+                out += numeral
+                value -= number
+        return out
+
+    def marker_token(self, reading):
+        kind, style, case, value = reading
+        if style.startswith('dec:'):
+            return style[4:] + '.' + str(value)
+        if kind == 'num':
+            token = str(value)
+            if case:
+                token = ''.join(chr(ord(case) + int(d)) for d in token)
+            case = None
+        elif kind in ('consonant', 'vowel'):
+            letters, anchors = self.script_letters(chr(case))
+            index = value - 1 + anchors.get(kind, 0)
+            token = letters[index] if 0 <= index < len(letters) else ''
+            case = None
+        elif kind == 'roman':
+            token = self.int_to_roman(value)
+        else:
+            token = chr(ord('a') + value - 1)
+        if case == 'u':
+            token = token.upper()
+        if style == 'p':
+            return '(' + token + ')'
+        if style == 'c':
+            return token + ')'
+        return token + '.'
+
+    def find_inline_markers(self, text, level):
+        found = []
+        readings = level["readings"]
+        pos = 1
+        while True:
+            best = None
+            for reading in readings:
+                nxt = (reading[0], reading[1], reading[2], reading[3] + 1)
+                token = self.marker_token(nxt)
+                match = None
+                for found_match in re.finditer(r'(?<=[\s\[])' + re.escape(token) + r'\s+(?=\S)', text[pos:]):
+                    following = text[pos + found_match.end()]
+                    if following in '"“\'‘(' or following.isupper() or (following.isalpha() and not following.islower()):
+                        match = re.compile(re.escape(token)).match(text, pos + found_match.start())
+                        break
+                if match and (best is None or match.start() < best[0]):
+                    best = (match.start(), match.end(), token, nxt)
+            if best is None:
+                return found
+            found.append(best[2])
+            readings = {best[3]}
+            level["readings"] = readings
+            pos = best[1]
+
+    @staticmethod
+    def textline_text(textline):
+        return " ".join("".join(t.text or "" for t in textline.findall("text")).split())
+
+    @classmethod
+    def textlines_italic(cls, textlines):
+        total = 0
+        italic = 0
+        for textline in textlines:
+            for char in textline.findall("text"):
+                if not char.text or not char.text.strip():
+                    continue
+                total += 1
+                if cls.BQ2_ITALIC_FONT_RE.search(char.attrib.get("font", "")) or 'i' in char.attrib.get("fstyle", ""):
+                    italic += 1
+        return total > 0 and italic / total >= cls.BQ2_ITALIC_RATIO
+
+    def collect_bq2_rows(self, page):
+        pg_num = getattr(page, 'pg_num', '?')
+        lines = []
+        tb_lines = {}
+        for tb, label in page.all_tbs.items():
+            if label is not None:
+                continue
+            for textline in tb.tbox.findall(".//textline"):
+                try:
+                    x0, y0, x1, y1 = (float(v) for v in textline.attrib["bbox"].split(","))
+                except Exception:
+                    continue
+                text = self.textline_text(textline)
+                if not text:
+                    continue
+                line = {"tb": tb, "el": textline, "text": text, "x0": x0, "x1": x1,
+                        "y_top": y1, "height": (y1 - y0) or 8.0}
+                lines.append(line)
+                tb_lines.setdefault(tb, []).append(line)
+        lines.sort(key=lambda l: (-l["y_top"], l["x0"]))
+        rows = []
+        for line in lines:
+            tolerance = 0.4 * line["height"]
+            if rows and abs(rows[-1]["y_top"] - line["y_top"]) <= tolerance:
+                rows[-1]["lines"].append(line)
+                continue
+            rows.append({"y_top": line["y_top"], "lines": [line]})
+        for row in rows:
+            row["lines"].sort(key=lambda l: l["x0"])
+            row["text"] = " ".join(l["text"] for l in row["lines"])
+            row["x0"] = row["lines"][0]["x0"]
+            row["x1"] = max(l["x1"] for l in row["lines"])
+            row["height"] = max(l["height"] for l in row["lines"])
+            row["category"] = "p"
+            row["page"] = pg_num
+            row["start"] = False
+            row["inline"] = []
+        return rows, tb_lines
+
+    def plan_main_clauses(self, pages):
+        self.bq2_main_plan = set()
+        candidates = []
+        page_rows = []
+        for page in pages:
+            pg_num = getattr(page, 'pg_num', '?')
+            rows, tb_lines = self.collect_bq2_rows(page)
+            if not rows:
+                continue
+            margin = self.body_margins.get(pg_num, self.doc_margin)
+            if margin is None:
+                margin = min(r["x0"] for r in rows)
+            page_rows.append((pg_num, margin, rows))
+            for row_idx, row in enumerate(rows):
+                nums, fmt = self.parse_main_clause(row["text"])
+                if nums is None or (len(nums) == 1 and not fmt):
+                    continue
+                if self.BQ2_QUOTE_OPEN_RE.match(row["text"]):
+                    continue
+                after_trigger = row_idx > 0 and bool(self.BQ2_TRIGGER_RE.search(rows[row_idx - 1]["text"]))
+                candidates.append({"key": (pg_num, round(row["y_top"], 1)), "nums": nums,
+                                   "after_trigger": after_trigger,
+                                   "offset": row["x0"] - margin,
+                                   "tol": max(6.0, 0.75 * row["height"])})
+        self.bq2_pitch = self.document_pitches(page_rows)
+        if not candidates:
+            return
+        main = max(candidates, key=lambda c: sum(
+            1 for o in candidates if abs(o["offset"] - c["offset"]) <= c["tol"]))
+        aligned = [c for c in candidates if abs(c["offset"] - main["offset"]) <= c["tol"]]
+        last = None
+        mains = []
+        for idx, cand in enumerate(aligned):
+            nums = cand["nums"]
+            accept = last is None or nums in self.main_successors(last)
+            if not accept and idx + 1 < len(aligned) and not cand["after_trigger"]:
+                following = aligned[idx + 1]["nums"]
+                accept = following in self.main_successors(nums) \
+                    and following not in self.main_successors(last)
+            if accept:
+                self.bq2_main_plan.add(cand["key"])
+                mains.append((cand["key"], nums))
+                last = nums
+            else:
+                following = aligned[idx + 1]["nums"] if idx + 1 < len(aligned) else None
+                self.logger.debug(f"blockquote_v2 plan skipped {nums} on page {cand['key'][0]} "
+                                  f"after {last}, next {following}")
+        right_edge = self.doc_right if self.doc_right is not None \
+            else max(r["x1"] for _, _, rows in page_rows for r in rows)
+        self.plan_section_headings(page_rows, right_edge, mains)
+
+    @staticmethod
+    def pitch_class(row, margin):
+        return "margin" if abs(row["x0"] - margin) <= max(6.0, 0.75 * row["height"]) else "indent"
+
+    def document_pitches(self, page_rows):
+        gaps = {"margin": [], "indent": []}
+        for pg_num, margin, rows in page_rows:
+            for upper, lower in zip(rows, rows[1:]):
+                gap = upper["y_top"] - lower["y_top"]
+                if gap <= 0 or abs(upper["x0"] - lower["x0"]) > max(6.0, 0.75 * lower["height"]):
+                    continue
+                if self.pitch_class(upper, margin) != self.pitch_class(lower, margin):
+                    continue
+                gaps[self.pitch_class(lower, margin)].append(gap)
+        pitches = {}
+        for name, values in gaps.items():
+            if values:
+                values.sort()
+                pitches[name] = values[len(values) // 2]
+        return pitches
+
+    def plan_section_headings(self, page_rows, right_edge, mains):
+        self.bq2_section_plan = set()
+        candidates = []
+        order = {}
+        for pg_idx, (pg_num, margin, rows) in enumerate(page_rows):
+            for row_idx, row in enumerate(rows):
+                order[(pg_num, round(row["y_top"], 1))] = (pg_idx, row_idx)
+        mains = sorted((order[key], nums) for key, nums in mains if key in order)
+
+        def restarts_after(key):
+            pos = order[key]
+            before = [nums for at, nums in mains if at < pos]
+            after = [nums for at, nums in mains if at > pos]
+            return bool(after) and (not before or after[0] <= before[-1])
+
+        for pg_num, margin, rows in page_rows:
+            for row in rows:
+                match = self.BQ2_SECTION_RE.match(row["text"])
+                if not match or self.BQ2_TERMINAL_RE.search(row["text"]):
+                    continue
+                value = _roman_to_int(match.group(1))
+                if not value or row["x1"] >= right_edge - 3.0 * row["height"]:
+                    continue
+                candidates.append({"key": (pg_num, round(row["y_top"], 1)), "value": value,
+                                   "case": match.group(1).isupper(), "offset": row["x0"] - margin,
+                                   "tol": max(6.0, 0.75 * row["height"])})
+        last = None
+        for idx, cand in enumerate(candidates):
+            same = [c for c in candidates[idx + 1:] if c["case"] == cand["case"]
+                    and abs(c["offset"] - cand["offset"]) <= cand["tol"]]
+            follows = last is not None and cand["case"] == last["case"] \
+                and cand["value"] == last["value"] + 1 and abs(cand["offset"] - last["offset"]) <= cand["tol"]
+            leads = bool(same) and same[0]["value"] == cand["value"] + 1
+            if (follows or leads) and restarts_after(cand["key"]):
+                self.bq2_section_plan.add(cand["key"])
+                last = cand
+
+    @staticmethod
+    def main_successors(last):
+        candidates = {last + (1,)}
+        for depth in range(len(last)):
+            candidates.add(last[:depth] + (last[depth] + 1,))
+        return candidates
+
+    def judgment_blockquote_v2(self, page):
+        pg_num = getattr(page, 'pg_num', '?')
+        rows, tb_lines = self.collect_bq2_rows(page)
+        if not rows:
+            return
+
+        block_spans = [
+            (tb.coords[1], tb.coords[3]) for tb, label in page.all_tbs.items()
+            if label == "figure" or (
+                isinstance(label, tuple) and label[0] in ("table", "borderless_table")
+            )
+        ]
+
+        margin = self.body_margins.get(getattr(page, 'pg_num', None), self.doc_margin)
+        if margin is None:
+            margin = min(r["x0"] for r in rows)
+        right_edge = self.doc_right if self.doc_right is not None else max(r["x1"] for r in rows)
+
+        def spans_between(row_idx):
+            if not block_spans:
+                return False
+            row_top = rows[row_idx]["y_top"]
+            if row_idx == 0:
+                return any(y0 >= row_top - 1.0 for y0, y1 in block_spans)
+            previous_bottom = min(l["y_top"] - l["height"] for l in rows[row_idx - 1]["lines"])
+            return any(y1 <= previous_bottom + 1.0 and y0 >= row_top - 1.0 for y0, y1 in block_spans)
+
+        def set_list(row, start):
+            row["category"] = f"list:{max(len(self.bq2_list_stack) - 1, 0)}"
+            row["start"] = start
+            for depth, level in enumerate(self.bq2_list_stack):
+                fresh = start and depth == len(self.bq2_list_stack) - 1
+                level["text"] = row["text"] if fresh else level.get("text", "") + " " + row["text"]
+
+        gaps = sorted(
+            rows[i - 1]["y_top"] - rows[i]["y_top"] for i in range(1, len(rows))
+            if 0 < rows[i - 1]["y_top"] - rows[i]["y_top"] <= 3.0 * rows[i]["height"]
+        )
+        pitch = gaps[len(gaps) // 2] if gaps else 2.0 * max(r["height"] for r in rows)
+
+        for row_idx, row in enumerate(rows):
+            text = row["text"]
+            row_x0 = row["x0"]
+            unit_h = row["height"]
+            tol = max(12.0, 1.5 * unit_h)
+            indent_tol = max(6.0, 0.75 * unit_h)
+            is_indented = row_x0 > margin + indent_tol
+            prev_text = self.bq2_prev_text
+            prev_trigger = prev_text is not None and bool(self.BQ2_TRIGGER_RE.search(prev_text))
+            prev_open = prev_text is not None and not self.BQ2_TERMINAL_RE.search(prev_text) \
+                and not prev_trigger
+            prev_wrapped = prev_open and self.bq2_prev_x1 is not None \
+                and self.bq2_prev_x1 >= right_edge - 3.0 * unit_h
+            prev_midsentence = prev_wrapped and self.ends_inside_sentence(prev_text)
+            prev_full = self.bq2_prev_x1 is not None and self.bq2_prev_x1 >= right_edge - 3.0 * unit_h
+            row_pitch = self.bq2_pitch.get(self.pitch_class(row, margin), pitch)
+            if self.bq2_prev_page == pg_num and self.bq2_prev_top is not None:
+                tight = self.bq2_prev_top - row["y_top"] <= 1.25 * max(pitch, row_pitch)
+            else:
+                tight = row_idx == 0
+            edges = [margin] + [level["x0"] for level in self.bq2_list_stack]
+            flows_on = (prev_full or self.bq2_prev_start) and tight \
+                and any(abs(row_x0 - edge) <= indent_tol for edge in edges)
+            pending = self.bq2_pending_trigger
+            if self.bq2_mode is not None and is_separator_line(text):
+                if self.bq2_mode == "list":
+                    set_list(row, False)
+                else:
+                    row["category"] = "blockquote"
+                continue
+            self.bq2_pending_trigger = bool(self.BQ2_TRIGGER_RE.search(text))
+
+            if spans_between(row_idx):
+                if self.bq2_mode == "italic":
+                    self.end_bq2_mode()
+                pending = False
+
+            is_italic = self.textlines_italic([l["el"] for l in row["lines"]])
+            planned = (pg_num, round(row["y_top"], 1)) in self.bq2_main_plan
+            if (pg_num, round(row["y_top"], 1)) in self.bq2_section_plan:
+                if self.bq2_mode is not None:
+                    self.logger.debug(f"blockquote_v2 {self.bq2_mode} closed on page {pg_num} at section: {text[:60]}")
+                self.end_bq2_mode()
+                self.bq2_suspended = None
+                self.remember_bq2_row(row)
+                continue
+            if self.bq2_mode == "italic":
+                if is_italic and not planned:
+                    row["category"] = "blockquote"
+                    self.remember_bq2_row(row)
+                    continue
+                self.logger.debug(f"blockquote_v2 italic closed on page {pg_num}: {text[:60]}")
+                self.end_bq2_mode()
+
+            nums, main_fmt = self.parse_main_clause(text)
+            if nums is not None and len(nums) == 1 and not main_fmt:
+                nums = None
+            readings = self.parse_list_marker(text)
+            in_context = pending or self.bq2_mode is not None
+            first_main = nums == (1,) and main_fmt and row_x0 <= margin + indent_tol
+            if self.bq2_main_last is None and in_context and not first_main:
+                is_main = False
+            elif prev_midsentence:
+                is_main = False
+            else:
+                is_main = self.is_next_main_clause(nums, row_x0, tol, margin, in_context)
+            list_continues = self.bq2_mode == "list" and bool(readings) and any(
+                self.list_follows(level["readings"], readings) for level in self.bq2_list_stack)
+            if not is_main and not prev_midsentence and not pending and not list_continues and planned:
+                is_main = True
+            if nums is not None and main_fmt and not is_main:
+                self.logger.debug(f"blockquote_v2 number {nums} on page {pg_num} at x0={row_x0:.1f} "
+                                  f"not taken as main clause after {self.bq2_main_last}")
+
+            if is_main and self.bq2_mode == "list" and readings:
+                top_x0 = self.bq2_list_stack[-1]["x0"] if self.bq2_list_stack else None
+                list_match = any(self.list_follows(level["readings"], readings) for level in self.bq2_list_stack)
+                list_aligned = top_x0 is not None and abs(row_x0 - top_x0) <= indent_tol
+                shift = self.main_clause_shift(row_x0, margin)
+                main_aligned = shift is None or shift <= indent_tol
+                if list_match and (list_aligned and not main_aligned or main_fmt != self.bq2_main_fmt):
+                    is_main = False
+
+            if is_main:
+                if self.bq2_mode is not None:
+                    self.logger.debug(f"blockquote_v2 {self.bq2_mode} closed on page {pg_num} at main clause {nums}")
+                self.end_bq2_mode()
+                self.bq2_suspended = None
+                self.logger.debug(f"blockquote_v2 main clause {nums} on page {pg_num} at x0={row_x0:.1f}")
+                self.bq2_main_last = nums
+                self.bq2_main_offset = row_x0 - margin
+                self.bq2_main_x0 = row_x0
+                self.bq2_main_fmt = main_fmt
+                self.remember_bq2_row(row)
+                continue
+
+            if self.bq2_mode in (None, "list") and self.is_caps_heading(text) and not prev_midsentence:
+                if self.bq2_mode is not None:
+                    self.logger.debug(f"blockquote_v2 list closed on page {pg_num} at heading: {text[:60]}")
+                self.end_bq2_mode()
+                self.bq2_suspended = None
+                self.remember_bq2_row(row)
+                continue
+
+            if self.bq2_mode == "list":
+                handled = False
+                start = False
+                if readings:
+                    for depth in range(len(self.bq2_list_stack) - 1, -1, -1):
+                        level = self.bq2_list_stack[depth]
+                        matched = self.list_follows(level["readings"], readings)
+                        if not matched:
+                            continue
+                        misaligned = abs(row_x0 - level["x0"]) > indent_tol
+                        if misaligned and (prev_midsentence or self.quote_unclosed(level.get("text", ""))):
+                            continue
+                        del self.bq2_list_stack[depth + 1:]
+                        self.bq2_list_stack[depth] = {"readings": matched, "x0": row_x0}
+                        handled = start = True
+                        break
+                    if not handled and not prev_midsentence \
+                            and (prev_trigger or not self.quote_unclosed(self.bq2_list_stack[-1].get("text", ""))):
+                        kinds = {(r[0], r[1], r[2]) for level in self.bq2_list_stack for r in level["readings"]}
+                        starts = {r for r in readings if r[3] == 1 and (r[0], r[1], r[2]) not in kinds}
+                        if starts:
+                            self.bq2_list_stack.append({"readings": starts, "x0": row_x0})
+                            handled = start = True
+                if not handled:
+                    first_x0 = self.bq2_list_stack[0]["x0"]
+                    indented = row_x0 > first_x0 + 3.0
+                    handled = prev_open or prev_trigger or flows_on \
+                        or (indented and (tight or self.quote_unclosed(self.bq2_list_stack[-1].get("text", ""))))
+                if handled:
+                    set_list(row, start)
+                    row["inline"] = self.find_inline_markers(text, self.bq2_list_stack[-1])
+                    self.remember_bq2_row(row)
+                    continue
+                self.logger.debug(f"blockquote_v2 list closed on page {pg_num} (x0={row_x0:.1f} margin={margin:.1f} "
+                                  f"pitch={pitch:.1f} tight={tight} prev_full={prev_full}): {text[:60]}")
+                resume_quote = self.bq2_list_parent == "quote"
+                self.suspend_bq2_list()
+                self.end_bq2_mode()
+                if resume_quote:
+                    self.bq2_mode = "quote"
+
+            if self.bq2_mode == "quote":
+                starts = {r for r in readings if r[3] == 1} if readings else set()
+                if pending and starts:
+                    self.bq2_mode = "list"
+                    self.bq2_list_parent = "quote"
+                    self.bq2_list_stack = [{"readings": starts, "x0": row_x0}]
+                    set_list(row, True)
+                    row["inline"] = self.find_inline_markers(text, self.bq2_list_stack[-1])
+                    self.remember_bq2_row(row)
+                    continue
+                if is_indented or readings or nums is not None or prev_open:
+                    row["category"] = "blockquote"
+                    self.remember_bq2_row(row)
+                    continue
+                self.logger.debug(f"blockquote_v2 marker quote closed on page {pg_num}: {text[:60]}")
+                self.end_bq2_mode()
+
+            if self.bq2_mode is None and not prev_midsentence and self.resume_bq2_list(readings, row_x0, indent_tol):
+                set_list(row, True)
+                row["inline"] = self.find_inline_markers(text, self.bq2_list_stack[-1])
+                self.logger.debug(f"blockquote_v2 list resumed on page {pg_num}: {text[:60]}")
+                self.remember_bq2_row(row)
+                continue
+
+            if pending:
+                starts = {r for r in readings if r[3] == 1} if readings else set()
+                if starts and is_italic and not self.marker_italic(row["lines"][0]["el"], text):
+                    is_italic = False
+                if is_italic:
+                    self.bq2_mode = "italic"
+                    row["category"] = "blockquote"
+                    self.logger.debug(f"blockquote_v2 italic opened on page {pg_num}: {text[:60]}")
+                elif starts:
+                    self.bq2_mode = "list"
+                    self.bq2_suspended = None
+                    self.bq2_list_stack = [{"readings": starts, "x0": row_x0}]
+                    set_list(row, True)
+                    row["inline"] = self.find_inline_markers(text, self.bq2_list_stack[-1])
+                    self.logger.debug(f"blockquote_v2 list opened on page {pg_num}: {text[:60]}")
+                elif readings or nums is not None:
+                    self.bq2_mode = "quote"
+                    row["category"] = "blockquote"
+                    self.logger.debug(f"blockquote_v2 marker quote opened on page {pg_num}: {text[:60]}")
+                elif is_indented and self.BQ2_QUOTE_OPEN_RE.match(text):
+                    self.bq2_mode = "quote"
+                    row["category"] = "blockquote"
+                    self.logger.debug(f"blockquote_v2 quoted passage opened on page {pg_num}: {text[:60]}")
+            self.remember_bq2_row(row)
+
+        for row in rows:
+            for idx, line in enumerate(row["lines"]):
+                line["el"].set("bq2", row["category"])
+                if row["start"] and idx == 0:
+                    line["el"].set("bq2_start", "1")
+                if row["inline"] and idx == len(row["lines"]) - 1:
+                    line["el"].set("bq2_inline", "|".join(row["inline"]))
+        for tb, own in tb_lines.items():
+            categories = [l["el"].get("bq2") for l in own]
+            marked = [c for c in categories if c and c != "p"]
+            if marked:
+                page.all_tbs[tb] = marked[0]
+
+    def remember_bq2_row(self, row):
+        self.bq2_prev_text = row["text"]
+        self.bq2_prev_x1 = row["x1"]
+        self.bq2_prev_top = row["y_top"]
+        self.bq2_prev_page = row["page"]
+        self.bq2_prev_start = row["start"]
 
     def check_for_blockquotes_judgments(self, page, judgments_mode=False):
         trigger_re = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
