@@ -21,6 +21,7 @@ TYPE1_NAME_RE = re.compile(r'/(?:FullName|FontName)\s*[(/]([^)\s]*)')
 FLAG_ITALIC = 0x40
 FLAG_FORCE_BOLD = 0x40000
 BOLD_WEIGHT = 700
+OS2_STYLE_BITS = 0x61
 SPAN_ITALIC = 2
 SPAN_BOLD = 16
 SPAN_SCAN_PAGES = 60
@@ -133,7 +134,9 @@ class FontStyleReader:
         try:
             font = TTFont(io.BytesIO(buffer), lazy=True, fontNumber=0)
             mac_style = font['head'].macStyle if 'head' in font else 0
-            fs_selection = font['OS/2'].fsSelection if 'OS/2' in font else 0
+            has_os2 = 'OS/2' in font
+            fs_selection = font['OS/2'].fsSelection if has_os2 else 0
+            weight = font['OS/2'].usWeightClass if has_os2 else 0
             names = ' '.join(
                 str(record) for record in font['name'].names
                 if record.nameID in (2, 4, 17) and record.platformID in (1, 3)
@@ -142,9 +145,15 @@ class FontStyleReader:
         except Exception:
             return ''
         style = ''
-        if mac_style & 1 or fs_selection & 0x20 or BOLD_NAME_RE.search(names):
+        if has_os2 and fs_selection & OS2_STYLE_BITS:
+            bold = fs_selection & 0x20 or weight >= BOLD_WEIGHT
+            italic = fs_selection & 1
+        else:
+            bold = mac_style & 1
+            italic = mac_style & 2
+        if bold or BOLD_NAME_RE.search(names):
             style += 'b'
-        if mac_style & 2 or fs_selection & 1 or ITALIC_NAME_RE.search(names):
+        if italic or ITALIC_NAME_RE.search(names):
             style += 'i'
         return style
 

@@ -1,5 +1,6 @@
 import re
 import logging
+import unicodedata
 import bisect
 from pathlib import Path
 
@@ -12,7 +13,9 @@ from .SentenceEndDetector import (
     INDIC_SENTENCE_END_CHARS,
     INDIC_SEMICOLON_CHARS,
 )
-from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS, is_separator_line, starts_with_bullet_glyph
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_LETTER_CHARS, is_separator_line, starts_with_bullet_glyph, \
+    follows_clause_break
+from .Amendment import Amendment
 
 
 TAG_FOR_LABEL = {
@@ -34,6 +37,7 @@ NUMERIC_PARA_MARKER_RE = re.compile(r'^\s*\d{1,3}(?:\.\d{1,3}){0,4}\.?\s+\S')
 STRICT_ROMAN_RE = re.compile(r'^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$', re.IGNORECASE)
 
 PARA_GAP_FACTOR = 1.15
+BLANK_LINE_RATIO = 0.5
 FULL_LINE_WIDTH_RATIO = 0.92
 PARA_END_RE = re.compile(r'[.?!' + INDIC_SENTENCE_END_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
 MERGE_BOUNDARY_RE = re.compile(r'[.?!:;' + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
@@ -53,6 +57,12 @@ ENUM_MARKER_RE = re.compile(r'^\s*(?:\((?P<p>[ivxlcdm]{1,8}|[IVXLCDM]{1,8}|[A-Za
 ROMAN_VALUES = {'i': 1, 'v': 5, 'x': 10, 'l': 50, 'c': 100, 'd': 500, 'm': 1000}
 ENUM_ALIGN_RATIO = 0.5
 TRIGGER_END_RE = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
+CLOSING_TOKEN_START_RE = re.compile(r'^\s*[^\s()\[\]]{1,8}[)\]]')
+BARE_NUMBER_START_RE = re.compile(r'^\s*\d{1,4}\s+\S')
+PARENTHETICAL_PERIOD_RE = re.compile(r'[.' + ''.join(INDIC_SENTENCE_END_CHARS) + r']$')
+SENTENCE_CLOSE_RE = re.compile(r'[.?!' + ''.join(INDIC_SENTENCE_END_CHARS) + r'][\)\]"\'”’»]*$')
+QUOTE_SEQUENCE_MARKER_RE = re.compile(r'(?:(?<=\s)|(?<=>))(?:<[biu]>)*(\([^\W_]{1,6}\)|[^\W_]{1,6}\))(?=\s)')
+STYLE_TAG_RE = re.compile(r'<[^>]+>')
 BLOCK_CLOSE_RE = re.compile(r'</(?:p|blockquote|table|section|ol|ul|li|h4|center|div|pre)>')
 
 WIDE_SPACE_RE = re.compile(r'[ \t]{2,}')
@@ -411,6 +421,32 @@ class JudgmentBuilder(TableBuilder):
             return False
         return bool(TITLE_ENUM_RE.match(text))
 
+    @staticmethod
+    def local_gap_breaks(units, normal):
+        if not normal:
+            return set()
+        texts = [(idx, u) for idx, u in enumerate(units) if u['kind'] == 'text' and 'y0' in u]
+        gaps = []
+        for (_, upper), (idx, lower) in zip(texts, texts[1:]):
+            height = max(lower.get('y1', lower['y0']) - lower['y0'], upper.get('y1', upper['y0']) - upper['y0'])
+            gap = upper['y0'] - lower['y0']
+            if upper.get('page_num') != lower.get('page_num') or gap < height:
+                gaps.append((idx, None, height))
+            else:
+                gaps.append((idx, gap, height))
+        breaks = set()
+        for position, (idx, gap, height) in enumerate(gaps):
+            if gap is None:
+                continue
+            neighbours = [g for _, g, _ in gaps[max(0, position - 1):position] + gaps[position + 1:position + 2] if g is not None]
+            if not neighbours:
+                continue
+            smaller = min(neighbours)
+            if (smaller * PARA_GAP_FACTOR < normal and gap - smaller >= BLANK_LINE_RATIO * height
+                    and gap + BLANK_LINE_RATIO * height > max(neighbours)):
+                breaks.add(idx)
+        return breaks
+
     def median_line_gap(self, units):
         if self.doc_line_gap:
             return self.doc_line_gap
@@ -636,11 +672,14 @@ class JudgmentBuilder(TableBuilder):
         block_left = lefts[int(0.1 * (len(lefts) - 1))] if len(lefts) >= 3 else None
         justified = self.block_is_justified(units)
         item_starts = self.enum_item_starts(units)
+        local_breaks = self.local_gap_breaks(units, normal)
+        tight_block = bool(local_breaks)
         groups = []
         current = []
         prev_text = None
         prev_was_marker = True
         prev_was_separator = False
+        gap_breaks_seen = 0
 
         for idx, unit in enumerate(units):
             if unit['kind'] != 'text':
@@ -658,6 +697,10 @@ class JudgmentBuilder(TableBuilder):
                     or self.is_bullet_row(unit['value'], roman_ok=True)
                 )
             )
+            if is_marker_row and prev_text is not None and (
+                    self.parenthetical_continuation(prev_text['value'], unit['value'])
+                    or self.closes_open_bracket(prev_text['value'], unit['value'])):
+                is_marker_row = False
 
             starts_para = False
             if idx in item_starts:
@@ -678,6 +721,17 @@ class JudgmentBuilder(TableBuilder):
                     if (gap > normal * PARA_GAP_FACTOR
                             and self.is_merge_boundary(prev_text['value'])):
                         starts_para = True
+                    elif idx in local_breaks:
+                        starts_para = True
+                if (tight_block and gap_breaks_seen and prev_text is not None
+                        and prev_text.get('page_num') is not None
+                        and prev_text.get('page_num') != unit.get('page_num')
+                        and (not self.unit_reaches_right(prev_text) or self.is_merge_boundary(prev_text['value']))):
+                    starts_para = True
+                    unit['gap_break'] = True
+                if starts_para and idx in local_breaks:
+                    unit['gap_break'] = True
+                    gap_breaks_seen += 1
 
             is_separator = self.is_separator_text(unit['value'])
             if current and any(u['kind'] == 'text' for u in current) and (is_separator or prev_was_separator):
@@ -746,6 +800,12 @@ class JudgmentBuilder(TableBuilder):
                 return
         if self.try_continuation_merge(tag, body_text, styled_text, raws, is_heading, units):
             return
+        pieces = self.split_quote_sequence(styled_text) if tag == "blockquote" else None
+        if pieces:
+            for piece in pieces[:-1]:
+                self.builder += f"<blockquote>{piece}</blockquote>\n"
+            styled_text = pieces[-1]
+            body_text = STYLE_TAG_RE.sub('', styled_text)
         body = styled_text + ''.join(raws)
         start = len(self.builder)
         self.builder += f"<{tag}>{body}</{tag}>\n"
@@ -760,9 +820,56 @@ class JudgmentBuilder(TableBuilder):
                 'line_full': self.is_anchor_line_full(units),
                 'geometry': self.last_text_geometry(units),
                 'enum': self.anchor_enum(units),
+                'text': body_text,
             }
         else:
             self._merge_anchor = None
+
+    @staticmethod
+    def after_clause_break(before, allow_word):
+        return follows_clause_break(before, allow_word)
+
+    def split_quote_sequence(self, styled):
+        cuts = []
+        level = None
+        for match in QUOTE_SEQUENCE_MARKER_RE.finditer(styled):
+            readings = Amendment.parse_list_marker(match.group(1) + ' x')
+            if not readings:
+                continue
+            before = STYLE_TAG_RE.sub('', styled[:match.start()]).rstrip()
+            starts = {r for r in readings if r[3] == 1}
+            follows = Amendment.list_follows(level, readings) if level else set()
+            if follows and self.after_clause_break(before, True):
+                level = follows
+                cuts.append(match.start())
+            elif starts and len(cuts) < 2 and self.after_clause_break(before, False):
+                level = starts
+                cuts = [match.start()]
+        if len(cuts) < 2:
+            return None
+        pieces = []
+        previous = 0
+        carried = ''
+        for cut in cuts + [len(styled)]:
+            if cut == 0:
+                continue
+            piece = carried + styled[previous:cut]
+            if cut < len(styled):
+                piece = re.sub(r'(?:\s|<[biu]>)+$', '', piece)
+            open_tags = []
+            for tag_match in re.finditer(r'<(/?)([biu])>', piece):
+                if tag_match.group(1):
+                    if open_tags and open_tags[-1] == tag_match.group(2):
+                        open_tags.pop()
+                else:
+                    open_tags.append(tag_match.group(2))
+            if cut < len(styled):
+                piece += ''.join(f'</{t}>' for t in reversed(open_tags))
+                carried = ''.join(f'<{t}>' for t in open_tags)
+            if piece.strip():
+                pieces.append(piece.strip())
+            previous = cut
+        return pieces if len(pieces) > 1 else None
 
     def last_text_geometry(self, units):
         last = None
@@ -855,6 +962,12 @@ class JudgmentBuilder(TableBuilder):
             return False
         if self.continues_enum_list(anchor, units):
             return False
+        if any(u.get('gap_break') for u in units if u.get('kind') == 'text'):
+            return False
+        if tag in ("p", "blockquote") and anchor['tag'] == tag \
+                and self.parenthetical_continuation(anchor.get('text', ''), body_text) \
+                and not self.gap_separates(anchor, units):
+            return self.append_to_anchor(anchor, body_text, styled_text, raws, units)
         if anchor['complete'] or tag not in ("p", "blockquote"):
             return False
         if tag == "blockquote" and anchor['tag'] != "blockquote" and anchor.get('ends_with_trigger'):
@@ -875,6 +988,9 @@ class JudgmentBuilder(TableBuilder):
         lead = LEADING_WRAP_RE.sub('', body_text.strip())[:1]
         if lead.isupper() and not wrapped_line:
             return False
+        return self.append_to_anchor(anchor, body_text, styled_text, raws, units)
+
+    def append_to_anchor(self, anchor, body_text, styled_text, raws, units):
         close = f"</{anchor['tag']}>"
         idx = anchor['close_idx']
         if (self.builder[idx:idx + len(close)] != close
@@ -888,7 +1004,40 @@ class JudgmentBuilder(TableBuilder):
         anchor['boundary'] = self.is_merge_boundary(body_text)
         anchor['line_full'] = self.is_anchor_line_full(units)
         anchor['geometry'] = self.last_text_geometry(units)
+        anchor['text'] = body_text
         return True
+
+    @staticmethod
+    def closes_open_bracket(previous, following):
+        if not CLOSING_TOKEN_START_RE.match(following or ''):
+            return False
+        text = previous or ''
+        return text.count('(') > text.count(')') or text.count('[') > text.count(']')
+
+    @staticmethod
+    def parenthetical_continuation(previous, following):
+        if not BARE_NUMBER_START_RE.match(following or ''):
+            return False
+        text = (previous or '').rstrip()
+        if not text or text[-1] not in ')]':
+            return False
+        depth = 0
+        opening = None
+        for index in range(len(text) - 1, -1, -1):
+            if text[index] in ')]':
+                depth += 1
+            elif text[index] in '([':
+                depth -= 1
+                if depth == 0:
+                    opening = index
+                    break
+        if not opening:
+            return False
+        inner = text[opening + 1:-1].rstrip()
+        before = text[:opening].rstrip()
+        if not inner or not before or not PARENTHETICAL_PERIOD_RE.search(inner):
+            return False
+        return not SENTENCE_CLOSE_RE.search(before)
 
     def group_units_for_render(self, units):
         groups = []

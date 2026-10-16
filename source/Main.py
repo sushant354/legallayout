@@ -4473,6 +4473,29 @@ class Main:
 
         # top to bottom
         rows.sort(key=lambda z: (z["page"], -z["y0"], z["x0"]))
+        rights = sorted(r["x1"] for r in rows)
+        lefts = sorted(r["x0"] for r in rows)
+        text_right = rights[int(0.9 * (len(rights) - 1))]
+        text_left = lefts[int(0.1 * (len(lefts) - 1))]
+
+        def full_width(row):
+            height = max(row["y1"] - row["y0"], 1.0)
+            return row["x1"] >= text_right - height and row["x0"] <= text_left + height
+
+        def closing_match(index):
+            return not any(full_width(r) for r in rows[index + 1:])
+
+        def first_prose_paragraph():
+            for k in range(len(rows) - 2):
+                row, nxt, after = rows[k], rows[k + 1], rows[k + 2]
+                if not (row["page"] == nxt["page"] == after["page"]):
+                    continue
+                height = max(row["y1"] - row["y0"], 1.0)
+                if row["x0"] <= text_left + height or row["x1"] < text_right - height:
+                    continue
+                if full_width(nxt) and full_width(after):
+                    return k
+            return None
 
 
         # SEARCH TIER BY TIER
@@ -4510,6 +4533,9 @@ class Main:
                     m = rgx.search(built)
                     if m and (len(built) - m.end()) > trailing_slack:
                         m = rgx.search(built, row_start)
+                    if m and (len(built) - m.end()) <= trailing_slack and closing_match(i):
+                        self.logger.info(f"Ignored tier {tier_idx} match on a closing row: {row['text'][:60]}")
+                        continue
                     if m and (len(built) - m.end()) <= trailing_slack:
                         hit = i
                         hit_row = row
@@ -4528,7 +4554,12 @@ class Main:
 
 
         if hit is None:
-            return
+            body_start = first_prose_paragraph()
+            if not body_start:
+                return
+            hit = body_start - 1
+            hit_row = rows[hit]
+            self.logger.info(f"No header tier matched; front matter ends before the first prose paragraph: {rows[body_start]['text'][:60]}")
 
         # FIND ALL ROWS WITH EXACT SAME y0,y1 AS MATCHED ROW
 
@@ -4627,6 +4658,90 @@ class Main:
                 continue
             lines.append({'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1, 'text': text})
         return lines
+
+    def detect_table_toc(self, pages, heading_re, min_entries):
+        heading_row = None
+        for pg_idx, pg in enumerate(pages):
+            page_num = pg_idx + 1
+            if page_num not in self.all_pgs:
+                continue
+            page_obj = self.all_pgs[page_num]
+            candidates = []
+            for tb, label in page_obj.all_tbs.items():
+                if label not in (None, "pre_header"):
+                    continue
+                for line in self.extract_toc_lines(tb):
+                    if heading_re.match(line["text"]):
+                        candidates.append({"page": page_num, "tbs": [tb], "text": line["text"],
+                                           "y0": line["y0"], "y1": line["y1"]})
+            if candidates:
+                heading_row = max(candidates, key=lambda c: c["y0"])
+                break
+        if heading_row is None:
+            return
+        table_entries, table_labels = self.toc_entries_from_tables(heading_row, min_entries)
+        if not table_entries:
+            return
+        self.html_builder.toc_entries = table_entries
+        self.html_builder.toc_title = heading_row["text"].strip()
+        for page_num, tb in [(heading_row["page"], tb) for tb in heading_row["tbs"]] + table_labels:
+            self.all_pgs[page_num].all_tbs[tb] = "toc"
+        self.logger.info(f"Table of contents read from a table: {len(table_entries)} entries")
+
+    def toc_entries_from_tables(self, heading_row, min_entries):
+        page_ref_re = re.compile(r'^\s*\(?\d{1,4}\)?(?:\s*\S{1,4}\s*\(?\d{1,4}\)?)?\s*$')
+        serial_re = re.compile(r'^\s*[\d\W_]{1,6}\s*$')
+        first_number_re = re.compile(r'\d+')
+
+        def rows_of(frame):
+            found = []
+            total = 0
+            for _, record in frame.iterrows():
+                cells = [re.sub(r'\s+', ' ', str(cell)).strip() for cell in record]
+                cells = [cell for cell in cells if cell]
+                if not cells:
+                    continue
+                total += 1
+                if len(cells) < 2 or not page_ref_re.match(cells[-1]):
+                    continue
+                body = cells[:-1]
+                while len(body) > 1 and serial_re.match(body[0]):
+                    body.pop(0)
+                text = ' '.join(body).strip()
+                if not text or serial_re.match(text):
+                    continue
+                found.append({"text": text, "page_no": first_number_re.search(cells[-1]).group(0),
+                              "x0": 0.0, "level": 1})
+            if not found or len(found) * 2 < total:
+                return None
+            return found
+
+        entries = []
+        used = []
+        for page_num in sorted(p for p in self.all_pgs if p >= heading_row["page"]):
+            page_obj = self.all_pgs[page_num]
+            source = getattr(page_obj, 'tabular_datas', None)
+            tables = getattr(source, 'tables', None) or {}
+            boxes = getattr(source, 'table_bbox', None) or {}
+            ordered = sorted((tid for tid in tables if tid in boxes), key=lambda tid: -boxes[tid][3])
+            taken = False
+            for tid in ordered:
+                if page_num == heading_row["page"] and boxes[tid][3] > heading_row["y1"] + 1.0:
+                    continue
+                rows = rows_of(tables[tid])
+                if rows is None:
+                    break
+                entries.extend(rows)
+                taken = True
+                for tb, label in page_obj.all_tbs.items():
+                    if isinstance(label, tuple) and len(label) > 1 and label[1] == tid \
+                            and label[0] in ("table", "table_boilerplate"):
+                        used.append((page_num, tb))
+            if not taken:
+                break
+        if len(entries) < min_entries:
+            return [], []
+        return entries, used
 
     def detect_toc(self, pages):
         TOC_HEADING_RE = re.compile(
@@ -4733,6 +4848,8 @@ class Main:
                 break
 
         if heading_idx is None:
+            if self.pdf_type == 'judgments':
+                self.detect_table_toc(pages, TOC_HEADING_RE, MIN_ENTRIES)
             return
 
         heading_row = rows[heading_idx]
@@ -4783,6 +4900,18 @@ class Main:
             break
 
         if len(entries) < MIN_ENTRIES:
+            if self.pdf_type != 'judgments':
+                return
+            table_entries, table_labels = self.toc_entries_from_tables(heading_row, MIN_ENTRIES)
+            if not table_entries:
+                return
+            self.html_builder.toc_entries = table_entries
+            self.html_builder.toc_title = heading_text
+            for page_num, tb in [(heading_row["page"], tb) for tb in heading_row["tbs"]] + table_labels:
+                page_obj = self.all_pgs[page_num]
+                if page_obj.all_tbs.get(tb) is None or isinstance(page_obj.all_tbs.get(tb), tuple):
+                    page_obj.all_tbs[tb] = "toc"
+            self.logger.info(f"Table of contents read from {len(table_labels)} table cell boxes: {len(table_entries)} entries")
             return
 
         stack = []

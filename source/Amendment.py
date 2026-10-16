@@ -157,6 +157,7 @@ class Amendment:
         self.bq2_prev_text = None
         self.bq2_prev_x1 = None
         self.bq2_suspended = None
+        self.bq2_quote_in_list = False
         self.bq2_prev_top = None
         self.bq2_prev_page = None
         self.bq2_prev_start = False
@@ -742,6 +743,7 @@ class Amendment:
 
     def end_bq2_mode(self):
         self.bq2_mode = None
+        self.bq2_quote_in_list = False
         self.bq2_list_stack = []
         self.bq2_list_parent = None
 
@@ -776,7 +778,8 @@ class Amendment:
                 value -= number
         return out
 
-    def marker_token(self, reading):
+    @classmethod
+    def marker_token(cls, reading):
         kind, style, case, value = reading
         if style.startswith('dec:'):
             return style[4:] + '.' + str(value)
@@ -786,12 +789,12 @@ class Amendment:
                 token = ''.join(chr(ord(case) + int(d)) for d in token)
             case = None
         elif kind in ('consonant', 'vowel'):
-            letters, anchors = self.script_letters(chr(case))
+            letters, anchors = cls.script_letters(chr(case))
             index = value - 1 + anchors.get(kind, 0)
             token = letters[index] if 0 <= index < len(letters) else ''
             case = None
         elif kind == 'roman':
-            token = self.int_to_roman(value)
+            token = cls.int_to_roman(value)
         else:
             token = chr(ord('a') + value - 1)
         if case == 'u':
@@ -911,6 +914,23 @@ class Amendment:
             return
         main = max(candidates, key=lambda c: sum(
             1 for o in candidates if abs(o["offset"] - c["offset"]) <= c["tol"]))
+        if not any(c["nums"] == (1,) for c in candidates if abs(c["offset"] - main["offset"]) <= c["tol"]):
+            for first in candidates:
+                if first["nums"] != (1,):
+                    continue
+                column = [c for c in candidates if abs(c["offset"] - first["offset"]) <= first["tol"]]
+                column = column[column.index(first):]
+                run = 0
+                for expected, cand in enumerate(column, start=1):
+                    if cand["nums"] != (expected,):
+                        break
+                    run += 1
+                dense_values = {c["nums"] for c in candidates if abs(c["offset"] - main["offset"]) <= c["tol"]}
+                if run >= 3 and (run + 1,) not in dense_values:
+                    self.logger.debug(f"blockquote_v2 plan follows the column whose numbering starts at 1 "
+                                      f"(offset {first['offset']:.1f}) over the denser one (offset {main['offset']:.1f})")
+                    main = first
+                    break
         aligned = [c for c in candidates if abs(c["offset"] - main["offset"]) <= c["tol"]]
         last = None
         mains = []
@@ -1182,8 +1202,22 @@ class Amendment:
                 self.end_bq2_mode()
                 if resume_quote:
                     self.bq2_mode = "quote"
+                elif is_indented and self.BQ2_QUOTE_OPEN_RE.match(text):
+                    self.bq2_mode = "quote"
+                    self.bq2_quote_in_list = True
+                    row["category"] = "blockquote"
+                    self.logger.debug(f"blockquote_v2 quoted passage inside list opened on page {pg_num}: {text[:60]}")
+                    self.remember_bq2_row(row)
+                    continue
 
             if self.bq2_mode == "quote":
+                if self.bq2_quote_in_list and not prev_midsentence and self.resume_bq2_list(readings, row_x0, indent_tol):
+                    self.bq2_quote_in_list = False
+                    set_list(row, True)
+                    row["inline"] = self.find_inline_markers(text, self.bq2_list_stack[-1])
+                    self.logger.debug(f"blockquote_v2 list resumed after quote on page {pg_num}: {text[:60]}")
+                    self.remember_bq2_row(row)
+                    continue
                 starts = {r for r in readings if r[3] == 1} if readings else set()
                 if pending and starts:
                     self.bq2_mode = "list"

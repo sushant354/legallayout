@@ -2638,3 +2638,21 @@ def split_at_bullet_glyphs(text):
             segments.append(piece.strip())
         previous = cut
     return segments
+
+
+def is_word_token(token):
+    return bool(token) and all(unicodedata.category(c)[0] in ('L', 'M') for c in token)
+
+
+def follows_clause_break(before, allow_word=False):
+    before = (before or '').rstrip()
+    if not before:
+        return True
+    if unicodedata.category(before[-1]) in ('Po', 'Pd'):
+        return True
+    if allow_word:
+        parts = before.rsplit(None, 1)
+        if len(parts) == 2 and is_word_token(parts[1]):
+            head = parts[0].rstrip()
+            return bool(head) and unicodedata.category(head[-1]) in ('Po', 'Pd')
+    return False
