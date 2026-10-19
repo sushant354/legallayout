@@ -1203,8 +1203,8 @@ class TableBuilder:
         fstyle = text_el.attrib.get('fstyle', '')
         bold = bool(STYLE_BOLD_FONT_RE.search(font)) or 'b' in fstyle
         italic = bool(STYLE_ITALIC_FONT_RE.search(font)) or 'i' in fstyle
-        underlined = False
-        if underlines and 'bbox' in text_el.attrib:
+        underlined = 'u' in fstyle
+        if underlines and not underlined and 'bbox' in text_el.attrib:
             try:
                 cx0, cy0, cx1, cy1 = map(float, text_el.attrib['bbox'].split(','))
             except ValueError:
@@ -1357,10 +1357,12 @@ class TableBuilder:
 
     def cluster_rows_by_position(self, items):
         rows = []
-        for item in sorted(items, key=lambda it: (-it['y0'], it['x0'])):
+        for item in sorted(items, key=lambda it: (it.get('page_num') or 0, -it['y0'], it['x0'])):
             placed_row = None
             for row in rows:
                 ref = row[0]
+                if ref.get('page_num') != item.get('page_num'):
+                    continue
                 row_height = max(ref['y1'] - ref['y0'], item['y1'] - item['y0'], 1.0)
                 if abs(item['y0'] - ref['y0']) <= row_height * 0.4:
                     placed_row = row
@@ -1370,7 +1372,7 @@ class TableBuilder:
             else:
                 rows.append([item])
 
-        rows.sort(key=lambda row: -row[0]['y0'])
+        rows.sort(key=lambda row: (row[0].get('page_num') or 0, -row[0]['y0']))
         for row in rows:
             row.sort(key=lambda it: it['x0'])
         return rows
@@ -1392,7 +1394,10 @@ class TableBuilder:
     def pre_line_cells(self, item):
         cells = item.get('cells')
         if cells:
-            return cells
+            page_num = item.get('page_num')
+            if page_num is None:
+                return cells
+            return [dict(cell, page_num=page_num) for cell in cells]
         return [item]
 
     def render_pre_block(self, lines):
@@ -1507,6 +1512,8 @@ class TableBuilder:
             duplicate = False
             for other in kept:
                 if line['text'] != other['text']:
+                    continue
+                if line.get('page_num') != other.get('page_num'):
                     continue
                 y_span = max(line['y1'], other['y1']) - min(line['y0'], other['y0'])
                 x_span = max(line['x1'], other['x1']) - min(line['x0'], other['x0'])

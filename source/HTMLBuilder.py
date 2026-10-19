@@ -1525,7 +1525,10 @@ class HTMLBuilder(TableBuilder):
                     self.addTable(self.pending_table[0])
                     self.pending_table = None
                     self.flush_pending_header_footer()
-                self.pending_pre_lines.extend(self.extract_textlines(tb))
+                pre_lines = self.extract_textlines(tb)
+                for pre_line in pre_lines:
+                    pre_line['page_num'] = self.current_page_num
+                self.pending_pre_lines.extend(pre_lines)
                 continue
 
             if label == "header":

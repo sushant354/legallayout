@@ -3379,10 +3379,12 @@ class Main:
                              end_page):
         parser_engine = self.get_scanned_copy_parser_engine(pdf_type)
         if parser_engine == "chromelens":
-            pages = ChromeLensParserTool(self.pdf_path)\
+            pages = ChromeLensParserTool(self.pdf_path,
+                                         detect_styles=pdf_type not in BLUEBELL_PDF_TYPES)\
                                 .build_xml(start_page, end_page)
         else:
-            pages = TesseractParserTool(self.pdf_path, self.ocr_language)\
+            pages = TesseractParserTool(self.pdf_path, self.ocr_language,
+                                        detect_styles=pdf_type not in BLUEBELL_PDF_TYPES)\
                                             .build_xml(start_page, end_page)
         self.print_page_xml(pages)
         self.set_htmlbuilder()
@@ -3823,6 +3825,11 @@ class Main:
         )
 
         
+        body_opening_re = re.compile(
+            rf'\n[\s_]*(?:(?:\([\s_]*\d{{1,3}}[\s_]*\)|\d{{1,3}}[\s_]*[.)])[\s_]*)?{phrase("AT THE OUTSET")}.*',
+            re.I
+        )
+
         # TIER 1
         tier1 = [
 
@@ -4022,6 +4029,8 @@ class Main:
                 re.I
             ),
 
+            body_opening_re,
+
             # ORDER
             re.compile(
                 rf'\n[\s_]*({spaced("ORDER")}|{phrase("COMMON ORDER")}|'
@@ -4047,7 +4056,7 @@ class Main:
             ),
 
             re.compile(
-                rf'\n[\s_]*{phrase("ORDER UNDER")}.*',
+                rf'\n[\s_]*{phrase("ORDER UNDER SECTION")}.*',
                 re.I
             ),
 
@@ -4398,10 +4407,10 @@ class Main:
                 re.I
             ),
 
-            re.compile(
-                r'\n[ \t]*([-]+|=+|\*+|[.]+)[ \t]*\n?',
-                re.I
-            ),
+            # re.compile(
+            #     r'\n[ \t]*([-]+|=+|\*+|[.]+)[ \t]*\n?',
+            #     re.I
+            # ),
 
             re.compile(
                 rf'\n[\s_]*{indic_by_the_court_alternation()}.*',
@@ -4540,6 +4549,12 @@ class Main:
                         hit = i
                         hit_row = row
                         matched = True
+
+                        if rgx is body_opening_re:
+                            if i == 0:
+                                return
+                            hit = i - 1
+                            hit_row = rows[hit]
 
                         self.logger.info(
                             f"Matched tier {tier_idx} regex: {rgx.pattern}"
