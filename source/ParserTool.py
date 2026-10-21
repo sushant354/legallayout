@@ -19,6 +19,7 @@ from statistics import median
 import pytesseract
 
 from .ScanStyle import ScanStyleDetector
+from .Deskew import rotate_image, straighten_pixmap
 
 TESSERACT_LANG_MAP = {
     "en": "eng",
@@ -561,7 +562,12 @@ class ChromeLensParserTool:
 
         pix = page.get_pixmap(dpi=300, alpha=False)
 
-        image = Image.open(io.BytesIO(pix.tobytes("png")))
+        _, straightened = straighten_pixmap(pix, self.logger, page.number + 1)
+
+        if straightened is None:
+            image = Image.open(io.BytesIO(pix.tobytes("png")))
+        else:
+            image = Image.fromarray(straightened)
 
         result = await self.lens.process_image(
             image_path=image,
@@ -571,11 +577,11 @@ class ChromeLensParserTool:
         detailed_blocks = result.get("detailed_blocks", [])
 
         if self.detect_styles and detailed_blocks:
-            self._annotate_styles(pix, detailed_blocks, page)
+            self._annotate_styles(pix, detailed_blocks, page, straightened)
 
         return detailed_blocks
 
-    def _annotate_styles(self, pix, detailed_blocks, page):
+    def _annotate_styles(self, pix, detailed_blocks, page, straightened=None):
 
         try:
             scale = 72.0 / 300
@@ -602,8 +608,11 @@ class ChromeLensParserTool:
                         })
             if not proxies:
                 return
-            image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-            gray = image[:, :, 0] if pix.n == 1 else cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY)
+            if straightened is None:
+                image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                gray = image[:, :, 0] if pix.n == 1 else cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY)
+            else:
+                gray = straightened if straightened.ndim == 2 else cv2.cvtColor(straightened[:, :, :3], cv2.COLOR_RGB2GRAY)
             ScanStyleDetector(gray, scale).annotate(proxies)
             for proxy in proxies:
                 if proxy.get("fstyle"):
@@ -1009,33 +1018,45 @@ class TesseractParserTool:
 
         scale = 72.0 / dpi
 
-        words = self._words_from_png_bytes(pix.tobytes("png"), scale, page_number)
+        angle, straightened = straighten_pixmap(pix, self.logger, page_number)
+
+        if straightened is None:
+            png_bytes = pix.tobytes("png")
+        else:
+            buf = io.BytesIO()
+            Image.fromarray(straightened).save(buf, format="PNG")
+            png_bytes = buf.getvalue()
+
+        words = self._words_from_png_bytes(png_bytes, scale, page_number)
 
         if len(words) < 3:
-            image = Image.open(io.BytesIO(pix.tobytes("png")))
+            image = Image.open(io.BytesIO(png_bytes))
             binarized = self._binarize(image)
             buf = io.BytesIO()
             binarized.save(buf, format="PNG")
             words = self._words_from_png_bytes(buf.getvalue(), scale, page_number)
 
         if len(words) < 3:
-            words = self._words_from_ghostscript(page_number, dpi)
+            words = self._words_from_ghostscript(page_number, dpi, angle)
 
         if self.detect_styles and words:
-            self._annotate_styles(pix, words, scale, page_number)
+            self._annotate_styles(pix, words, scale, page_number, straightened)
 
         return words
 
-    def _annotate_styles(self, pix, words, scale, page_number):
+    def _annotate_styles(self, pix, words, scale, page_number, straightened=None):
 
         try:
-            image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
-            gray = image[:, :, 0] if pix.n == 1 else cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY)
+            if straightened is None:
+                image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                gray = image[:, :, 0] if pix.n == 1 else cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY)
+            else:
+                gray = straightened if straightened.ndim == 2 else cv2.cvtColor(straightened[:, :, :3], cv2.COLOR_RGB2GRAY)
             ScanStyleDetector(gray, scale).annotate(words)
         except Exception as e:
             self.logger.warning(f"Style detection failed on page {page_number}: {e}")
 
-    def _words_from_ghostscript(self, page_number, dpi):
+    def _words_from_ghostscript(self, page_number, dpi, angle=0.0):
 
         scale = 72.0 / dpi
 
@@ -1054,7 +1075,10 @@ class TesseractParserTool:
                 self.logger.error(f"Ghostscript rendering failed on page {page_number}: {e}")
                 raise
 
-            binarized = self._binarize(Image.open(f.name))
+            rendered = Image.open(f.name)
+            if angle:
+                rendered = Image.fromarray(rotate_image(np.array(rendered.convert("L")), angle))
+            binarized = self._binarize(rendered)
             buf = io.BytesIO()
             binarized.save(buf, format="PNG")
 

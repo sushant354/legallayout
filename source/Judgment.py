@@ -5,6 +5,7 @@ import bisect
 from pathlib import Path
 
 from .Table import TableBuilder, TOC_PLACEHOLDER
+from .TableCell import TableCellArranger
 from .NormalizeText import NormalizeText
 from .SentenceEndDetector import (
     LEGAL_ABBREVIATIONS,
@@ -75,7 +76,7 @@ FOOTNOTE_ABBREVIATION_RE = re.compile(
 )
 
 
-class JudgmentBuilder(TableBuilder):
+class JudgmentBuilder(TableCellArranger, TableBuilder):
 
     track_text_styles = True
 
@@ -1198,11 +1199,14 @@ class JudgmentBuilder(TableBuilder):
 
     def addTable(self, table):
         try:
+            has_header = self.has_header_row(table)
             table_html = (
                 table.replace('\n', '&#10;', regex=True)
                     .to_html(escape=False, index=False, header=False)
                     .replace("<table", "<table style='white-space: pre-wrap;'")
             )
+            if has_header:
+                table_html = self.promote_header_row(table_html)
             self.builder += self.normalize_text(table_html)
             self.builder += "\n"
             self._merge_anchor = None
@@ -1421,6 +1425,8 @@ class JudgmentBuilder(TableBuilder):
 
                 tables_source = page.tabular_datas if label[0] == "table" else page.borderless_tabular_datas
                 table_obj = tables_source.tables.get(table_id)
+                if table_obj is not None and label[0] == "table":
+                    table_obj = self.arrange_table_cells(page, table_id, table_obj)
 
                 if table_obj is not None:
                     self.flush_block()

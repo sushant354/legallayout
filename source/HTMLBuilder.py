@@ -8,6 +8,7 @@ from difflib import SequenceMatcher
 import copy
 from pathlib import Path
 from .Table import TableBuilder, TOC_PLACEHOLDER, STYLE_TAGS
+from .TableCell import TableCellArranger
 from .SentenceEndDetector import LegalSentenceDetector, SENTENCE_END_CHAR_CLASS
 from .Utils import INDIC_DIGIT_CHARS, INDIC_WORD_CHARS, \
     indic_background_alternation, indic_toc_alternation, indic_facts_of_case_alternation, \
@@ -126,7 +127,7 @@ class RowMergedTextBox:
         return self.parts[-1].get_last_char_coords()
 
 
-class HTMLBuilder(TableBuilder):
+class HTMLBuilder(TableCellArranger, TableBuilder):
     
     def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation = tuple(), pdf_type = None,
                  show_fonts = False, detected_fonts = None, table_extract = False):
@@ -656,20 +657,25 @@ class HTMLBuilder(TableBuilder):
         # this table has no use for (it is rendered with white-space: pre-wrap)
         # and which silently makes the html depend on the installed pandas
         # version. The markup below is the same as the one to_html() produced.
+        has_header = self.has_header_row(table)
         lines = [
             "<table style='white-space: pre-wrap;' border=\"1\" class=\"dataframe\">",
-            "  <tbody>"
+            "  <thead>" if has_header else "  <tbody>"
         ]
 
         # itertuples keeps the columns in order and, unlike indexing by column
         # name, coexists with the duplicate column names a detected table can have
-        for row in table.itertuples(index=False, name=None):
+        for row_idx, row in enumerate(table.itertuples(index=False, name=None)):
+            cell_tag = "th" if has_header and row_idx == 0 else "td"
             lines.append("    <tr>")
 
             for value in row:
-                lines.append("      <td>%s</td>" % self.get_table_cell_text(value))
+                lines.append("      <%s>%s</%s>" % (cell_tag, self.get_table_cell_text(value), cell_tag))
 
             lines.append("    </tr>")
+
+            if has_header and row_idx == 0:
+                lines.extend(["  </thead>", "  <tbody>"])
 
         lines.extend(["  </tbody>", "</table>"])
 
@@ -1575,6 +1581,7 @@ class HTMLBuilder(TableBuilder):
                     table_bbox = page.tabular_datas.table_bbox.get(table_id)
 
                     if table_obj is not None:
+                        table_obj = self.arrange_table_cells(page, table_id, table_obj)
                         table_obj = self.apply_table_footnote_markers(page, table_id, table_obj)
                         if self.pending_table is None:
                             self.pending_table = [table_obj, table_width]

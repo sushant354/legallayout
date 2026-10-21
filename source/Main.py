@@ -246,6 +246,8 @@ def get_font_model_path(font_lang=None):
 # the types whose output is bluebell rather than html (see buildHTML)
 BLUEBELL_PDF_TYPES = frozenset(['acts', 'sebi_circulars'])
 
+SCANNED_HEADER_FOOTER_PDF_TYPES = frozenset(['judgments', 'sebi'])
+
 # --- the classes that model is trained on, mapped to the converter the text of
 # --- such a font needs. A class already named after its converter needs no
 # --- entry here, these are only the ones the two spell differently
@@ -2383,7 +2385,9 @@ class Main:
         self.logger.info("Starting adaptive header/footer detection...")
         self.adaptive_headers = []
         self.adaptive_footers = []
-        if not self.is_scanned_copy:
+        detect_header_footer = not self.is_scanned_copy or \
+            self.pdf_type in SCANNED_HEADER_FOOTER_PDF_TYPES
+        if detect_header_footer:
             self.adaptive_header_footer_detection(pages, self.pdf_type)
 
         protected_tbs_by_page = defaultdict(set)
@@ -2410,7 +2414,7 @@ class Main:
                 page.get_footnotes(protected_tbs=protected_tbs)
             page.detect_footnote_blocks_by_style(protected_tbs)
 
-        if not self.is_scanned_copy:
+        if detect_header_footer:
             self.finalize_adaptive_header_footer_detection()
 
         for page in self.all_pgs.values():
@@ -4055,10 +4059,10 @@ class Main:
                 re.I
             ),
 
-            re.compile(
-                rf'\n[\s_]*{phrase("ORDER UNDER SECTION")}.*',
-                re.I
-            ),
+            # re.compile(
+            #     rf'\n[\s_]*{phrase("ORDER UNDER SECTION")}.*',
+            #     re.I
+            # ),
 
             # ORAL ORDER / ORAL JUDGMENT
             re.compile(
