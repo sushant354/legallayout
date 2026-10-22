@@ -122,6 +122,8 @@ TOC_LEADING_ENUM_RE = re.compile(
     r'^[\s"“”\'.\-–—]*(?:\(?[a-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']{1,4}\)?[.\):])+\s*',
     re.IGNORECASE
 )
+TOC_LINK_BREAK_RE = re.compile(r'<(?:ul|ol|table|pre|blockquote|p|div|h4|li|nav|section)(?![a-zA-Z])', re.IGNORECASE)
+TOC_STYLE_TOKEN_RE = re.compile(r'<(/?)([biu])>')
 TOC_MATCH_THRESHOLD = 0.6
 TOC_MIN_CONTAINED_TARGET_LEN = 8
 
@@ -137,6 +139,25 @@ def toc_normalize(text):
     text = TOC_LEADING_ENUM_RE.sub('', text)
     text = re.sub(r'[^a-z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+', ' ', text)
     return text.strip()
+
+
+def toc_link_length(body):
+    found = TOC_LINK_BREAK_RE.search(body)
+    end = found.start() if found else len(body)
+    segment = body[:end].rstrip()
+    if not segment.strip():
+        return 0
+    open_tags = []
+    for token in TOC_STYLE_TOKEN_RE.finditer(segment):
+        if token.group(1):
+            if not open_tags or open_tags[-1] != token.group(2):
+                return 0
+            open_tags.pop()
+        else:
+            open_tags.append(token.group(2))
+    if open_tags:
+        return 0
+    return len(segment)
 
 
 def toc_best_containment_match(candidates, target, start, end):
@@ -308,6 +329,7 @@ class TableBuilder:
 
         anchor_counter = [0]
         block_anchor = {}
+        anchor_block = {}
         insertions = []
         used_positions = set()
 
@@ -331,6 +353,7 @@ class TableBuilder:
             if pos not in block_anchor:
                 anchor = next_anchor()
                 block_anchor[pos] = anchor
+                anchor_block[anchor] = cand
                 insertions.append((pos, f' id="{anchor}"'))
                 used_positions.add(pos)
                 return anchor
@@ -367,6 +390,18 @@ class TableBuilder:
             else:
                 entry_anchors.append(None)
 
+        linked = set()
+        for number, anchor in enumerate(entry_anchors, start=1):
+            cand = anchor_block.get(anchor)
+            if anchor is None or cand is None or anchor in linked:
+                continue
+            length = toc_link_length(cand['body'])
+            if not length:
+                continue
+            linked.add(anchor)
+            insertions.append((cand['body_start'] + length,
+                               f' <a class="toc-backlink" href="#toc-entry-{number}">↩</a>'))
+
         pieces = []
         last = 0
         for pos, snippet in sorted(insertions, key=lambda item: item[0]):
@@ -382,13 +417,14 @@ class TableBuilder:
             f'<p class="toc-title">{html_lib.escape(title_text)}</p>',
             '<table class="toc-table">',
         ]
-        for entry, anchor in zip(entries, entry_anchors):
+        for number, (entry, anchor) in enumerate(zip(entries, entry_anchors), start=1):
             level = entry['level']
             indent = f' style="padding-left: {(level - 1) * 1.5}em;"' if level > 1 else ''
             title = html_lib.escape(entry['text'])
             body = f'<a href="#{anchor}">{title}</a>' if anchor else title
+            row_id = f' id="toc-entry-{number}"' if anchor in linked else ''
             out.append(
-                f'<tr class="toc-level-{level}">'
+                f'<tr{row_id} class="toc-level-{level}">'
                 f'<td class="toc-entry"{indent}>{body}</td></tr>'
             )
         out.append('</table>')

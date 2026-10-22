@@ -692,7 +692,7 @@ class HTMLBuilder(TableCellArranger, TableBuilder):
 
         # newlines are written as a character reference so that they survive in
         # the cell instead of being collapsed into a space when it is rendered
-        return str(value).replace("\n", "&#10;").strip()
+        return str(self.flatten_cell(value)).replace("\n", "&#10;").strip()
 
     def close_sections(self):
        self.level_bullet_open = False
@@ -2210,3 +2210,455 @@ class HTMLBuilderChromeLens:
 </body>
 </html>
 """
+
+from .Judgment import JudgmentBuilder, STYLE_TAG_RE, LEADING_WRAP_RE, TRIGGER_END_RE, WIDE_SPACE_RE
+from .BulletList import GlyphBulletLists
+
+FONT_RUN_TAG_RE = re.compile(r'<fontrun (\d+)>')
+FONT_RENDER_TAG_RE = re.compile(r'<(?!fontrun )[^>]*>')
+FONT_CARRY_TAGS = frozenset(['<p>', '</p>', '<blockquote>', '</blockquote>', '<h4>', '</h4>', '<li>', '</li>',
+                             '<ul>', '</ul>', '<br>', '<br/>', '<b>', '</b>', '<i>', '</i>', '<u>', '</u>'])
+FONT_ISOLATE_OPEN_RE = re.compile(r'<(?:sup|a|span)(?:\s|>)', re.IGNORECASE)
+FONT_ISOLATE_CLOSE_RE = re.compile(r'</(?:sup|a|span)>', re.IGNORECASE)
+LEVEL_LABEL_RE = re.compile(r'^level(\d+)$')
+FOOTNOTE_SUP_RE = re.compile(r'<sup\b.*?</sup>', re.DOTALL)
+LEVEL_CLOSE_RE = re.compile(
+    r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z' + INDIC_WORD_CHARS + r']+\s+\d{1,2},\s*\d{4})'
+    r'|(?:Place)\s*[:\-]{1}\s*[A-Z' + INDIC_WORD_CHARS + r'][A-Za-z' + INDIC_WORD_CHARS + r' .,&-]*'
+    r'|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
+TITLE_PREAMBLE_WIDTH_RATIO = 0.58
+TITLE_PREAMBLE_HEIGHT_RATIO = 0.15
+
+
+class HtmlBuilderV2(GlyphBulletLists, JudgmentBuilder):
+
+    def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation=tuple(), pdf_type=None,
+                 show_fonts=False, detected_fonts=None, table_extract=False):
+        JudgmentBuilder.__init__(self, unique_images, all_footnote_text, sentence_completion_punctuation,
+                                 pdf_type, table_extract=table_extract)
+        self.show_fonts = show_fonts
+        self.detected_fonts = detected_fonts or {}
+        self._multicolumn_pages = set()
+        self._page_sizes = {}
+        self._font_ids = {}
+        self._font_names = {}
+        self._level_stack = []
+        self.main_builder = self.main_builder.replace(
+            "  span.table-header-text",
+            "  h4 {\n    text-align: center;\n  }\n\n"
+            "  span.side-note-text {\n    display: none;\n  }\n\n"
+            "  span.table-header-text", 1)
+
+    @staticmethod
+    def tag_for_label(label):
+        if isinstance(label, list):
+            return "blockquote", None
+        if isinstance(label, tuple):
+            return ("blockquote" if "blockquote" in label else "p"), None
+        match = LEVEL_LABEL_RE.match(label) if isinstance(label, str) else None
+        if match:
+            level = int(match.group(1))
+            return ("level", level - 2) if level > 1 else ("level1", None)
+        return JudgmentBuilder.tag_for_label(label)
+
+    @staticmethod
+    def mark_item_start(tb):
+        for textline in tb.tbox.findall('.//textline'):
+            if textline.attrib.get('bbox'):
+                textline.set('bq2_start', '1')
+                return
+
+    def _normalize_and_linkify_footnotes(self, text, page_num=None):
+        text = self._base_normalize_text(text)
+        resolved_page_num = page_num if page_num is not None else self.current_page_num
+        if not text or resolved_page_num is None:
+            return text
+
+        def replace(match):
+            footnote_num = match.group(1)
+            footnote_page = int(match.group(2)) if match.group(2) else resolved_page_num
+            ref_key = (footnote_page, footnote_num)
+            if ref_key not in self.footnote_refs_used:
+                self.footnote_refs_used.append(ref_key)
+            anchor = f"fn-{footnote_page}-{footnote_num}"
+            ref = f"fnref-{footnote_page}-{footnote_num}"
+            return f'<sup id="{ref}"><a href="#{anchor}">{footnote_num}</a></sup>'
+
+        return FOOTNOTE_MARKER_RE.sub(replace, text)
+
+    def arrange_table_cells(self, page, table_id, table_obj):
+        arranged = super().arrange_table_cells(page, table_id, table_obj)
+        return self.apply_table_footnote_markers(page, table_id, arranged)
+
+    def font_run_tag(self, font):
+        font_id = self._font_ids.setdefault(font, len(self._font_ids))
+        self._font_names[font_id] = font
+        return f'<fontrun {font_id}>'
+
+    def build_styled_line_text(self, tb, textline, line_bbox):
+        if not self.show_fonts:
+            return super().build_styled_line_text(tb, textline, line_bbox)
+        underlines = self.get_line_underlines(line_bbox)
+        chars = []
+        pending_superscript = []
+        current_font = None
+
+        def add_placeholder():
+            marker = '{{^{{FOOTNOTE ' + ''.join(pending_superscript) + '}}}}'
+            chars.extend((ch, None) for ch in marker)
+
+        for text_el in textline.findall('.//text'):
+            raw = text_el.text or ''
+            if not raw:
+                continue
+
+            is_super = False
+            if 'bbox' in text_el.attrib:
+                try:
+                    char_bbox = tuple(map(float, text_el.attrib['bbox'].split(',')))
+                    if char_bbox in tb.footnotes_superscript:
+                        pending_superscript.append(tb.footnotes_superscript[char_bbox])
+                        is_super = True
+                except Exception:
+                    pass
+
+            if is_super:
+                continue
+            if pending_superscript:
+                add_placeholder()
+                pending_superscript = []
+            style = self.get_char_style(text_el, underlines)
+            font = text_el.attrib.get('font') or None
+            for ch in raw:
+                ch = ' ' if ch == '\n' else ch
+                if font and not ch.isspace() and font != current_font:
+                    chars.append((self.font_run_tag(font) + ch, style))
+                    current_font = font
+                else:
+                    chars.append((ch, style))
+
+        if pending_superscript:
+            add_placeholder()
+
+        start = 0
+        end = len(chars)
+        while start < end and chars[start][0].isspace():
+            start += 1
+        while end > start and chars[end - 1][0].isspace():
+            end -= 1
+        return self.styled_chars_to_html(chars[start:end])
+
+    def unit_style_signature(self, unit):
+        styled = unit.get('styled')
+        if styled and '<fontrun ' in styled:
+            unit = dict(unit, styled=FONT_RUN_TAG_RE.sub('', styled))
+        return super().unit_style_signature(unit)
+
+    def font_span(self, font, text):
+        attrs = f' data-font="{html_escape(font, quote=True)}"'
+        detected = self.detected_fonts.get(font)
+        if detected:
+            attrs += f' data-detected-font="{html_escape(detected, quote=True)}"'
+        return f'<span{attrs}>{text}</span>'
+
+    def wrap_font_stretch(self, text, current, isolated):
+        if not text:
+            return text, current
+        pieces = FONT_RUN_TAG_RE.split(text)
+        if isolated:
+            return ''.join(pieces[0::2]), current
+        runs = []
+        font = current
+        for index, piece in enumerate(pieces):
+            if index % 2:
+                font = self._font_names[int(piece)]
+                continue
+            if not piece:
+                continue
+            if runs and runs[-1][0] == font:
+                runs[-1][1] += piece
+            else:
+                runs.append([font, piece])
+        out = []
+        for run_font, run_text in runs:
+            if run_font is None or not run_text.strip():
+                out.append(run_text)
+            else:
+                out.append(self.font_span(run_font, run_text))
+        return ''.join(out), font
+
+    def render_font_runs(self, html):
+        if not html or '<fontrun ' not in html:
+            return html
+        out = []
+        position = 0
+        current = None
+        saved = []
+        for match in FONT_RENDER_TAG_RE.finditer(html):
+            text, current = self.wrap_font_stretch(html[position:match.start()], current, bool(saved))
+            out.append(text)
+            tag = match.group(0)
+            out.append(tag)
+            if FONT_ISOLATE_OPEN_RE.match(tag):
+                saved.append(current)
+                current = None
+            elif FONT_ISOLATE_CLOSE_RE.match(tag):
+                current = saved.pop() if saved else None
+            elif tag not in FONT_CARRY_TAGS:
+                current = None
+            position = match.end()
+        text, current = self.wrap_font_stretch(html[position:], current, bool(saved))
+        out.append(text)
+        return ''.join(out)
+
+    def is_preamble_block(self, units):
+        texts = [u for u in units if u['kind'] == 'text' and 'x0' in u and 'y0' in u]
+        if not texts:
+            return False
+        size = self._page_sizes.get(texts[0].get('page_num'))
+        if not size:
+            return False
+        width = max(u['x1'] for u in texts) - min(u['x0'] for u in texts)
+        height = max(u['y1'] for u in texts) - min(u['y0'] for u in texts)
+        return width > TITLE_PREAMBLE_WIDTH_RATIO * size[0] and height > TITLE_PREAMBLE_HEIGHT_RATIO * size[1]
+
+    def emit_title(self, units):
+        if self.is_preamble_block(units):
+            self.emit_paragraph("p", units)
+            return
+        before = len(self.builder)
+        previous = self._merge_anchor
+        self.emit_paragraph("p", units, is_heading=True)
+        if self._level_stack and self.builder.startswith('<p>', before):
+            closers = self.level_closers()
+            self.builder = self.builder[:before] + closers + self.builder[before:]
+            before += len(closers)
+            self._level_stack = []
+            if self._merge_anchor is not None:
+                self._merge_anchor['close_idx'] += len(closers)
+        anchor = self._merge_anchor
+        if (anchor is not None and anchor is not previous and anchor['is_heading']
+                and self.builder.startswith('<p>', before) and self.builder.endswith('</p>\n')):
+            self.builder = self.builder[:before] + '<h4>' + self.builder[before + 3:-5] + '</h4>\n'
+            self._merge_anchor = None
+
+    def extract_textlines(self, tb):
+        lines = super().extract_textlines(tb)
+        flagged = set()
+        for textline in tb.tbox.findall('.//textline'):
+            if textline.attrib.get('front_heading') == '1':
+                try:
+                    flagged.add(tuple(map(float, textline.attrib['bbox'].split(','))))
+                except (KeyError, ValueError):
+                    pass
+        if flagged:
+            for line in lines:
+                if (line['x0'], line['y0'], line['x1'], line['y1']) in flagged:
+                    line['front_heading'] = True
+        return lines
+
+    def pre_continues_paragraph(self, lines):
+        anchor = self._merge_anchor
+        if anchor is None or anchor['boundary'] or anchor['complete'] or anchor['is_heading']:
+            return False
+        first = next((line for line in lines if 'text' in line), None)
+        if first is None:
+            return False
+        return LEADING_WRAP_RE.sub('', first['text'].strip())[:1].islower()
+
+    def last_item_units(self, units):
+        texts = [u for u in units if u['kind'] == 'text']
+        if not texts:
+            return []
+        depth = texts[-1].get('list_depth', 0)
+        collected = []
+        for unit in reversed(units):
+            if unit['kind'] == 'text' and unit.get('list_depth', 0) != depth:
+                break
+            collected.append(unit)
+            if unit['kind'] == 'text' and unit.get('list_start'):
+                break
+        return list(reversed(collected))
+
+    def append_to_anchor(self, anchor, body_text, styled_text, raws, units):
+        if anchor['tag'] != 'li':
+            return super().append_to_anchor(anchor, body_text, styled_text, raws, units)
+        if len(self.builder) != anchor['close_idx']:
+            self._merge_anchor = None
+            return False
+        self.builder = self.join_styled(self.builder, ' ' + styled_text + ''.join(raws))
+        anchor['close_idx'] = len(self.builder)
+        anchor['complete'] = self.line_completes_sentence(body_text)
+        anchor['boundary'] = self.is_merge_boundary(body_text)
+        anchor['line_full'] = self.is_anchor_line_full(units)
+        anchor['geometry'] = self.last_text_geometry(units)
+        anchor['text'] = body_text
+        return True
+
+    def level_closers(self):
+        return "</li>\n</ul>\n" * len(self._level_stack)
+
+    def close_level_stack(self):
+        if self._level_stack:
+            self.builder += self.level_closers()
+            self._level_stack = []
+            self._merge_anchor = None
+
+    def open_level_item(self, depth, text):
+        stack = self._level_stack
+        if not stack:
+            self.builder += "<ul>\n<li>" + text
+            stack.append(depth)
+            return
+        while len(stack) > 1 and depth < stack[-1]:
+            self.builder += "</li>\n</ul>\n"
+            stack.pop()
+        if depth > stack[-1]:
+            self.builder += "\n<ul>\n<li>" + text
+            stack.append(depth)
+        else:
+            self.builder += "</li>\n<li>" + text
+
+    def level_item_anchor(self, text_html, units):
+        text = STYLE_TAG_RE.sub('', FOOTNOTE_SUP_RE.sub('', text_html)).strip()
+        if not text:
+            return None
+        item_units = self.last_item_units(units)
+        return {
+            'close_idx': len(self.builder),
+            'tag': 'li',
+            'complete': self.line_completes_sentence(text),
+            'boundary': self.is_merge_boundary(text),
+            'is_heading': False,
+            'ends_with_trigger': bool(TRIGGER_END_RE.search(text)),
+            'line_full': self.is_anchor_line_full(item_units),
+            'geometry': self.last_text_geometry(item_units),
+            'enum': self.anchor_enum(item_units),
+            'text': text,
+        }
+
+    def render_level_items(self, units):
+        items = []
+        leading_raw = ''
+        for unit in units:
+            if unit['kind'] == 'raw':
+                if items:
+                    items[-1][1] += unit['value']
+                else:
+                    leading_raw += unit['value']
+                continue
+            text = WIDE_SPACE_RE.sub(' ', unit.get('styled', unit['value']).strip())
+            if not text:
+                continue
+            depth = unit.get('list_depth', 0)
+            if not items or depth != items[-1][0] or unit.get('list_start'):
+                items.append([depth, leading_raw + text])
+                leading_raw = ''
+            else:
+                items[-1][1] = self.join_styled(items[-1][1], ' ' + text)
+        for depth, text in items:
+            self.open_level_item(depth, text)
+        if items:
+            self._merge_anchor = self.level_item_anchor(items[-1][1], units)
+
+    def emit_paragraph(self, tag, units, is_heading=False):
+        if self._level_stack:
+            body = ' '.join(u['value'].strip() for u in units if u['kind'] == 'text')
+            if LEVEL_CLOSE_RE.match(body):
+                self.close_level_stack()
+        super().emit_paragraph(tag, units, is_heading)
+
+    def render_block(self, tag, lines):
+        if tag == "pre":
+            if self.pre_continues_paragraph(lines):
+                return super().render_block("p", lines)
+            heads = [line for line in lines if line.get('front_heading')]
+            if heads:
+                body = [line for line in lines if not line.get('front_heading')]
+                if body:
+                    super().render_block("pre", body)
+                for line in heads:
+                    text = self.normalize_text(line['text'], line.get('page_num'))
+                    self.builder += f"<h4>{text}</h4>\n"
+                self._merge_anchor = None
+                return
+        if tag == "level":
+            units = self.normalize_units(self.club_lines_into_rows(lines))
+            if units:
+                self.render_level_items(units)
+            return
+        if tag == "level1":
+            self.close_level_stack()
+            return super().render_block("p", lines)
+        if tag != "title":
+            return super().render_block(tag, lines)
+        units = self.normalize_units(self.club_lines_into_rows(lines))
+        for group in self.split_rows_into_paragraphs(units):
+            self.emit_title(group)
+
+    def column_switch_ends_paragraph(self, prev_unit, unit):
+        page_num = prev_unit.get('page_num')
+        if page_num != unit.get('page_num') or page_num not in self._multicolumn_pages:
+            return False
+        if 'y0' not in prev_unit or 'y0' not in unit:
+            return False
+        row_height = prev_unit.get('y1', 0) - prev_unit['y0'] or 8.0
+        if unit['y0'] - prev_unit['y0'] <= row_height:
+            return False
+        return self.is_merge_boundary(prev_unit['value']) and not self.unit_reaches_right(prev_unit)
+
+    def split_group_at_column_switches(self, group):
+        pieces = []
+        current = []
+        prev_text = None
+        for unit in group:
+            if unit['kind'] == 'text':
+                if prev_text is not None and self.column_switch_ends_paragraph(prev_text, unit):
+                    pieces.append(current)
+                    current = []
+                    unit['gap_break'] = True
+                prev_text = unit
+            current.append(unit)
+        if current:
+            pieces.append(current)
+        return pieces
+
+    def split_rows_into_paragraphs(self, units):
+        groups = super().split_rows_into_paragraphs(units)
+        if not self._multicolumn_pages:
+            return groups
+        return [piece for group in groups for piece in self.split_group_at_column_switches(group)]
+
+    def build(self, page, has_side_notes):
+        page_num = int(page.pg_num)
+        self._page_sizes[page_num] = (page.pg_width, page.pg_height)
+        if page.is_multicolumn:
+            self._multicolumn_pages.add(page_num)
+        original = page.all_tbs
+        for tb, label in original.items():
+            if isinstance(label, str) and self.tag_for_label(label)[0] == "level":
+                self.mark_item_start(tb)
+        side_notes = [tb for tb, label in original.items() if label == "side notes"]
+        if side_notes:
+            page.all_tbs = {tb: label for tb, label in original.items() if label != "side notes"}
+        try:
+            super().build(page, has_side_notes)
+        finally:
+            page.all_tbs = original
+        for tb in side_notes:
+            text = self.normalize_text(tb.extract_text_from_tb())
+            if text.strip():
+                self.add_hidden_span(f'<span class="side-note-text">{text}</span>')
+
+    def get_html(self):
+        self.flush_block()
+        self.flushTables()
+        self.flush_pending_header_footer()
+        self.close_level_stack()
+        self.render_footnote_section()
+        html = self.close_html()
+        if html:
+            if self.show_fonts:
+                html = self.render_font_runs(html)
+            html = self.finalize_toc(html)
+        return html

@@ -1200,6 +1200,7 @@ class JudgmentBuilder(TableCellArranger, TableBuilder):
     def addTable(self, table):
         try:
             has_header = self.has_header_row(table)
+            table = self.flatten_table_cells(table)
             table_html = (
                 table.replace('\n', '&#10;', regex=True)
                     .to_html(escape=False, index=False, header=False)

@@ -18,6 +18,7 @@ import logging
 # though nothing draws from it either - NormalizeText.NORMALIZE_MAP deletes
 # U+E000..U+E003 outright as OCR junk, and every piece of text the builder
 # emits goes through it.
+ITALIC_OR_OBLIQUE_FONT_RE = re.compile(r'italic|oblique', re.IGNORECASE)
 FONT_MARK_START = '\ufdd0'
 FONT_MARK_END = '\ufdd1'
 FONT_MARK_RE = re.compile('%s([^%s]*)%s' % (FONT_MARK_START, FONT_MARK_END,
@@ -427,6 +428,18 @@ class TextBox:
         """
         return [mark_font_runs(line)
                 for line in self.get_char_lines(use_footnotes=False, line_keyer=line_keyer)]
+
+    def is_italic_or_oblique(self, ratio=0.7):
+        total = 0
+        italic = 0
+        for textline in self.tbox.findall(".//textline"):
+            for text in textline.findall(".//text"):
+                if not text.text or not text.text.strip():
+                    continue
+                total += 1
+                if ITALIC_OR_OBLIQUE_FONT_RE.search(text.attrib.get("font", "")) or 'i' in text.attrib.get("fstyle", ""):
+                    italic += 1
+        return total > 0 and italic / total > ratio
 
     # --- func to detect the textbox having texts font in bold for heading/title detection ---
     def textFont_is_bold(self, pdf_type = None):

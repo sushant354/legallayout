@@ -1523,7 +1523,7 @@ class Page:
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[a-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|\([a-z' + INDIC_WORD_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[a-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|[A-Z][.\)]|\([a-z' + INDIC_WORD_CHARS + r']{1,2}\)|\([A-Z]\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -1533,6 +1533,8 @@ class Page:
         for tb,label in self.all_tbs.items():
             if label is not None:
                     continue
+            if tb.textFont_is_bold('sebi') or tb.is_italic_or_oblique():
+                continue
             # if label is not None and (isinstance(label,tuple) and label  not in (('italic', 'blockquote'),)):
             #     continue
             texts = tb.extract_text_from_tb().strip()
@@ -1562,6 +1564,8 @@ class Page:
                     continue
 
                 match = group_re.match(texts)
+                if match and not re.search(r'[.)]$', match.group(1).strip()):
+                    match = None
 
                 if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
                     group =match.group(1).strip()

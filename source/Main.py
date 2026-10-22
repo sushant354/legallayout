@@ -15,7 +15,8 @@ import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
 from .Page import Page, SectionState
 from .Judgment import JudgmentBuilder
-from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens
+from .BulletList import JudgmentBuilderBullets
+from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens, HtmlBuilderV2
 from .Acts import Acts
 from .SebiCirculars import SebiCirculars
 from .Amendment import Amendment
@@ -26,6 +27,7 @@ from .Figure import PageImages
 from .Watermark import WatermarkDetector
 from .FontStyle import FontStyleReader, normalize_font_name
 from .TableExtraction import HeaderRowClassifier, RegionMergeClassifier, ContinuationClassifier
+from .TableCell import CELL_EDGE_TOLERANCE
 from .Table import table_dataframe_cell_match_ratio
 from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS, INDIC_SEMICOLON_CHARS
 
@@ -2104,8 +2106,9 @@ class Main:
         if pdf_type == 'sebi':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
                 + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
-                               table_extract=self.table_extract)
+            return HtmlBuilderV2(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                                 show_fonts=self.show_fonts, detected_fonts=self.detected_font_classes,
+                                 table_extract=self.table_extract)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
@@ -2126,12 +2129,13 @@ class Main:
         elif pdf_type == 'judgments':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
                 + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
-                                   table_extract=self.table_extract)
+            return JudgmentBuilderBullets(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                                          table_extract=self.table_extract)
         else:
             sentence_completion_punctutation = ('.', ':') + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return HTMLBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
-                               table_extract=self.table_extract)
+            return HtmlBuilderV2(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+                                 show_fonts=self.show_fonts, detected_fonts=self.detected_font_classes,
+                                 table_extract=self.table_extract)
             # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
@@ -2208,7 +2212,7 @@ class Main:
             # print(page.is_single_column_page)
             # page.get_italic_blockquotes(pdf_type)
             # self.amendment.check_for_blockquotes(page)
-            self.amendment.check_for_blockquotes_judgments(page, judgments_mode=True)
+            self.amendment.check_for_italic_blockquotes_sebi(page)
             page.detect_sparse_pre()
             # page.get_titles(pdf_type)
             page.get_bulletins(self.section_state)
@@ -2221,6 +2225,8 @@ class Main:
             # page.print_levels()
             page.print_all()
             # page.print_tbs()
+        self.html_builder.doc_line_gap = self.compute_doc_line_gap()
+        self.html_builder.doc_max_line_width = self.compute_doc_max_line_width()
 
     def process_pages_judgments(self, pdf_type):
         self.amendment.compute_document_margin(self.all_pgs.values())
@@ -2299,6 +2305,8 @@ class Main:
             # page.print_headers()
             # page.print_footers()
             page.print_all()
+        self.html_builder.doc_line_gap = self.compute_doc_line_gap()
+        self.html_builder.doc_max_line_width = self.compute_doc_max_line_width()
 
     def print_labels(self, pdf_type):
         #for page in self.all_pgs.values():
@@ -2382,6 +2390,9 @@ class Main:
 
             # page.line_based_header_footer_detection()
 
+        if self.pdf_type == 'judgments':
+            self.unwrap_table_document()
+
         self.logger.info("Starting adaptive header/footer detection...")
         self.adaptive_headers = []
         self.adaptive_footers = []
@@ -2454,11 +2465,57 @@ class Main:
 
         self.detect_toc(pages)
 
+        if self.pdf_type == 'sebi':
+            self.detect_sebi_front_matter(pages)
+
         self.finalize_unique_images()
         if not self.unique_images:
             self.remove_empty_manifest_dir(base_name_of_file, output_dir)
         self.get_all_footnote_text()
         self.logger.info(self.all_footnote_text)
+
+    def unwrap_table_document(self):
+        covered = False
+        for page in self.all_pgs.values():
+            tables = 0
+            texts = 0
+            for tb, label in page.all_tbs.items():
+                if not hasattr(tb, 'tbox') or not tb.extract_text_from_tb().strip():
+                    continue
+                texts += 1
+                if isinstance(label, tuple) and label[0] == 'table':
+                    tables += 1
+            if not texts:
+                continue
+            if 2 * tables < texts:
+                return
+            covered = True
+        if not covered:
+            return
+
+        self.logger.info("Every page of the document is a table: its cells are read as the judgment text")
+        for page in self.all_pgs.values():
+            header_ids = {}
+            for idx, frame in page.tabular_datas.tables.items():
+                if frame.shape[0] < 2:
+                    continue
+                first = [str(v).strip() for v in frame.iloc[0]]
+                second = [str(v).strip() for v in frame.iloc[1]]
+                grid = page.tabular_datas.cell_grids.get(idx)
+                if grid and all(first) and not all(second):
+                    header_ids[idx] = (min(c[1] for c in grid[0]), max(c[3] for c in grid[0]))
+            for tb, label in list(page.all_tbs.items()):
+                if not (isinstance(label, tuple) and label[0] == 'table'):
+                    continue
+                band = header_ids.get(label[1])
+                centre = (tb.coords[1] + tb.coords[3]) / 2
+                if band is not None and band[0] - CELL_EDGE_TOLERANCE <= centre <= band[1] + CELL_EDGE_TOLERANCE:
+                    page.all_tbs[tb] = 'header'
+                else:
+                    page.all_tbs[tb] = None
+            page.tabular_datas.tables.clear()
+            page.tabular_datas.table_bbox.clear()
+            page.tabular_datas.cell_grids.clear()
 
     def detect_repeating_tables(self):
         total_pages = len(self.all_pgs)
@@ -4660,6 +4717,100 @@ class Main:
             page_obj = self.all_pgs[row["page"]]
             if page_obj.all_tbs[row["tb"]] is None:
                 page_obj.all_tbs[row["tb"]] = "pre_header"
+
+    def detect_sebi_front_matter(self, pages):
+        marker_re = re.compile(r'^\s*[\(\[]?(\d{1,3})(?:\.|\))(?!\d)')
+
+        rows = []
+        toc_keys = []
+        for pg_idx, pg in enumerate(pages):
+            page_num = pg_idx + 1
+            if page_num not in self.all_pgs:
+                continue
+            page_obj = self.all_pgs[page_num]
+            for tb, label in page_obj.all_tbs.items():
+                if label == "toc":
+                    toc_keys.append((page_num, -tb.coords[3]))
+                    continue
+                if label is not None:
+                    continue
+                for line in self.extract_toc_lines(tb):
+                    rows.append(dict(line, page=page_num, tb=tb))
+
+        if not rows:
+            return
+
+        rows.sort(key=lambda z: (z["page"], -z["y0"], z["x0"]))
+        rights = sorted(r["x1"] for r in rows)
+        lefts = sorted(r["x0"] for r in rows)
+        text_right = rights[int(0.9 * (len(rights) - 1))]
+        text_left = lefts[int(0.1 * (len(lefts) - 1))]
+
+        def full_width(row):
+            height = max(row["y1"] - row["y0"], 1.0)
+            return row["x1"] >= text_right - height and row["x0"] <= text_left + height
+
+        def is_heading(row):
+            text = row["text"].strip()
+            letters = [ch for ch in text if ch.isalpha()]
+            if text.endswith(":"):
+                return True
+            if letters and sum(ch.isupper() for ch in letters) >= 0.85 * len(letters):
+                return True
+            narrow = (row["x1"] - row["x0"]) < 0.3 * (text_right - text_left)
+            return narrow and row["tb"].textFont_is_bold('sebi')
+
+        toc_key = min(toc_keys) if toc_keys else None
+        limit = len(rows)
+        if toc_key is not None:
+            limit = next((k for k, r in enumerate(rows) if (r["page"], -r["y0"]) >= toc_key), len(rows))
+
+        end = None
+        for k in range(limit):
+            row = rows[k]
+            match = marker_re.match(row["text"])
+            if not match or int(match.group(1)) != 1:
+                continue
+            following = rows[k + 1] if k + 1 < len(rows) else None
+            if full_width(row) or (following is not None and following["page"] == row["page"]
+                                   and full_width(following)):
+                end = k
+                break
+
+        heading_row = None
+        if end is not None:
+            above = rows[end - 1] if end > 0 else None
+            if (above is not None and above["tb"] is not rows[end]["tb"] and not full_width(above)
+                    and is_heading(above)):
+                if len(above["tb"].tbox.findall(".//textline")) == 1:
+                    end -= 1
+                    self.all_pgs[above["page"]].all_tbs[above["tb"]] = "title"
+                else:
+                    heading_row = above
+        elif toc_key is not None:
+            end = limit
+
+        if not end:
+            return
+
+        if heading_row is not None:
+            target = (heading_row["x0"], heading_row["y0"], heading_row["x1"], heading_row["y1"])
+            for textline in heading_row["tb"].tbox.findall(".//textline"):
+                try:
+                    if tuple(map(float, textline.attrib["bbox"].split(","))) == target:
+                        textline.set("front_heading", "1")
+                except (KeyError, ValueError):
+                    pass
+
+        body_tbs = {id(r["tb"]) for r in rows[end:]}
+        for row in rows[:end]:
+            tb = row["tb"]
+            if id(tb) in body_tbs:
+                continue
+            page_obj = self.all_pgs[row["page"]]
+            if page_obj.all_tbs.get(tb) is None:
+                page_obj.all_tbs[tb] = "pre_header"
+        self.logger.info("Sebi front matter ends before: %s", rows[end]["text"][:60] if end < len(rows) else "the end")
 
     def extract_toc_lines(self, tb):
         lines = []

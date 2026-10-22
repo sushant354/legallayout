@@ -1286,6 +1286,45 @@ class Amendment:
         self.bq2_prev_page = row["page"]
         self.bq2_prev_start = row["start"]
 
+    def check_for_italic_blockquotes_sebi(self, page):
+        trigger_re = re.compile(r'[:：;；][\s\-‐‑‒–—―−:：]*$')
+        state = self.__dict__.setdefault('sebi_quote_state', {'armed': False, 'open': False})
+        boxes = []
+        for tb, label in list(page.all_tbs.items()):
+            if isinstance(label, tuple) and label[0] in ('table', 'borderless_table'):
+                boxes.append((tb, None, False, False))
+                continue
+            if label is not None:
+                continue
+            text = tb.extract_text_from_tb().strip()
+            if not text:
+                continue
+            boxes.append((tb, text, tb.is_italic_or_oblique(), tb.textFont_is_bold('sebi')))
+        for idx, (tb, text, italic, bold) in enumerate(boxes):
+            if text is None:
+                state['armed'] = False
+                state['open'] = False
+                continue
+            if state['open']:
+                if italic:
+                    page.all_tbs[tb] = 'blockquote'
+                    continue
+                state['open'] = False
+            if state['armed'] and italic and not bold:
+                page.all_tbs[tb] = 'blockquote'
+                state['open'] = True
+                state['armed'] = False
+                continue
+            if bold and len(text) <= 120:
+                following = boxes[idx + 1] if idx + 1 < len(boxes) else None
+                quote_follows = following is not None and following[1] is not None and following[2] and not following[3]
+                if state['armed'] and (not italic or quote_follows):
+                    continue
+                if italic and quote_follows:
+                    state['armed'] = True
+                    continue
+            state['armed'] = bool(trigger_re.search(text)) and not italic
+
     def check_for_blockquotes_judgments(self, page, judgments_mode=False):
         trigger_re = re.compile(r'[:：][\s\-‐‑‒–—―−:：]*$')
         is_scanned = bool(getattr(page, 'scanned_copy', False))

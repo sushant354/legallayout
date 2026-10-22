@@ -32,6 +32,7 @@ SENTENCE_END_RE = re.compile(
     r'[.?!:;' + INDIC_SENTENCE_END_CHARS + INDIC_SEMICOLON_CHARS + r'][\)\]"\'”’»]*$')
 LINE_MARKER_RE = re.compile(
     r'^(?:\d{1,3}(?:\.\d{1,3}){0,3}[.)]|\(\d{1,3}\)|\([^\W\d_]{1,5}\)|[ivxlcdm]{1,5}[.)]|[•●▪◦])\s+\S')
+NUMBER_MARKER_RE = re.compile(r'^(\d{1,3})[.)]\s+\S')
 TAG_RE = re.compile(r'<[^>]+>')
 WORD_CHAR_RE = re.compile(r'\w')
 PARA_OPEN = '<div>'
@@ -310,6 +311,7 @@ class TableCellArranger:
 
         blocks = []
         paragraph = None
+        last_number = None
         for idx, l in enumerate(lines):
             if members[idx]:
                 if blocks and blocks[-1][0] == 'pre':
@@ -320,6 +322,13 @@ class TableCellArranger:
                 continue
             gap_before = gaps[idx - 1] if idx else 0.0
             starts = paragraph is None or bool(LINE_MARKER_RE.match(l['plain']))
+            number = NUMBER_MARKER_RE.match(l['plain'])
+            if starts and number and paragraph is not None and justified and kinds[idx - 1] == 'full' \
+                    and not SENTENCE_END_RE.search(lines[idx - 1]['plain'].rstrip()) \
+                    and int(number.group(1)) != (last_number + 1 if last_number is not None else 1):
+                starts = False
+            if starts and number:
+                last_number = int(number.group(1))
             if not starts and pitch and gap_before > PARA_GAP_RATIO * pitch:
                 starts = True
             if not starts and justified:
@@ -396,14 +405,24 @@ class TableCellArranger:
         row = match.group(1).replace('<td>', '<th>').replace('</td>', '</th>')
         return table_html[:match.start()] + '<thead>\n' + row + '\n</thead>\n<tbody>\n' + table_html[match.end():]
 
+    def _table_adjacency(self, bbox1, page1, bbox2, page2, page_height, table1_rows):
+        adjacency = super()._table_adjacency(bbox1, page1, bbox2, page2, page_height, table1_rows)
+        self.__dict__['table_cut_by_page'] = adjacency == 'cross_page'
+        return adjacency
+
     def merge_tables(self, table2, table2_width, table2_bbox=None, table2_page=None):
         pending = self.pending_table
         before = None
         column = None
+        glue = True
+        cut = self.__dict__.get('table_cut_by_page', False)
+        self.__dict__['table_cut_by_page'] = False
         if pending is not None and table2_bbox is not None and not pending[0].empty and not table2.empty \
                 and pending[0].shape[1] == table2.shape[1]:
             before = pending[0]
-            column = self.continued_column(before.iloc[-1], table2.iloc[0])
+            found = self.continued_column(before.iloc[-1], table2.iloc[0], cut)
+            if found is not None:
+                column, glue = found
         super().merge_tables(table2, table2_width, table2_bbox, table2_page)
         if column is None or self.pending_table is None:
             return
@@ -411,14 +430,14 @@ class TableCellArranger:
         boundary = before.shape[0]
         if merged.shape[0] != boundary + table2.shape[0]:
             return
-        joined = self.join_cell_html(str(merged.iat[boundary - 1, column]), str(merged.iat[boundary, column]))
+        joined = self.join_cell_html(str(merged.iat[boundary - 1, column]), str(merged.iat[boundary, column]), glue)
         if joined is None:
             return
         merged = merged.copy()
         merged.iat[boundary - 1, column] = joined
         self.pending_table[0] = merged.drop(merged.index[boundary]).reset_index(drop=True)
 
-    def continued_column(self, last_row, first_row):
+    def continued_column(self, last_row, first_row, cut=False):
         filled_last = [i for i, v in enumerate(last_row) if not self._is_blank_cell(v)]
         filled_first = [i for i, v in enumerate(first_row) if not self._is_blank_cell(v)]
         if len(filled_last) != 1 or filled_last != filled_first:
@@ -429,11 +448,38 @@ class TableCellArranger:
         previous_blocks = BLOCK_RE.findall(previous)
         tail = TAG_RE.sub('', previous_blocks[-1] if previous_blocks else previous).strip()
         head = TAG_RE.sub('', following).strip()
-        if not tail or not head or SENTENCE_END_RE.search(tail) or LINE_MARKER_RE.match(head):
+        if not tail or not head:
             return None
-        return column
+        if not SENTENCE_END_RE.search(tail) and not LINE_MARKER_RE.match(head):
+            return column, True
+        if cut and len(last_row) >= 2:
+            return column, False
+        return None
 
-    def join_cell_html(self, previous, following):
+    def flatten_cell(self, value):
+        if not isinstance(value, str) or (PARA_OPEN not in value and '<pre>' not in value):
+            return value
+        out = ''
+        position = 0
+        for match in BLOCK_RE.finditer(value):
+            loose = value[position:match.start()].strip()
+            if loose:
+                out = out + ' ' + loose if out else loose
+            block = match.group(0)[len(PARA_OPEN):-len(PARA_CLOSE)]
+            out = out + '\n' + block if out else block
+            position = match.end()
+        loose = value[position:].strip()
+        if loose:
+            out = out + ' ' + loose if out else loose
+        return out
+
+    def flatten_table_cells(self, table):
+        if table.empty:
+            return table
+        rows = [[self.flatten_cell(v) for v in row] for row in table.itertuples(index=False, name=None)]
+        return pd.DataFrame(rows, columns=table.columns)
+
+    def join_cell_html(self, previous, following, glue=True):
         def to_blocks(html):
             if html.startswith(PARA_OPEN) or html.startswith('<pre>'):
                 blocks = BLOCK_RE.findall(html)
@@ -447,7 +493,7 @@ class TableCellArranger:
         after = to_blocks(following)
         if not before or not after:
             return None
-        if before[-1].startswith(PARA_OPEN) and after[0].startswith(PARA_OPEN):
+        if glue and before[-1].startswith(PARA_OPEN) and after[0].startswith(PARA_OPEN):
             text = self.join_styled(inner(before[-1]), ' ' + inner(after[0]))
             blocks = before[:-1] + [PARA_OPEN + text + PARA_CLOSE] + after[1:]
         else:
