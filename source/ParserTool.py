@@ -19,6 +19,7 @@ from statistics import median
 import pytesseract
 
 from .ScanStyle import ScanStyleDetector
+from .ImagePage import image_text_page, strips_share_is_uniform
 from .Deskew import rotate_image, straighten_pixmap
 
 TESSERACT_LANG_MAP = {
@@ -196,7 +197,44 @@ class ParserTool:
             f"PDF text coverage: {text_pages}/{total_pages} ({ratio:.2%})"
         )
 
-        return ratio < threshold
+        if ratio < threshold:
+            return True
+
+        return self.has_image_body_between_strips(pages)
+
+    def parse_box(self, element):
+        try:
+            return tuple(map(float, element.attrib['bbox'].split(',')))
+        except (KeyError, ValueError):
+            return None
+
+    def has_image_body_between_strips(self, pages):
+        results = []
+        for page in pages:
+            page_box = self.parse_box(page)
+            if page_box is None:
+                return False
+            image_boxes = [
+                box for box in (self.parse_box(figure) for figure in page.findall('.//figure')
+                                if figure.find('.//image') is not None)
+                if box is not None
+            ]
+            lines = []
+            for textline in page.findall('.//textline'):
+                box = self.parse_box(textline)
+                if box is None:
+                    continue
+                count = sum(len(t.text.strip()) for t in textline.findall('.//text') if t.text)
+                lines.append(box + (count,))
+            results.append(image_text_page(page_box, image_boxes, lines))
+
+        scanned = strips_share_is_uniform(results)
+        if scanned:
+            self.logger.info(
+                "Every page is a text strip around one large image: "
+                "the body is read as a scanned copy"
+            )
+        return scanned
 
 # class ChromeLensParserTool:
 
