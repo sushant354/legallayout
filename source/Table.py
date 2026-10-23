@@ -6,6 +6,7 @@ import html as html_lib
 from difflib import SequenceMatcher
 import logging
 
+from .NormalizeText import NormalizeText
 from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_NONZERO_DIGIT_CHARS, INDIC_COMBINING_MARK_CHARS, \
     is_schedule, is_annexure, is_appendix, is_part, _term_alternation, \
     indic_nil_alternation, indic_unit_time_alternation, indic_serial_no_alternation, \
@@ -313,6 +314,9 @@ class TableBuilder:
         if not entries:
             return html.replace(TOC_PLACEHOLDER, '', 1)
 
+        toc_normalizer = NormalizeText().normalize_text
+        entries = [dict(entry, text=toc_normalizer(entry['text'])) for entry in entries]
+
         candidates = []
         for block in toc_iter_blocks(html):
             if 'id=' in block['attrs']:
@@ -411,7 +415,7 @@ class TableBuilder:
         pieces.append(html[last:])
         html = ''.join(pieces)
 
-        title_text = getattr(self, 'toc_title', None) or 'Table of Contents'
+        title_text = toc_normalizer(getattr(self, 'toc_title', None) or 'Table of Contents')
         out = [
             '<nav class="toc">',
             f'<p class="toc-title">{html_lib.escape(title_text)}</p>',

@@ -14,8 +14,8 @@ import weakref
 import pymupdf
 from .ParserTool import ParserTool, ChromeLensParserTool, TesseractParserTool
 from .Page import Page, SectionState
+from .HTMLBaseBuilder import HTMLBaseBuilder
 from .Judgment import JudgmentBuilder
-from .BulletList import JudgmentBuilderBullets
 from .HTMLBuilder import HTMLBuilder, HTMLBuilderChromeLens, HtmlBuilderV2
 from .Acts import Acts
 from .SebiCirculars import SebiCirculars
@@ -2109,7 +2109,7 @@ class Main:
             return HtmlBuilderV2(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
                                  show_fonts=self.show_fonts, detected_fonts=self.detected_font_classes,
                                  table_extract=self.table_extract)
-            # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            # return HTMLBaseBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         elif pdf_type in set(['acts']):
             sentence_completion_punctutation = ('.', ';', ':', '—', ':—', '; or',\
                                                 ': or', '; and', ': and', ':––', ';––',\
@@ -2129,14 +2129,14 @@ class Main:
         elif pdf_type == 'judgments':
             sentence_completion_punctutation = ("'.",'".',".'", '."', "';", ";'", ';"','";') \
                 + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
-            return JudgmentBuilderBullets(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
+            return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
                                           table_extract=self.table_extract)
         else:
             sentence_completion_punctutation = ('.', ':') + tuple(INDIC_SENTENCE_END_CHARS) + tuple(INDIC_SEMICOLON_CHARS)
             return HtmlBuilderV2(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type,
                                  show_fonts=self.show_fonts, detected_fonts=self.detected_font_classes,
                                  table_extract=self.table_extract)
-            # return JudgmentBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
+            # return HTMLBaseBuilder(self.unique_images, self.all_footnote_text, sentence_completion_punctutation, pdf_type)
         
     # --- func to build HTML after text classification ---
     def buildHTML(self, start_page, end_page): #, section_page_end):
@@ -2464,6 +2464,9 @@ class Main:
         #     self.detect_sebi_header_pre(pages)
 
         self.detect_toc(pages)
+
+        if self.pdf_type == 'judgments':
+            self.flatten_pre_header_tables()
 
         if self.pdf_type == 'sebi':
             self.detect_sebi_front_matter(pages)
@@ -4810,7 +4813,51 @@ class Main:
             page_obj = self.all_pgs[row["page"]]
             if page_obj.all_tbs.get(tb) is None:
                 page_obj.all_tbs[tb] = "pre_header"
+        if end < len(rows):
+            boundary = (rows[end]["page"], -rows[end]["y0"])
+        else:
+            boundary = toc_key
+        self.flatten_front_matter_tables(boundary)
         self.logger.info("Sebi front matter ends before: %s", rows[end]["text"][:60] if end < len(rows) else "the end")
+
+    def table_owners(self, page_obj):
+        owners = {}
+        for tb, label in page_obj.all_tbs.items():
+            if isinstance(label, tuple) and label[0] == "table":
+                owners.setdefault(label[1], []).append(tb)
+        return owners
+
+    def flatten_table_into_pre_header(self, page_num, page_obj, table_id, tbs, reason):
+        for tb in tbs:
+            page_obj.all_tbs[tb] = "pre_header"
+        page_obj.tabular_datas.tables.pop(table_id, None)
+        page_obj.tabular_datas.table_bbox.pop(table_id, None)
+        page_obj.tabular_datas.cell_grids.pop(table_id, None)
+        self.logger.info("%s: table %s on page %s flattened into the pre block", reason, table_id, page_num)
+
+    def flatten_front_matter_tables(self, boundary):
+        if boundary is None:
+            return
+        for page_num, page_obj in self.all_pgs.items():
+            for table_id, tbs in self.table_owners(page_obj).items():
+                if any((page_num, -tb.coords[1]) >= boundary for tb in tbs):
+                    continue
+                self.flatten_table_into_pre_header(page_num, page_obj, table_id, tbs, "Sebi front matter")
+
+    def flatten_pre_header_tables(self):
+        pre_tops = []
+        for page_num, page_obj in self.all_pgs.items():
+            for tb, label in page_obj.all_tbs.items():
+                if label == "pre_header" and hasattr(tb, "coords"):
+                    pre_tops.append((page_num, -tb.coords[3]))
+        if not pre_tops:
+            return
+        for page_num, page_obj in self.all_pgs.items():
+            for table_id, tbs in self.table_owners(page_obj).items():
+                top = min((page_num, -tb.coords[3]) for tb in tbs)
+                bottom = max((page_num, -tb.coords[1]) for tb in tbs)
+                if any(key < top for key in pre_tops) and any(key > bottom for key in pre_tops):
+                    self.flatten_table_into_pre_header(page_num, page_obj, table_id, tbs, "Judgment pre header")
 
     def extract_toc_lines(self, tb):
         lines = []

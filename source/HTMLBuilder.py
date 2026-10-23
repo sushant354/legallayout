@@ -2211,7 +2211,7 @@ class HTMLBuilderChromeLens:
 </html>
 """
 
-from .Judgment import JudgmentBuilder, STYLE_TAG_RE, LEADING_WRAP_RE, TRIGGER_END_RE, WIDE_SPACE_RE
+from .HTMLBaseBuilder import HTMLBaseBuilder, STYLE_TAG_RE, LEADING_WRAP_RE, TRIGGER_END_RE, WIDE_SPACE_RE
 from .BulletList import GlyphBulletLists
 
 FONT_RUN_TAG_RE = re.compile(r'<fontrun (\d+)>')
@@ -2230,11 +2230,11 @@ TITLE_PREAMBLE_WIDTH_RATIO = 0.58
 TITLE_PREAMBLE_HEIGHT_RATIO = 0.15
 
 
-class HtmlBuilderV2(GlyphBulletLists, JudgmentBuilder):
+class HtmlBuilderV2(GlyphBulletLists, HTMLBaseBuilder):
 
     def __init__(self, unique_images, all_footnote_text, sentence_completion_punctuation=tuple(), pdf_type=None,
                  show_fonts=False, detected_fonts=None, table_extract=False):
-        JudgmentBuilder.__init__(self, unique_images, all_footnote_text, sentence_completion_punctuation,
+        HTMLBaseBuilder.__init__(self, unique_images, all_footnote_text, sentence_completion_punctuation,
                                  pdf_type, table_extract=table_extract)
         self.show_fonts = show_fonts
         self.detected_fonts = detected_fonts or {}
@@ -2259,7 +2259,7 @@ class HtmlBuilderV2(GlyphBulletLists, JudgmentBuilder):
         if match:
             level = int(match.group(1))
             return ("level", level - 2) if level > 1 else ("level1", None)
-        return JudgmentBuilder.tag_for_label(label)
+        return HTMLBaseBuilder.tag_for_label(label)
 
     @staticmethod
     def mark_item_start(tb):

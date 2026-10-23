@@ -1,6 +1,5 @@
 import re
 
-from .Judgment import JudgmentBuilder
 from .Utils import starts_with_bullet_glyph, is_bullet_glyph
 
 BULLET_MARK_START = '﷓'
@@ -122,7 +121,3 @@ class GlyphBulletLists:
     def close_html(self):
         self.builder = self.convert_bullet_runs(self.builder)
         return super().close_html()
-
-
-class JudgmentBuilderBullets(GlyphBulletLists, JudgmentBuilder):
-    pass
