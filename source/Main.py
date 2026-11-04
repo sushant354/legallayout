@@ -236,6 +236,9 @@ FONT_LANG_MODELS = {
     'mar': 'eng_mar_fonts.pkl',
     'mal': 'eng_mal_fonts.pkl',
     'tel': 'eng_tel_fonts.pkl',
+    'ori': 'eng_ori_fonts.pkl',
+    'pan': 'eng_pan_fonts.pkl',
+    'guj': 'eng_guj_fonts.pkl',
 }
 DEFAULT_FONT_LANG = 'hin'
 FONT_MODEL_PATH = FONT_MODEL_DIR / FONT_LANG_MODELS[DEFAULT_FONT_LANG]
@@ -390,11 +393,21 @@ FONT_DETECT_MAX_WORDS = 20000
 # --- assuming it of a class not named here the safe default. A class is named
 # --- here as soon as its font is known, not as soon as a model is trained on
 # --- it: the wrong half of this table is the half that names too few classes,
-# --- since that is the half that rejects a true verdict as an impossible one
+# --- since that is the half that rejects a true verdict as an impossible one.
+# --- krishnauni and chitrauni are the unicode gujarati of the Gujarat gazette
+# --- (KrishnaUni, and ChitraUni/SuchitraUni), whose maps were built by the same
+# --- pairing slip Arial Unicode MS's was, so they draw real gujarati that is
+# --- merely the wrong gujarati - here for the first reason, like arialuni.
+# --- chitrauni has no converter yet, so a verdict naming it is left alone.
+# --- raavi is the unicode gurmukhi of Windows as Microsoft Print To PDF embeds
+# --- it in the Punjab gazette, whose map has no entry for the glyphs the shaper
+# --- made and leaves matra i in the order it is drawn ('ਿਨਯਮ' for 'ਨਿਯਮ'), so
+# --- it draws real gurmukhi and its converter reorders - here for the third
+# --- reason, like tunga
 FONT_CLASSES_INDIC_TEXT = {
     'arialuni', 'nirmala', 'nirmalaui', 'type3', 'mangal', 'tunga',
     'nudiuni', 'tauelango', 'ilasundaram', 'marutham', 'meera', 'freeserif',
-    'nats',
+    'nats', 'krishnauni', 'chitrauni', 'raavi',
     FONT_CLASS_NOT_REQUIRED,
 }
 
