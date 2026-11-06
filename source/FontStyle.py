@@ -8,23 +8,11 @@ from fontTools.ttLib import TTFont
 SUBSET_PREFIX_RE = re.compile(r'^[A-Z]{6}\+')
 BOLD_NAME_RE = re.compile(r'bold|demi|heavy|black', re.IGNORECASE)
 ITALIC_NAME_RE = re.compile(r'italic|oblique|slanted', re.IGNORECASE)
-FLAGS_RE = re.compile(r'/Flags\s+(\d+)')
-ITALIC_ANGLE_RE = re.compile(r'/ItalicAngle\s+(-?[\d.]+)')
-FONT_WEIGHT_RE = re.compile(r'/FontWeight\s+(\d+)')
-DESCENDANT_RE = re.compile(r'/DescendantFonts\s*\[([^\]]*)\]')
-DESCRIPTOR_RE = re.compile(r'/FontDescriptor\s+(\d+)\s+0\s+R')
-REF_RE = re.compile(r'(\d+)\s+0\s+R')
 TYPE1_WEIGHT_RE = re.compile(r'/Weight\s*\(([^)]*)\)')
-TYPE1_ANGLE_RE = re.compile(r'/ItalicAngle\s+(-?[\d.]+)')
 TYPE1_NAME_RE = re.compile(r'/(?:FullName|FontName)\s*[(/]([^)\s]*)')
 
-FLAG_ITALIC = 0x40
-FLAG_FORCE_BOLD = 0x40000
 BOLD_WEIGHT = 700
 OS2_STYLE_BITS = 0x61
-SPAN_ITALIC = 2
-SPAN_BOLD = 16
-SPAN_SCAN_PAGES = 60
 TYPE1_HEADER_BYTES = 8192
 
 
@@ -57,7 +45,6 @@ class FontStyleReader:
 
         try:
             self.read_declared_fonts(doc)
-            self.read_drawn_spans(doc)
         except Exception as e:
             self.logger.warning("[!] Could not read the font styles of %s: %s", self.pdf_path, e)
         finally:
@@ -80,39 +67,8 @@ class FontStyleReader:
                     continue
                 seen.add(xref)
                 style = style_from_name(base_name)
-                style += self.style_from_descriptor(doc, xref)
                 style += self.style_from_program(doc, xref, ext)
                 self.add(base_name, style)
-
-    def object_text(self, doc, xref):
-        try:
-            return doc.xref_object(xref, compressed=True) or ''
-        except Exception:
-            return ''
-
-    def descriptor_text(self, doc, xref):
-        text = self.object_text(doc, xref)
-        parts = [text]
-        descendants = DESCENDANT_RE.search(text)
-        if descendants:
-            for ref in REF_RE.findall(descendants.group(1)):
-                parts.append(self.object_text(doc, int(ref)))
-        for part in list(parts):
-            for ref in DESCRIPTOR_RE.findall(part):
-                parts.append(self.object_text(doc, int(ref)))
-        return ' '.join(parts)
-
-    def style_from_descriptor(self, doc, xref):
-        text = self.descriptor_text(doc, xref)
-        style = ''
-        flags = FLAGS_RE.search(text)
-        weight = FONT_WEIGHT_RE.search(text)
-        angle = ITALIC_ANGLE_RE.search(text)
-        if (flags and int(flags.group(1)) & FLAG_FORCE_BOLD) or (weight and int(weight.group(1)) >= BOLD_WEIGHT):
-            style += 'b'
-        if (flags and int(flags.group(1)) & FLAG_ITALIC) or (angle and float(angle.group(1)) != 0):
-            style += 'i'
-        return style
 
     def style_from_program(self, doc, xref, ext):
         if ext not in ('ttf', 'otf', 'cff', 'pfa', 'pfb', 'ttc'):
@@ -165,38 +121,14 @@ class FontStyleReader:
             cff.decompile(io.BytesIO(buffer), None)
             top = cff[cff.fontNames[0]]
             text = ' '.join(str(getattr(top, key, '') or '') for key in ('Weight', 'FullName', 'FontName'))
-            angle = float(getattr(top, 'ItalicAngle', 0) or 0)
         except Exception:
             return ''
-        style = ''
-        if BOLD_NAME_RE.search(text):
-            style += 'b'
-        if ITALIC_NAME_RE.search(text) or angle != 0:
-            style += 'i'
-        return style
+        return style_from_name(text)
 
     @staticmethod
     def style_from_type1(buffer):
         header = buffer[:TYPE1_HEADER_BYTES].decode('latin-1', 'ignore')
         weight = TYPE1_WEIGHT_RE.search(header)
-        angle = TYPE1_ANGLE_RE.search(header)
         name = TYPE1_NAME_RE.search(header)
         text = ' '.join(m.group(1) for m in (weight, name) if m)
-        style = ''
-        if BOLD_NAME_RE.search(text):
-            style += 'b'
-        if ITALIC_NAME_RE.search(text) or (angle and float(angle.group(1)) != 0):
-            style += 'i'
-        return style
-
-    def read_drawn_spans(self, doc):
-        for pagenum in range(min(doc.page_count, SPAN_SCAN_PAGES)):
-            for block in doc[pagenum].get_text('dict', flags=0)['blocks']:
-                for line in block.get('lines', []):
-                    for span in line['spans']:
-                        style = ''
-                        if span['flags'] & SPAN_BOLD:
-                            style += 'b'
-                        if span['flags'] & SPAN_ITALIC:
-                            style += 'i'
-                        self.add(span['font'], style)
+        return style_from_name(text)

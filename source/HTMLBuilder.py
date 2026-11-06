@@ -2226,8 +2226,6 @@ LEVEL_CLOSE_RE = re.compile(
     r'^(?:(?:Date|Dated)\s*[:\-]{1}\s*(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|[A-Za-z' + INDIC_WORD_CHARS + r']+\s+\d{1,2},\s*\d{4})'
     r'|(?:Place)\s*[:\-]{1}\s*[A-Z' + INDIC_WORD_CHARS + r'][A-Za-z' + INDIC_WORD_CHARS + r' .,&-]*'
     r'|\(.*?(?:Judgment\s+pronounced|Order\s+pronounced|Decision\s+pronounced).*?\)|Sd/-)$', re.IGNORECASE)
-TITLE_PREAMBLE_WIDTH_RATIO = 0.58
-TITLE_PREAMBLE_HEIGHT_RATIO = 0.15
 
 
 class HtmlBuilderV2(GlyphBulletLists, HTMLBaseBuilder):
@@ -2239,6 +2237,8 @@ class HtmlBuilderV2(GlyphBulletLists, HTMLBaseBuilder):
         self.show_fonts = show_fonts
         self.detected_fonts = detected_fonts or {}
         self._multicolumn_pages = set()
+        self._title_boxes = frozenset()
+        self._plain_style = False
         self._page_sizes = {}
         self._font_ids = {}
         self._font_names = {}
@@ -2411,39 +2411,31 @@ class HtmlBuilderV2(GlyphBulletLists, HTMLBaseBuilder):
         out.append(text)
         return ''.join(out)
 
-    def is_preamble_block(self, units):
-        texts = [u for u in units if u['kind'] == 'text' and 'x0' in u and 'y0' in u]
-        if not texts:
-            return False
-        size = self._page_sizes.get(texts[0].get('page_num'))
-        if not size:
-            return False
-        width = max(u['x1'] for u in texts) - min(u['x0'] for u in texts)
-        height = max(u['y1'] for u in texts) - min(u['y0'] for u in texts)
-        return width > TITLE_PREAMBLE_WIDTH_RATIO * size[0] and height > TITLE_PREAMBLE_HEIGHT_RATIO * size[1]
-
     def emit_title(self, units):
-        if self.is_preamble_block(units):
+        texts = [u for u in units if u['kind'] == 'text' and u['value'].strip()]
+        body_text = WIDE_SPACE_RE.sub(' ', ' '.join(u['value'].strip() for u in texts))
+        if not texts or self.is_separator_text(body_text):
             self.emit_paragraph("p", units)
             return
-        before = len(self.builder)
-        previous = self._merge_anchor
-        self.emit_paragraph("p", units, is_heading=True)
-        if self._level_stack and self.builder.startswith('<p>', before):
-            closers = self.level_closers()
-            self.builder = self.builder[:before] + closers + self.builder[before:]
-            before += len(closers)
-            self._level_stack = []
-            if self._merge_anchor is not None:
-                self._merge_anchor['close_idx'] += len(closers)
-        anchor = self._merge_anchor
-        if (anchor is not None and anchor is not previous and anchor['is_heading']
-                and self.builder.startswith('<p>', before) and self.builder.endswith('</p>\n')):
-            self.builder = self.builder[:before] + '<h4>' + self.builder[before + 3:-5] + '</h4>\n'
-            self._merge_anchor = None
+        self.close_level_stack()
+        styled = WIDE_SPACE_RE.sub(' ', self.join_styled_parts([u.get('styled', u['value']).strip() for u in texts]))
+        raws = ''.join(u['value'] for u in units if u['kind'] == 'raw')
+        self.builder += f"<h4>{styled}{raws}</h4>\n"
+        self._merge_anchor = None
+
+    def get_char_style(self, text_el, underlines):
+        if self._plain_style:
+            return (False, False, False)
+        return super().get_char_style(text_el, underlines)
 
     def extract_textlines(self, tb):
-        lines = super().extract_textlines(tb)
+        self._plain_style = id(tb) in self._title_boxes
+        try:
+            lines = super().extract_textlines(tb)
+        finally:
+            self._plain_style = False
+        for line in lines:
+            line['source_box'] = id(tb)
         flagged = set()
         for textline in tb.tbox.findall('.//textline'):
             if textline.attrib.get('front_heading') == '1':
@@ -2592,9 +2584,22 @@ class HtmlBuilderV2(GlyphBulletLists, HTMLBaseBuilder):
             return super().render_block("p", lines)
         if tag != "title":
             return super().render_block(tag, lines)
-        units = self.normalize_units(self.club_lines_into_rows(lines))
-        for group in self.split_rows_into_paragraphs(units):
-            self.emit_title(group)
+        for box_lines in self.split_lines_by_source_box(lines):
+            units = self.normalize_units(self.club_lines_into_rows(box_lines))
+            for group in self.split_rows_into_paragraphs(units):
+                self.emit_title(group)
+
+    @staticmethod
+    def split_lines_by_source_box(lines):
+        runs = []
+        for line in lines:
+            if runs and 'source_box' in line and runs[-1][-1].get('source_box') == line['source_box']:
+                runs[-1].append(line)
+            elif runs and 'source_box' not in line:
+                runs[-1].append(line)
+            else:
+                runs.append([line])
+        return runs
 
     def column_switch_ends_paragraph(self, prev_unit, unit):
         page_num = prev_unit.get('page_num')
@@ -2635,6 +2640,7 @@ class HtmlBuilderV2(GlyphBulletLists, HTMLBaseBuilder):
         if page.is_multicolumn:
             self._multicolumn_pages.add(page_num)
         original = page.all_tbs
+        self._title_boxes = frozenset(id(tb) for tb, label in original.items() if label == "title")
         for tb, label in original.items():
             if isinstance(label, str) and self.tag_for_label(label)[0] == "level":
                 self.mark_item_start(tb)

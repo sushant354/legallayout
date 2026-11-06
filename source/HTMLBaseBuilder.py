@@ -48,6 +48,10 @@ QUOTE_OPEN_RE = re.compile(r'^["\'“‘«‹「『]')
 LEADING_WRAP_RE = re.compile(r'^[\(\[\{"\'“‘«‹「『]+')
 TITLE_ENUM_RE = re.compile(r'^(?:[IVXLC]{1,5}|[A-Z' + INDIC_WORD_CHARS + r'])\.\s+\S|^Re:\s+\S')
 QUOTE_ANNOTATION_RE = re.compile(r'^[\(\[（［][^\(\[\)\]（）［］]+[\)\]）］]$')
+DETACHED_ANNOTATION_OFFSET = 0.4
+CLOSING_QUOTE_END_RE = re.compile(r'[\'"”’»›」』]\s*$')
+ITALIC_END_RE = re.compile(r'</i>[\s"\'“”‘’»›.)\]]*$')
+ITALIC_BLOCK_END_RE = re.compile(r'</i>[\s"\'“”‘’»›.)\]]*</(?:p|li|blockquote)>\s*(?:</(?:ul|ol|li)>\s*)*$')
 INDIC_TEXT_RE = re.compile('[' + INDIC_LETTER_CHARS + ']')
 INDIC_TERMINAL_RE = re.compile('[' + INDIC_SENTENCE_END_CHARS + r'][\)\'"”’\]›»】」』]*\s*$')
 INDIC_INDENT_RATIO = 0.6
@@ -922,6 +926,77 @@ class HTMLBaseBuilder(TableCellArranger, TableBuilder):
     def is_separator_text(text):
         return is_separator_line(text)
 
+    def record_char_widths(self, units):
+        samples = getattr(self, '_char_width_samples', None)
+        if samples is None:
+            samples = self._char_width_samples = []
+        for unit in units:
+            if unit.get('kind') == 'text' and 'x0' in unit and 'x1' in unit:
+                count = len(unit['value'].strip())
+                if count >= 30 and unit['x1'] > unit['x0']:
+                    samples.append((unit['x1'] - unit['x0']) / count)
+
+    def ink_start(self, unit):
+        samples = sorted(getattr(self, '_char_width_samples', None) or [])
+        if len(samples) >= 5:
+            char_width = samples[len(samples) // 2]
+        else:
+            char_width = 0.5 * ((unit.get('y1', 0) - unit.get('y0', 0)) or 8.0)
+        return max(unit['x0'], unit['x1'] - len(unit['value'].strip()) * char_width)
+
+    def follows_quoted_text(self, head):
+        if self.last_block_is_blockquote() != -1:
+            return True
+        if ITALIC_BLOCK_END_RE.search(self.builder[-400:].rstrip()):
+            return True
+        for unit in reversed(head):
+            if unit.get('kind') == 'text' and unit['value'].strip():
+                return bool(ITALIC_END_RE.search(unit.get('styled', unit['value']).rstrip())
+                            or CLOSING_QUOTE_END_RE.search(unit['value']))
+        return False
+
+    def split_detached_annotation(self, tag, units):
+        if tag not in ("p", "blockquote"):
+            return None
+        positions = [i for i, u in enumerate(units) if u.get('kind') == 'text' and u['value'].strip()]
+        for rank in range(1, len(positions)):
+            note = units[positions[rank]]
+            if 'x0' not in note or 'x1' not in note or not QUOTE_ANNOTATION_RE.match(note['value'].strip()):
+                continue
+            others = [units[i] for i in positions[:rank] if 'x0' in units[i] and 'x1' in units[i]]
+            if not others:
+                continue
+            head = units[:positions[rank]]
+            if tag == "p" and not self.follows_quoted_text(head):
+                continue
+            left = min(u['x0'] for u in others)
+            right = max(max(u['x1'] for u in others), self.doc_right_edge() or 0)
+            if right - left <= 0 or self.ink_start(note) - left < DETACHED_ANNOTATION_OFFSET * (right - left):
+                continue
+            return head, note, units[positions[rank] + 1:]
+        return None
+
+    def is_detached_annotation(self, units):
+        texts = [u for u in units if u.get('kind') == 'text' and 'x0' in u and 'x1' in u]
+        if len(texts) != 1:
+            return False
+        anchor = self._merge_anchor
+        geometry = anchor.get('geometry') if anchor else None
+        if geometry and geometry[3] is not None and geometry[5] is not None:
+            left = geometry[5]
+            right = max(geometry[3], geometry[6] or 0, self.doc_right_edge() or 0)
+        else:
+            xs, _ = self.local_line_width_entries()
+            edge = self.doc_right_edge()
+            if not xs or not edge:
+                return False
+            left = xs[int(0.1 * (len(xs) - 1))]
+            right = edge
+        width = right - left
+        if width <= 0:
+            return False
+        return self.ink_start(texts[0]) - left >= DETACHED_ANNOTATION_OFFSET * width
+
     def last_block_is_blockquote(self):
         idx = self.builder.rfind('</blockquote>')
         if idx == -1:
@@ -932,6 +1007,20 @@ class HTMLBaseBuilder(TableCellArranger, TableBuilder):
         return idx
 
     def emit_paragraph(self, tag, units, is_heading=False):
+        self.record_char_widths(units)
+        split = self.split_detached_annotation(tag, units)
+        if split:
+            head, note, rest = split
+            self.emit_paragraph(tag, head, is_heading)
+            self.builder += f"<blockquote>{note.get('styled', note['value']).strip()}</blockquote>\n"
+            self._merge_anchor = None
+            if any(u.get('kind') == 'text' and u['value'].strip() for u in rest):
+                self.emit_paragraph(tag, rest, is_heading)
+            else:
+                raws = [u['value'] for u in rest if u.get('kind') == 'raw']
+                if raws:
+                    self.builder += ''.join(raws) + '\n'
+            return
         text_parts = [u['value'].strip() for u in units if u['kind'] == 'text' and u['value'].strip()]
         styled_parts = [u.get('styled', u['value']).strip() for u in units if u['kind'] == 'text' and u['value'].strip()]
         raws = [u['value'] for u in units if u['kind'] == 'raw']
@@ -956,6 +1045,13 @@ class HTMLBaseBuilder(TableCellArranger, TableBuilder):
         if self.is_separator_text(body_text):
             separator_tag = tag if tag in ("p", "blockquote") else "p"
             self.builder += f"<{separator_tag}>{styled_text}{''.join(raws)}</{separator_tag}>\n"
+            self._merge_anchor = None
+            return
+        if (tag in ("p", "blockquote") and QUOTE_ANNOTATION_RE.match(body_text)
+                and self.follows_quoted_text([]) and self.is_detached_annotation(units)):
+            self.builder += f"<blockquote>{styled_text}</blockquote>\n"
+            if raws:
+                self.builder += ''.join(raws) + '\n'
             self._merge_anchor = None
             return
         if tag == "p" and QUOTE_ANNOTATION_RE.match(body_text):

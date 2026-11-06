@@ -161,6 +161,8 @@ class Amendment:
         self.bq2_main_fmt = None
         self.bq2_prev_text = None
         self.bq2_prev_x1 = None
+        self.bq2_prev_x0 = None
+        self.bq2_host_list = None
         self.bq2_suspended = None
         self.bq2_quote_in_list = False
         self.bq2_prev_top = None
@@ -1253,6 +1255,44 @@ class Amendment:
                 self.remember_bq2_row(row)
                 continue
 
+            if self.bq2_mode is None:
+                self.bq2_host_list = None
+            host = self.bq2_host_list
+            resumed = False
+            if host and readings and not prev_midsentence and (
+                    self.bq2_mode == "quote" or (self.bq2_mode == "list" and self.bq2_list_parent == "quote")):
+                for depth in range(len(host["stack"]) - 1, -1, -1):
+                    level = host["stack"][depth]
+                    matched = self.list_follows(level["readings"], readings)
+                    if matched and abs(row_x0 - level["x0"]) <= indent_tol:
+                        self.bq2_host_list = None
+                        self.bq2_mode = "list"
+                        self.bq2_list_parent = host["parent"]
+                        self.bq2_list_stack = host["stack"][:depth] + [{"readings": matched, "x0": row_x0}]
+                        self.bq2_suspended = None
+                        self.bq2_quote_in_list = False
+                        set_list(row, True)
+                        row["inline"] = self.find_inline_markers(text, self.bq2_list_stack[-1])
+                        self.logger.debug(f"blockquote_v2 host list resumed after quote on page {pg_num}: {text[:60]}")
+                        self.remember_bq2_row(row)
+                        resumed = True
+                        break
+            if resumed:
+                continue
+
+            if (self.bq2_mode == "list" and pending and not readings and not planned
+                    and self.bq2_prev_x0 is not None and row_x0 > self.bq2_prev_x0 + indent_tol
+                    and (self.BQ2_QUOTE_OPEN_RE.match(text) or is_italic)):
+                self.suspend_bq2_list()
+                self.bq2_host_list = self.bq2_suspended
+                self.end_bq2_mode()
+                self.bq2_mode = "quote"
+                self.bq2_quote_in_list = True
+                row["category"] = "blockquote"
+                self.logger.debug(f"blockquote_v2 quote after trigger inside list item opened on page {pg_num}: {text[:60]}")
+                self.remember_bq2_row(row)
+                continue
+
             if self.bq2_mode == "list":
                 handled = False
                 start = False
@@ -1397,6 +1437,7 @@ class Amendment:
     def remember_bq2_row(self, row):
         self.bq2_prev_text = row["text"]
         self.bq2_prev_x1 = row["x1"]
+        self.bq2_prev_x0 = row["x0"]
         self.bq2_prev_top = row["y_top"]
         self.bq2_prev_page = row["page"]
         self.bq2_prev_start = row["start"]
