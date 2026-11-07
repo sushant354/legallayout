@@ -5,14 +5,18 @@ import logging
 import numpy as np
 import pymupdf
 from .Utils import *
+from .ImagePage import classify_image_page, OVERLAY
 from PIL import Image
 from typing import Tuple
 
 from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTImage
+from pdfminer.layout import LTImage, LTTextContainer, LTTextLine
 from pdfminer.image import ImageWriter, LITERALS_JBIG2_DECODE
 from pdfminer import pdftypes, utils as pdfminer_utils
 from pdfminer.pdfexceptions import PDFValueError
+
+
+PAGE_COVER_RATIO = 0.97
 
 
 def apply_png_predictor(pred, colors, columns, bitspercomponent, data):
@@ -555,6 +559,26 @@ class Pictures:
 
         return False
 
+    def is_text_layer_backdrop(self, lt_image, page_layout):
+        try:
+            page_width = page_layout.x1 - page_layout.x0
+            page_height = page_layout.y1 - page_layout.y0
+            if page_width <= 0 or page_height <= 0:
+                return False
+            if lt_image.width < PAGE_COVER_RATIO * page_width:
+                return False
+            if lt_image.height < PAGE_COVER_RATIO * page_height:
+                return False
+            lines = [
+                (line.x0, line.y0, line.x1, line.y1, len(line.get_text().strip()))
+                for element in page_layout if isinstance(element, LTTextContainer)
+                for line in element if isinstance(line, LTTextLine)
+            ]
+            page_box = (page_layout.x0, page_layout.y0, page_layout.x1, page_layout.y1)
+            return classify_image_page(page_box, lt_image.bbox, lines) == OVERLAY
+        except Exception:
+            return False
+
     def is_jbig2(self, lt_image):
         try:
             return any(
@@ -631,6 +655,13 @@ class Pictures:
                 try:
 
                     if self.should_skip(lt_image, min_img_pixels):
+                        continue
+
+                    if self.is_text_layer_backdrop(lt_image, page_layout):
+                        self.logger.info(
+                            f"Skipping page-sized image {lt_image.name} on page "
+                            f"{self.pg_num}: the page carries its own text layer"
+                        )
                         continue
 
                     img_name = lt_image.name

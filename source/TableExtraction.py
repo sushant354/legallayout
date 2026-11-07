@@ -37,6 +37,7 @@ class TableExtraction:
     def __init__(self,pdf_path,pg_num, pdf_type, scanned_copy):
         self.logger = logging.getLogger(__name__)
         self.pdf_type = pdf_type
+        self.cell_grids = {}
         self.tables, self.table_bbox = self.get_table_and_bbox(pdf_path,pg_num, scanned_copy)
     
     # --- func to find the table contents and their coordinates ---
@@ -50,6 +51,10 @@ class TableExtraction:
             for idx,tab in enumerate(tables_and_bbox):
                 table[idx] = tab.df
                 bbox[idx] = tab._bbox
+                self.cell_grids[idx] = [
+                    [(cell.x1, cell.y1, cell.x2, cell.y2, bool(cell.hspan or cell.vspan)) for cell in row]
+                    for row in tab.cells
+                ]
         except Exception as e:
             self.logger.error("Exception occurred while checking for table contents: %s" % (str(e)))
 

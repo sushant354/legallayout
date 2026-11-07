@@ -15,7 +15,7 @@ import csv
 # 'python -m unittest' from the project root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from source.Main import Main, install_cleanup_signal_handlers
+from source.Main import Main, install_cleanup_signal_handlers, sweep_orphaned_cache
 
 
 def process_case(job):
@@ -115,6 +115,7 @@ class TestPdfToHtmlDiff(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Set up test environment and locate test PDFs."""
+        sweep_orphaned_cache()
         cls.test_dir = Path(__file__).parent
         cls.test_pdfs_dir = cls.test_dir / "test_pdfs"
         cls.test_judgment_pdfs_dir = cls.test_dir / "test_judgment_pdfs"

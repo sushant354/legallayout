@@ -14,6 +14,9 @@ from .CompareLevel import CompareLevel, CompareLevelSebi
 from .NormalizeText import NormalizeText
 from .Figure import Figure,Pictures
 from .Utils import *
+from .Utils import _term_alternation
+from .SentenceEndDetector import INDIC_SENTENCE_END_CHARS
+from .Utils import is_separator_line
 
 ARTICLE      = 4
 DECIMAL      = 3
@@ -46,6 +49,7 @@ class Page:
         self.pg_num = pg.attrib["id"]
         self.logger.debug(f"page: {self.pg_num} --- page_height: {self.pg_height} , page_width: {self.pg_width}")
         self.all_tbs = {}
+        self.watermark_texts = []
         self.all_figbox = {}
         self.has_side_notes = has_side_notes
         self.pdf_type = pdf_type
@@ -123,7 +127,10 @@ class Page:
                     tb_obj = TextBox(tb, self.pdf_type, self.font_mapper)
                     text = tb_obj.extract_text_from_tb()
                     if text and text.strip():
-                        self.all_tbs[tb_obj] = None
+                        if tb.attrib.get("watermark"):
+                            self.watermark_texts.append(text.strip())
+                        else:
+                            self.all_tbs[tb_obj] = None
                 except Exception as e:
                     self.logger.warning("Failed to process a textbox: %s", e)
                     continue
@@ -194,7 +201,7 @@ class Page:
                     self.logger.warning("Body boundaries (body_startX, body_endX) are not defined for page %s", self.pg_num)
                     return  # Skip if body region not defined
                 
-                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|(?:' + _term_alternation("ordinance") + r')\.?\s*\d+\s+of\s+\d+\.)$', re.IGNORECASE)
 
                 
 
@@ -281,7 +288,7 @@ class Page:
             right_tb_coords = None
             right_sn_start_coords = None
             if self.has_side_notes:
-                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|Ord\.?\s*\d+\s+of\s+\d+\. | Ordinance\.?\s*\d+\s+of\s+\d+\.)$')
+                pattern = re.compile(r'^(\d+\s+of\s+\d+\.|(?:' + _term_alternation("ordinance") + r')\.?\s*\d+\s+of\s+\d+\.)$', re.IGNORECASE)
 
                 for tb, label in list(self.all_tbs.items()):
                     if label != 'side notes':
@@ -292,7 +299,7 @@ class Page:
                             if  texts.strip() and not pattern.match(texts.strip()):
                                 texts = texts.strip()
                                 if not texts.endswith("."):
-                                    if not re.match(r'\s*[A-Z]', texts):
+                                    if not re.match(r'\s*[A-Z' + INDIC_WORD_CHARS + r']', texts):
                                         if tb.coords[2] < self.body_startX:
                                             # Left side note
                                             if left_tb_coords:#and abs(tb.coords[1] - left_tb_coords[3]) < 0.05 * self.pg_height:
@@ -310,7 +317,7 @@ class Page:
                                             right_previous_text = texts
                                             right_tb_coords = tb.coords
 
-                                    elif re.match(r'\s*[A-Z]', texts) and\
+                                    elif re.match(r'\s*[A-Z' + INDIC_WORD_CHARS + r']', texts) and\
                                         not (left_previous_text or right_previous_text):
                                         if tb.coords[2] < self.body_startX:
                                             # Left side note
@@ -532,7 +539,7 @@ class Page:
         for tb, label in self.all_tbs.items():
             if label is not None:
                 continue
-            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)?[.)]', tb.extract_text_from_tb().strip()):
+            if tb.textFont_is_italic(pdf_type) and not re.fullmatch(r'\(?[a-zA-Z0-9' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+\)?[.)]', tb.extract_text_from_tb().strip()):
                 self.all_tbs[tb] = ('italic', 'blockquote')
 
     # def detect_pre(self):
@@ -1084,7 +1091,7 @@ class Page:
             return False
         
     def find_sidenote_leftend_rightstart_coords(self):
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         left_sidenote_end_coords = []
         right_sidenote_start_coords = []
         for tb, label in self.all_tbs.items():
@@ -1129,8 +1136,9 @@ class Page:
                 ''',
                 re.IGNORECASE | re.VERBOSE
             )
-        match = re.search(pattern, text)
-        return bool(match)
+        if re.search(pattern, text):
+            return True
+        return bool(re.search(indic_enact_alternation(), text) or re.search(indic_long_title_end_alternation(), text, re.M))
     
     def inner_group_assign(self, rest_text, sectionState, group_re, findtype):
         match = group_re.match(rest_text)
@@ -1192,9 +1200,9 @@ class Page:
     #--- func to find section, subsection, para, subpara ---
     def get_section_para(self,sectionState, main):  #,startPage,endPage):
         hierarchy_type = ("section","subsection","para","subpara","subsubpara")
-        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
+        section_re = re.compile(r'^(\s*\d{1,3}[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)(.*)', re.IGNORECASE)
         group_re = re.compile(
-            r'^\(\s*((?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2})|(?:[A-Z' + INDIC_LETTER_CHARS + r']{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
+            r'^\(\s*((?:[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2})|(?:[A-Z' + INDIC_WORD_CHARS + r']{1,3})|(?:(?:CM|CD|D?C{0,3})?(?:XC|XL|L?X{0,3})?(?:IX|IV|V?I{0,3})))\s*\)(.*)',
             re.IGNORECASE
         )
         try:
@@ -1265,15 +1273,10 @@ class Page:
     def is_schedule(self, text):
         roman_re = r"(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))"
 
-        ordinals = [
-            "first", "second", "third", "fourth", "fifth", "sixth", "seventh",
-            "eighth", "ninth", "tenth", "eleventh", "twelfth", "thirteenth",
-            "fourteenth", "fifteenth", "sixteenth", "seventeenth", "eighteenth",
-            "nineteenth", "twentieth"
-        ]
-        ordinals_re = r"(?:{})".format("|".join(ordinals))
+        schedule_alt = _term_alternation("schedule")
+        ordinals_re = ordinal_word_alternation()
 
-        numbers_re = r"(?:[1-9][0-9]?)"
+        numbers_re = r"(?:[1-9" + INDIC_NONZERO_DIGIT_CHARS + r"][0-9" + INDIC_DIGIT_CHARS + r"]?)"
 
         pattern = rf"""(?ix)
                 ^
@@ -1281,7 +1284,7 @@ class Page:
 
                 (?:
                     # schedule + optional separators + number/ordinal/roman
-                    schedule
+                    {schedule_alt}
                     [\s\-–—:.\u2013\u2014]*     # optional separators
                     (?:{ordinals_re}|{numbers_re}|{roman_re})
                     \b
@@ -1290,13 +1293,11 @@ class Page:
                     # number/ordinal/roman + optional separators + schedule
                     (?:{ordinals_re}|{numbers_re}|{roman_re})
                     [\s\-–—:.\u2013\u2014]*
-                    schedule
-                    \b
+                    {schedule_alt}
                     |
 
                     # just 'schedule'
-                    schedule
-                    \b
+                    {schedule_alt}
                 )
 
                 [\s\(\)\.\-–—:]*$               # optional trailing punctuation
@@ -1308,17 +1309,17 @@ class Page:
         hierarchy_type = ("article","subsection","para","subpara","subsubpara")
         
         roman_re = r"[IVXLCDM]+"
-        article_number = rf"({roman_re}|\d+)"
+        article_number = rf"({roman_re}|\d+|[0-9{INDIC_DIGIT_CHARS}]+)"
 
         section_re = re.compile(
-            rf"(?:^\s*ARTICLE\s+{article_number}$)",
+            rf"(?:^\s*(?:ARTICLE|{_term_alternation('article')})\s+{article_number}$)",
             re.IGNORECASE
         )
   
         group_re = re.compile(
             r'^\s*'
             r'(?:'
-                r'(?P<marker>\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.)'
+                r'(?P<marker>\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.)'
                 r'|'
                 r'\(\s*(?P<marker_paren>[^\s\)]+)\s*\)'
             r')\s*(?P<text>.*)$',
@@ -1516,13 +1517,13 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_WORD_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[a-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([a-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[a-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|[A-Z][.\)]|\([a-z' + INDIC_WORD_CHARS + r']{1,2}\)|\([A-Z]\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -1532,6 +1533,8 @@ class Page:
         for tb,label in self.all_tbs.items():
             if label is not None:
                     continue
+            if tb.textFont_is_bold('sebi') or tb.is_italic_or_oblique():
+                continue
             # if label is not None and (isinstance(label,tuple) and label  not in (('italic', 'blockquote'),)):
             #     continue
             texts = tb.extract_text_from_tb().strip()
@@ -1545,7 +1548,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1561,6 +1564,8 @@ class Page:
                     continue
 
                 match = group_re.match(texts)
+                if match and not re.search(r'[.)]$', match.group(1).strip()):
+                    match = None
 
                 if not isinstance(label,list) and sectionState.compare_obj != None and  match : # does not consider amendments label
                     group =match.group(1).strip()
@@ -1588,13 +1593,13 @@ class Page:
         
         # original
         section_re = re.compile(
-            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_LETTER_CHARS + r']?\.(?!\))(?:\s+.*)?$',
+            r'^(?!\s*\d{1,4}\.\d{1,4}\.\d{2,4})\s*[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}[A-Z' + INDIC_WORD_CHARS + r']?\.(?!\))(?:\s+.*)?$',
             re.IGNORECASE
         )
 
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_WORD_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -1622,7 +1627,7 @@ class Page:
                     sectionState.curr_depth = 0
                     self.all_tbs[tb] = hierarchy_type[0]
                     self.logger.debug(f"Page {self.pg_num}: Detected section: {section_number}")
-                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', texts)
+                    check_inside = re.match(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', texts)
                     
                     if check_inside:
                         rest_text = check_inside.group(2).strip()
@@ -1938,10 +1943,10 @@ class Page:
             if not unlabeled_in_order:
                 return
 
-            leading_marker_re = re.compile(r'^\s*\(?([0-9*†‡]{1,3})\)?[.\s]')
+            leading_marker_re = re.compile(r'^\s*\(?([0-9' + INDIC_DIGIT_CHARS + r'*†‡]{1,3})\)?[.\s]')
             bare_number_re = re.compile(r'^\(?[0-9' + INDIC_DIGIT_CHARS + r']{1,4}\)?$')
             dotted_clause_re = re.compile(r'^\d+\.\d+(\.\d+)*[.\s]')
-            embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9*†‡]{1,3})\}\}\}\}')
+            embedded_marker_re = re.compile(r'^\{\{\^\{\{FOOTNOTE\s+([0-9' + INDIC_DIGIT_CHARS + r'*†‡]{1,3})\}\}\}\}')
 
             texts = [tb.extract_text_from_tb().strip() for tb in unlabeled_in_order]
 
@@ -2097,7 +2102,7 @@ class Page:
         hierarchy_type = ("level0","level1","level2","level3","level4")
         group_re = re.compile(
             r'\s*('
-                r'(?:[A-z' + INDIC_LETTER_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_LETTER_CHARS + r']{1,2}\))|'                     # a., a), (a)
+                r'(?:[A-z' + INDIC_WORD_CHARS + r']{1,2}[.\)]|\([A-z' + INDIC_WORD_CHARS + r']{1,2}\))|'                     # a., a), (a)
                 r'(?:[IVXLCDMivxlcdm]{1,4}[.\)]|\([IVXLCDMivxlcdm]{1,4}\))|'  # i., i), IX., (IX)
                 r'(?:\(?[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}(?:\.[1-9' + INDIC_NONZERO_DIGIT_CHARS + r']\d{0,2}){0,3}\)?(?:[.\)])?)'    # allow trailing . or ) optional
             r')(?!\w)',  # ensure not followed by alphanumeric (safety)
@@ -2234,9 +2239,11 @@ class Page:
         MIN_GROUP = 2
         GAP_SHORT_ITEM_WORD_LIMIT = 6
         TRAILING_ANNOTATION_RE = re.compile(
-            r'[\(\[](emphasis (supplied|added|mine)|underlined?|sic)[\)\]]\.?\s*$',
+            r'[\(\[](emphasis (supplied|added|mine)|underlined?|sic|' + indic_annotation_alternation() + r')[\)\]]\.?\s*$',
             re.IGNORECASE,
         )
+        CENTER_HEIGHT_TOL = 1.5
+        SENTENCE_END_RE = re.compile(r'[.?!' + INDIC_SENTENCE_END_CHARS + r'][\)\]"\'”’»]*\s*$')
 
         body_start = self.body_startX
         body_end = self.body_endX
@@ -2373,7 +2380,95 @@ class Page:
                 return "center", (row_x0 + row_x1) / 2.0
             return None, None
 
+        def row_height_of(row):
+            return max(row[0]["y1"] - row[0]["y0"], 1.0)
+
+        def center_tolerance(row):
+            return max(ALIGN_TOL_RATIO * body_width, CENTER_HEIGHT_TOL * row_height_of(row))
+
+        def symmetric_center(row):
+            row_col = item_column(row[0])
+            if row_col is not None:
+                ref_start, ref_end = self.column_bounds[row_col]
+            else:
+                ref_start, ref_end = body_start, body_end
+            if ref_end - ref_start <= 0:
+                ref_start, ref_end = body_start, body_end
+            row_x0 = row[0]["x0"]
+            row_x1 = row[-1]["x1"]
+            margin_floor = ALIGN_TOL_RATIO * (ref_end - ref_start)
+            if row_x0 - ref_start < margin_floor or ref_end - row_x1 < margin_floor:
+                return None
+            center = (row_x0 + row_x1) / 2.0
+            if abs(center - (ref_start + ref_end) / 2.0) > center_tolerance(row):
+                return None
+            return center
+
+        n_rows = len(rows)
         row_info = [classify_row(row) for row in rows]
+        weak_center = set()
+        for idx, row in enumerate(rows):
+            if row_info[idx][0] is None:
+                center = symmetric_center(row)
+                if center is not None:
+                    row_info[idx] = ("center", center)
+                    weak_center.add(idx)
+
+        row_gaps = sorted(
+            upper[0]["y0"] - lower[0]["y0"] for upper, lower in zip(rows, rows[1:])
+            if upper[0]["y0"] - lower[0]["y0"] >= row_height_of(lower)
+        )
+        page_pitch = row_gaps[len(row_gaps) // 2] if row_gaps else 0.0
+
+        def tight_pair(upper, lower):
+            height = max(row_height_of(upper), row_height_of(lower))
+            gap = upper[0]["y0"] - lower[0]["y0"]
+            return gap <= max(height * MAX_GAP_HEIGHT_RATIO, page_pitch + 0.5 * height)
+
+        edge_floor = ALIGN_TOL_RATIO * body_width
+
+        page_spans = []
+        for tb in self.all_tbs:
+            try:
+                page_spans.append((tb.coords[1], tb.coords[3], tb))
+            except (AttributeError, IndexError, TypeError):
+                continue
+
+        def block_above(row):
+            top = max(it["y1"] for it in row)
+            own = {it["tb"] for it in row}
+            best = None
+            for y0, y1, tb in page_spans:
+                if tb in own or y0 < top:
+                    continue
+                if best is None or y0 < best[0]:
+                    best = (y0, tb)
+            return best
+
+        def nothing_between(upper_row, lower_row):
+            top = min(it["y0"] for it in upper_row)
+            bottom = max(it["y1"] for it in lower_row)
+            own = {it["tb"] for it in upper_row} | {it["tb"] for it in lower_row}
+            for y0, y1, tb in page_spans:
+                if tb in own:
+                    continue
+                middle = (y0 + y1) / 2.0
+                if bottom < middle < top:
+                    return False
+            return True
+
+        def ends_sentence(row):
+            return bool(SENTENCE_END_RE.search(row[-1]["text"]))
+
+        def breaks_mixed_run(idx):
+            return (row_info[idx][0] is None or idx in weak_center or ends_sentence(rows[idx])
+                    or is_separator_line(" ".join(it["text"] for it in rows[idx])))
+
+        def mark_pre(group):
+            for row in group:
+                for it in row:
+                    if self.all_tbs[it["tb"]] is None:
+                        self.all_tbs[it["tb"]] = "pre"
 
         i = 0
         n = len(rows)
@@ -2398,13 +2493,35 @@ class Page:
                     nxt_row[0]["y1"] - nxt_row[0]["y0"],
                     1.0,
                 )
-                if prev_row[0]["y0"] - nxt_row[0]["y0"] > row_height * MAX_GAP_HEIGHT_RATIO:
+                weak_pair = kind == "center" and ((j - 1) in weak_center or j in weak_center)
+                if weak_pair and any(is_separator_line(" ".join(it["text"] for it in r)) for r in (prev_row, nxt_row)):
                     break
-                if abs(group_ref - nxt_ref) > ALIGN_TOL_RATIO * body_width:
+                align_tol = center_tolerance(nxt_row) if weak_pair else ALIGN_TOL_RATIO * body_width
+                if prev_row[0]["y0"] - nxt_row[0]["y0"] > row_height * MAX_GAP_HEIGHT_RATIO:
+                    if not (kind == "right" and abs(group_ref - nxt_ref) <= align_tol
+                            and nothing_between(prev_row, nxt_row)):
+                        break
+                    self.logger.debug(f"sparse pre right rows joined across a gap on page {self.pg_num}: "
+                                      f"{prev_row[0]['text'][:40]} / {nxt_row[0]['text'][:40]}")
+                if abs(group_ref - nxt_ref) > align_tol:
                     break
                 group.append(nxt_row)
                 group_ref = nxt_ref
                 j += 1
+
+            if kind == "center" and any(idx in weak_center for idx in range(i, j)):
+                starts = sorted(row[0]["x0"] for row in group)
+                ends = sorted(row[-1]["x1"] for row in group)
+                typical_start = starts[len(starts) // 2] if len(starts) % 2 else sum(starts) / len(starts)
+                typical_end = ends[len(ends) // 2] if len(ends) % 2 else sum(ends) / len(ends)
+                edge_tol = ALIGN_TOL_RATIO * body_width
+                moved = sum(
+                    1 for row in group
+                    if abs(row[0]["x0"] - typical_start) > edge_tol and abs(row[-1]["x1"] - typical_end) > edge_tol
+                )
+                if moved * 2 < len(group):
+                    i = j
+                    continue
 
             required_group = MIN_GROUP
             if kind == "gap" and all(
@@ -2420,9 +2537,105 @@ class Page:
             follows_blockquote = group_follows_blockquote(group_top_y1, group_row_height)
 
             if len(group) >= required_group and not follows_blockquote:
-                for row in group:
-                    for it in row:
-                        if self.all_tbs[it["tb"]] is None:
-                            self.all_tbs[it["tb"]] = "pre"
+                if kind == "center" and any(idx in weak_center for idx in range(i, j)):
+                    self.logger.debug(f"sparse pre centred group on page {self.pg_num}: "
+                                      f"{[row[0]['text'][:40] for row in group]}")
+                mark_pre(group)
             i = j
+
+        for idx, row in enumerate(rows):
+            if row_info[idx][0] in (None, "gap") or ends_sentence(row):
+                continue
+            if any(self.all_tbs[it["tb"]] is not None for it in row):
+                continue
+            if idx + 1 < n_rows and tight_pair(row, rows[idx + 1]) and row_info[idx + 1][0] is None:
+                continue
+            if idx + 1 < n_rows and tight_pair(row, rows[idx + 1]) and rows[idx + 1][0]["x0"] <= row[0]["x0"] + edge_floor \
+                    and not any(self.all_tbs[it["tb"]] is not None for it in rows[idx + 1]) \
+                    and row_info[idx + 1][0] == "left":
+                continue
+            above = block_above(row)
+            if above is None or self.all_tbs.get(above[1]) not in ("pre", "pre_header"):
+                continue
+            gap = above[0] - max(it["y1"] for it in row)
+            if gap > row_height_of(row) * MAX_GAP_HEIGHT_RATIO:
+                continue
+            if abs(above[1].coords[0] - row[0]["x0"]) > edge_floor:
+                continue
+            self.logger.debug(f"sparse pre row joined the block above on page {self.pg_num}: {row[0]['text'][:40]}")
+            mark_pre([row])
+            nxt = idx + 1
+            while nxt < n_rows and row_info[nxt][0] is not None and not ends_sentence(rows[nxt - 1]) \
+                    and tight_pair(rows[nxt - 1], rows[nxt]) and rows[nxt][0]["x0"] > row[0]["x0"] + edge_floor:
+                mark_pre([rows[nxt]])
+                nxt += 1
+
+        def row_center(row):
+            return (row[0]["x0"] + row[-1]["x1"]) / 2.0
+
+        def opens_paragraph(idx):
+            if idx + 1 >= n_rows:
+                return False
+            following = rows[idx + 1]
+            return tight_pair(rows[idx], following) and following[0]["x0"] - body_start < edge_floor
+
+        start = 0
+        while start < n_rows:
+            if row_info[start][0] in (None, "gap") or ends_sentence(rows[start]) or opens_paragraph(start) \
+                    or is_separator_line(" ".join(it["text"] for it in rows[start])):
+                start += 1
+                continue
+            axis = row_center(rows[start])
+            end = start + 1
+            while end < n_rows:
+                lower = rows[end]
+                if row_info[end][0] == "gap" or is_separator_line(" ".join(it["text"] for it in lower)):
+                    break
+                if not tight_pair(rows[end - 1], lower):
+                    break
+                if abs(row_center(lower) - axis) > center_tolerance(lower):
+                    break
+                if lower[0]["x0"] - body_start < edge_floor or opens_paragraph(end):
+                    break
+                end += 1
+            group = rows[start:end]
+            nested = any(
+                a[0]["x0"] - b[0]["x0"] > edge_floor and b[-1]["x1"] - a[-1]["x1"] > edge_floor
+                for a in group for b in group
+            )
+            if len(group) >= MIN_GROUP and nested \
+                    and any(self.all_tbs[it["tb"]] is None for row in group for it in row):
+                self.logger.debug(f"sparse pre shared-axis group on page {self.pg_num}: {[row[0]['text'][:30] for row in group]}")
+                mark_pre(group)
+            start = max(end, start + 1)
+
+        def paragraph_tail(idx):
+            if idx == 0 or row_info[idx - 1][0] is not None:
+                return False
+            above = rows[idx - 1]
+            return tight_pair(above, rows[idx]) and not ends_sentence(above)
+
+        start = 0
+        while start < n:
+            if breaks_mixed_run(start) or paragraph_tail(start):
+                start += 1
+                continue
+            end = start + 1
+            while end < n:
+                if breaks_mixed_run(end):
+                    break
+                upper, lower = rows[end - 1], rows[end]
+                height = max(row_height_of(upper), row_height_of(lower))
+                if upper[0]["y0"] - lower[0]["y0"] > height * MAX_GAP_HEIGHT_RATIO:
+                    break
+                end += 1
+            run = rows[start:end]
+            kinds = {row_info[idx][0] for idx in range(start, end)}
+            if len(run) >= MIN_GROUP and len(kinds) >= 2:
+                run_top = max(it["y1"] for it in run[0])
+                if not group_follows_blockquote(run_top, row_height_of(run[0])):
+                    self.logger.debug(f"sparse pre mixed run on page {self.pg_num}: "
+                                      f"{[(row_info[idx][0], rows[idx][0]['text'][:40]) for idx in range(start, end)]}")
+                    mark_pre(run)
+            start = end
 

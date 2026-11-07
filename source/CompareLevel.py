@@ -1,7 +1,7 @@
 import re
 import logging
 
-from .Utils import INDIC_LETTER_CHARS
+from .Utils import INDIC_WORD_CHARS
 
 
 ARTICLE      = 4
@@ -92,7 +92,7 @@ class CompareLevel:
         return total
 
     def is_decimal(self, value):
-        if re.match(r'\d+[a-zA-Z' + INDIC_LETTER_CHARS + r']*$', value) != None:
+        if re.match(r'\d+[a-zA-Z' + INDIC_WORD_CHARS + r']*$', value) != None:
             return True
         else:
             return False
@@ -105,7 +105,7 @@ class CompareLevel:
             isRoman = self.is_roman(value)
             if isRoman == True:
                 return ROMAN 
-            elif re.match('[a-z' + INDIC_LETTER_CHARS + ']+$', value) != None:
+            elif re.match('[a-z' + INDIC_WORD_CHARS + ']+$', value) != None:
                 return SMALLSTRING
             else:
                 return GENSTRING
@@ -307,7 +307,7 @@ class CompareLevelSebi:
         value = self._normalize(value)
 
         return re.fullmatch(
-            r'[A-Za-z' + INDIC_LETTER_CHARS + r']+',
+            r'[A-Za-z' + INDIC_WORD_CHARS + r']+',
             value
         ) is not None
 

@@ -1,7 +1,8 @@
 import re
 from typing import Optional, Tuple
 
-from .Utils import INDIC_LETTER_CHARS, INDIC_DIGIT_CHARS
+from .Utils import INDIC_WORD_CHARS, INDIC_DIGIT_CHARS, INDIC_COMBINING_MARK_CHARS, INDIC_ABBREVIATION_WORDS, \
+    indic_provision_alternation, indic_acronym_alternation, _term_alternation
 
 BBox = Tuple[float, float, float, float]
 
@@ -50,24 +51,33 @@ EXTENDED_LEGAL_ABBREVIATIONS = {
     'exh.', 'ex.', 'exhibit', 'v/s.', 'vs.', 'v/s', 'vs', 'versus', 'versus.', 'ors', 'ors.'
 }
 
+PROVISION_WORD_RE = (
+    indic_provision_alternation() + '|' + _term_alternation('chapter') + '|' + _term_alternation('part')
+    + '|' + _term_alternation('schedule') + '|' + _term_alternation('article')
+)
+
 SECTION_REFERENCE_PATTERNS = [
-    re.compile(r'^(Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\.\s*\d+$', re.I),
+    re.compile(r'^(?:(?:Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\.\s*|(?:' + PROVISION_WORD_RE + r')[\s.]*)\d+$', re.I),
     re.compile(r'^\d+\.$'),
     re.compile(r'^\d+\.\d+\.$'),
     re.compile(r'^\d+\.\d+\.\d+\.$'),
-    re.compile(r'^(Sec|Section|Art|Article|Rule)\s+\d+\.$', re.I),
-    re.compile(r'^(Exh|Exhibit|Ex)\.?\s*\d+[A-Za-z]*\.?$', re.I),
+    re.compile(r'^(?:Sec|Section|Art|Article|Rule|' + PROVISION_WORD_RE + r')\s+\d+\.$', re.I),
+    re.compile(r'^(Exh|Exhibit|Ex)\.?\s*\d+[A-Za-z' + INDIC_WORD_CHARS + r']*\.?$', re.I),
 ]
 
 STATUTORY_ACRONYM_RE = re.compile(
-    r'^(SEBI|RBI|CBDT|ITAT|NCLT|NCLAT|CBI|ED|FIU|MCA|ROC|DIN|PAN|TAN|GST|CGST|SGST|IGST|UTI|LIC|SBI|HDFC|ICICI|AXIS)\.$',
+    r'^(SEBI|RBI|CBDT|ITAT|NCLT|NCLAT|CBI|ED|FIU|MCA|ROC|DIN|PAN|TAN|GST|CGST|SGST|IGST|UTI|LIC|SBI|HDFC|ICICI|AXIS|' + indic_acronym_alternation() + r')\.$',
     re.I
 )
 
-INITIALS_RE = re.compile(r'^[A-Z]+(\.[A-Z]+)+\.?$', re.I)
+INITIALS_RE = re.compile(r'^[A-Z' + INDIC_WORD_CHARS + r']+(\.[A-Z' + INDIC_WORD_CHARS + r']+)+\.?$', re.I)
 DECIMAL_RE = re.compile(r'^\d+\.\d+$')
 
 _ABBR_CLEAN = {abbr.lower() for abbr in LEGAL_ABBREVIATIONS}
+
+INDIC_ABBR_SET = set(INDIC_ABBREVIATION_WORDS)
+TOKEN_EDGE_RE = re.compile(r'^[^\w' + INDIC_COMBINING_MARK_CHARS + r']+|[^\w' + INDIC_COMBINING_MARK_CHARS + r']+$')
+NON_WORD_RE = re.compile(r'[^\w' + INDIC_COMBINING_MARK_CHARS + r']')
 
 
 def is_abbreviation_like_token(last_token):
@@ -96,7 +106,10 @@ def is_abbreviation_like_token(last_token):
         if pattern.match(last_token.strip()):
             return True
 
-    clean_token = re.sub(r'[^\w]', '', last_token).lower()
+    if TOKEN_EDGE_RE.sub('', last_token) in INDIC_ABBR_SET:
+        return True
+
+    clean_token = NON_WORD_RE.sub('', last_token).lower()
     variants = (
         clean_token + '.',
         last_token.lower(),
@@ -150,9 +163,9 @@ class LegalSentenceDetector:
       if re.fullmatch(r'\d+(?:\.\d+)*\.', s):
         return False
       pure_bullet_patterns = [
-          re.compile(r'^\(?\d+[A-Z' + INDIC_LETTER_CHARS + r']?\)?[.)]?$'),   # (1), 1A., 2)
+          re.compile(r'^\(?\d+[A-Z' + INDIC_WORD_CHARS + r']?\)?[.)]?$'),   # (1), 1A., 2)
           re.compile(r'^\(?[ivxlcdm]+\)?[.)]?$' , re.I), # (iv), ii.
-          re.compile(r'^\(?[a-z' + INDIC_LETTER_CHARS + r']\)?[.)]?$' , re.I),      # (a), b.
+          re.compile(r'^\(?[a-z' + INDIC_WORD_CHARS + r']\)?[.)]?$' , re.I),      # (a), b.
       ]
       for pattern in pure_bullet_patterns:
           if pattern.fullmatch(s):
@@ -168,7 +181,7 @@ class LegalSentenceDetector:
       if s.endswith(':'):
           if next_text:
               nxt_clean = next_text.strip()
-              if re.match(r'^\(?[a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)', nxt_clean, re.I):  # bullet-like
+              if re.match(r'^\(?[a-z0-9ivxlcdm' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+\)', nxt_clean, re.I):  # bullet-like
                   return True
           return False if at_page_end else True
       
@@ -188,13 +201,13 @@ class LegalSentenceDetector:
       # 2. LIST-LIKE END TOKENS
       list_boundary_patterns = [
           re.compile(r'^\(\s*\d+\s*\)$'),
-          re.compile(r'^\(\s*[a-z' + INDIC_LETTER_CHARS + r']\s*\)$', re.I),
+          re.compile(r'^\(\s*[a-z' + INDIC_WORD_CHARS + r']\s*\)$', re.I),
           re.compile(r'^\(\s*[ivxlcdm]+\s*\)$', re.I),
           re.compile(r'^\d+\.$'),
-          re.compile(r'^[a-z' + INDIC_LETTER_CHARS + r']\.$', re.I),
+          re.compile(r'^[a-z' + INDIC_WORD_CHARS + r']\.$', re.I),
           re.compile(r'^[ivxlcdm]+\.$', re.I),
       ]
-      clean_token = re.sub(r'[^\w\(\)]', '', last_token).lower()
+      clean_token = re.sub(r'[^\w\(\)' + INDIC_COMBINING_MARK_CHARS + r']', '', last_token).lower()
       for pattern in list_boundary_patterns:
           if pattern.match(last_token.strip()) or pattern.match(clean_token):
               return False
@@ -251,7 +264,7 @@ class LegalSentenceDetector:
                       return True
 
                   # 🔧 NEW Rule: punctuation + bullet → True
-                  if trailing_punct  and re.match(r'^\(?[a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)', nxt_clean, re.I):
+                  if trailing_punct  and re.match(r'^\(?[a-z0-9ivxlcdm' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+\)', nxt_clean, re.I):
                       return True
 
                   # Rule 2: punctuation + next bullet form → True
@@ -259,13 +272,13 @@ class LegalSentenceDetector:
                       re.compile(r'^\d+\.$'),
                       re.compile(r'^\(\d+\)$'),
                       re.compile(r'^\d+\)$'),
-                      re.compile(r'^[a-z' + INDIC_LETTER_CHARS + r']\.$', re.I),
-                      re.compile(r'^\([a-z' + INDIC_LETTER_CHARS + r']\)$', re.I),
+                      re.compile(r'^[a-z' + INDIC_WORD_CHARS + r']\.$', re.I),
+                      re.compile(r'^\([a-z' + INDIC_WORD_CHARS + r']\)$', re.I),
                       re.compile(r'^[ivxlcdm]+\.$', re.I),
                       re.compile(r'^\([ivxlcdm]+\)$', re.I),
-                      re.compile(r'^\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\s*\.\s*\S*', re.IGNORECASE),
+                      re.compile(r'^\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\s*\.\s*\S*', re.IGNORECASE),
                       re.compile(r'^\(\s*([^\s\)]+)\s*\)\s*\S*', re.IGNORECASE),
-                      re.compile(r'^(\s*\d+[A-Z' + INDIC_LETTER_CHARS + r']*(?:-[A-Z' + INDIC_LETTER_CHARS + r']+)?\.\s*)(.*)', re.IGNORECASE)
+                      re.compile(r'^(\s*\d+[A-Z' + INDIC_WORD_CHARS + r']*(?:-[A-Z' + INDIC_WORD_CHARS + r']+)?\.\s*)(.*)', re.IGNORECASE)
                   ]
                   if trailing_punct:
                       for pattern in bullet_start_patterns:
@@ -280,8 +293,8 @@ class LegalSentenceDetector:
                   # Section headings
                   section_start_patterns = [
                       re.compile(r'^\d+\s*\(\d+\)'),
-                      re.compile(r'^(Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part)\s+\d+', re.I),
-                      re.compile(r'^\d+\.\s+[A-Z]'),
+                      re.compile(r'^(?:Sec|Section|Art|Article|Rule|Cl|Clause|Para|Paragraph|Sub-sec|Sub-cl|Sch|Schedule|Ch|Chapter|Pt|Part|' + PROVISION_WORD_RE + r')\s+\d+', re.I),
+                      re.compile(r'^\d+\.\s+[A-Z' + INDIC_WORD_CHARS + r']'),
                       re.compile(r'^\d+\.\d+\s'),
                   ]
                   for pattern in section_start_patterns:
@@ -292,8 +305,8 @@ class LegalSentenceDetector:
                   continuation_patterns = [
                       re.compile(r'^\d+'),
                       re.compile(r'^[ivxlcdmIVXLCDM]+[.)\]\}]'),
-                      re.compile(r'^\([a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\)', re.I),
-                      re.compile(r'^[a-z0-9ivxlcdm' + INDIC_LETTER_CHARS + INDIC_DIGIT_CHARS + r']+\.', re.I),
+                      re.compile(r'^\([a-z0-9ivxlcdm' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+\)', re.I),
+                      re.compile(r'^[a-z0-9ivxlcdm' + INDIC_WORD_CHARS + INDIC_DIGIT_CHARS + r']+\.', re.I),
                       re.compile(r'^\('),
                   ]
                   for pattern in continuation_patterns:
@@ -459,9 +472,9 @@ class SentenceMaker:
 
 
         alpha_patterns = [
-            r"^[A-Za-z" + INDIC_LETTER_CHARS + r"]\.$",              # a., A.
-            r"^[A-Za-z" + INDIC_LETTER_CHARS + r"]\)$",              # a), A)
-            r"^\([A-Za-z" + INDIC_LETTER_CHARS + r"]\)$",            # (a), (A)
+            r"^[A-Za-z" + INDIC_WORD_CHARS + r"]\.$",              # a., A.
+            r"^[A-Za-z" + INDIC_WORD_CHARS + r"]\)$",              # a), A)
+            r"^\([A-Za-z" + INDIC_WORD_CHARS + r"]\)$",            # (a), (A)
         ]
         for p in alpha_patterns:
             if re.match(p, l):
@@ -515,7 +528,7 @@ class SentenceMaker:
         if self._is_title_like(prev) and self._is_title_like(curr):
             return True
 
-        if re.search(r"[a-zA-Z" + INDIC_LETTER_CHARS + r"]", prev) and not self._ends_sentence(prev):
+        if re.search(r"[a-zA-Z" + INDIC_WORD_CHARS + r"]", prev) and not self._ends_sentence(prev):
             return True
 
         return False

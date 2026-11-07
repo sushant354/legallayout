@@ -46,16 +46,17 @@ ANNEXURE Annexure
 				Type of Intermediary
 			TH
 				SEBI Registration Number (if any)
+	TABLE
 		TR
-			TC
+			TH
 				PAN
-			TC
+			TH
 				Amount (in `)
-			TC
+			TH
 				Purpose of Payment (including the period for which payment was made e.g. quarterly, annually)
-			TC
+			TH
 				Bank name and Account number from which payment is remitted
-			TC
+			TH
 				UTR No.
 	SUBPART - 1.3  Grant of Prior approval for change in control to Credit Rating Agencies{{^{{FOOTNOTE 3}}}}
 		FOOTNOTE 3

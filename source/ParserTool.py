@@ -4,14 +4,23 @@ import logging
 import re
 import asyncio
 import io
+import os
 import tempfile
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from html import escape
 
+import cv2
+import numpy as np
 import pymupdf
 from PIL import Image, ImageOps
 from chrome_lens_py import LensAPI
 from statistics import median
 import pytesseract
+
+from .ScanStyle import ScanStyleDetector
+from .ImagePage import image_text_page, strips_share_is_uniform
+from .Deskew import rotate_image, straighten_pixmap
 
 TESSERACT_LANG_MAP = {
     "en": "eng",
@@ -188,7 +197,44 @@ class ParserTool:
             f"PDF text coverage: {text_pages}/{total_pages} ({ratio:.2%})"
         )
 
-        return ratio < threshold
+        if ratio < threshold:
+            return True
+
+        return self.has_image_body_between_strips(pages)
+
+    def parse_box(self, element):
+        try:
+            return tuple(map(float, element.attrib['bbox'].split(',')))
+        except (KeyError, ValueError):
+            return None
+
+    def has_image_body_between_strips(self, pages):
+        results = []
+        for page in pages:
+            page_box = self.parse_box(page)
+            if page_box is None:
+                return False
+            image_boxes = [
+                box for box in (self.parse_box(figure) for figure in page.findall('.//figure')
+                                if figure.find('.//image') is not None)
+                if box is not None
+            ]
+            lines = []
+            for textline in page.findall('.//textline'):
+                box = self.parse_box(textline)
+                if box is None:
+                    continue
+                count = sum(len(t.text.strip()) for t in textline.findall('.//text') if t.text)
+                lines.append(box + (count,))
+            results.append(image_text_page(page_box, image_boxes, lines))
+
+        scanned = strips_share_is_uniform(results)
+        if scanned:
+            self.logger.info(
+                "Every page is a text strip around one large image: "
+                "the body is read as a scanned copy"
+            )
+        return scanned
 
 # class ChromeLensParserTool:
 
@@ -513,10 +559,12 @@ class ChromeLensParserTool:
 
     GAP_EPSILON = 0.5
 
-    def __init__(self, pdf_path):
+    def __init__(self, pdf_path, detect_styles=False, workers=5):
         self.logger = logging.getLogger(__name__)
         self.lens = LensAPI()
         self.pdf_path = pdf_path
+        self.detect_styles = detect_styles
+        self.workers = max(1, workers)
         self.xml = []
         self.total_pages = 0
 
@@ -552,14 +600,63 @@ class ChromeLensParserTool:
 
         pix = page.get_pixmap(dpi=300, alpha=False)
 
-        image = Image.open(io.BytesIO(pix.tobytes("png")))
+        _, straightened = straighten_pixmap(pix, self.logger, page.number + 1)
+
+        if straightened is None:
+            image = Image.open(io.BytesIO(pix.tobytes("png")))
+        else:
+            image = Image.fromarray(straightened)
 
         result = await self.lens.process_image(
             image_path=image,
             output_format="detailed"
         )
 
-        return result.get("detailed_blocks", [])
+        detailed_blocks = result.get("detailed_blocks", [])
+
+        if self.detect_styles and detailed_blocks:
+            self._annotate_styles(pix, detailed_blocks, page, straightened)
+
+        return detailed_blocks
+
+    def _annotate_styles(self, pix, detailed_blocks, page, straightened=None):
+
+        try:
+            scale = 72.0 / 300
+            scale_x = page.rect.width
+            scale_y = page.rect.height
+            proxies = []
+            for block_index, block in enumerate(detailed_blocks):
+                for line_index, line in enumerate(block.get("lines", [])):
+                    for word in line.get("words", []):
+                        text = word.get("text", "").strip()
+                        if not text:
+                            continue
+                        left, top, right, bottom = self._bbox(word["geometry"], scale_x, scale_y)
+                        proxies.append({
+                            "text": text,
+                            "left": left,
+                            "top": top,
+                            "right": right,
+                            "bottom": bottom,
+                            "block": block_index,
+                            "par": 0,
+                            "line": line_index,
+                            "source": word,
+                        })
+            if not proxies:
+                return
+            if straightened is None:
+                image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                gray = image[:, :, 0] if pix.n == 1 else cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY)
+            else:
+                gray = straightened if straightened.ndim == 2 else cv2.cvtColor(straightened[:, :, :3], cv2.COLOR_RGB2GRAY)
+            ScanStyleDetector(gray, scale).annotate(proxies)
+            for proxy in proxies:
+                if proxy.get("fstyle"):
+                    proxy["source"]["fstyle"] = proxy["fstyle"]
+        except Exception as e:
+            self.logger.warning(f"Style detection failed on page {page.number + 1}: {e}")
 
     async def _process_page_with_retry(self, page, retries=5):
 
@@ -586,11 +683,26 @@ class ChromeLensParserTool:
 
     async def _build_async(self, doc, start_page, end_page):
 
-        for page_num in range(start_page, end_page + 1):
+        semaphore = asyncio.Semaphore(self.workers)
+
+        async def run_page(page_num):
+            async with semaphore:
+                return await self._process_page_with_retry(doc[page_num - 1])
+
+        page_nums = list(range(start_page, end_page + 1))
+        tasks = [asyncio.ensure_future(run_page(page_num)) for page_num in page_nums]
+
+        try:
+            results = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+
+        for page_num, detailed_blocks in zip(page_nums, results):
 
             page = doc[page_num - 1]
-
-            detailed_blocks = await self._process_page_with_retry(page)
 
             page_xml = self.build_page_xml(
                 detailed_blocks=detailed_blocks,
@@ -793,6 +905,14 @@ class ChromeLensParserTool:
                                 }
                             )
 
+                            shared_style = "".join(
+                                flag for flag in "biu"
+                                if flag in previous_word.get("fstyle", "") and flag in word.get("fstyle", "")
+                            )
+
+                            if shared_style:
+                                space.set("fstyle", shared_style)
+
                             space.text = " "
 
                     n_chars = len(text)
@@ -817,15 +937,16 @@ class ChromeLensParserTool:
                         char_left = current_x
                         char_right = current_x + char_width
 
-                        char_node = ET.SubElement(
-                            textline,
-                            "text",
-                            {
-                                "bbox": self._bbox_string(
-                                    char_left, ch_y0, char_right, ch_y1
-                                )
-                            }
-                        )
+                        char_attrs = {
+                            "bbox": self._bbox_string(
+                                char_left, ch_y0, char_right, ch_y1
+                            )
+                        }
+
+                        if word.get("fstyle"):
+                            char_attrs["fstyle"] = word["fstyle"]
+
+                        char_node = ET.SubElement(textline, "text", char_attrs)
 
                         char_node.text = ch
 
@@ -840,10 +961,12 @@ class TesseractParserTool:
 
     GAP_EPSILON = 0.5
 
-    def __init__(self, pdf_path, ocr_language="en"):
+    def __init__(self, pdf_path, ocr_language="en", detect_styles=False, workers=5):
         self.logger = logging.getLogger(__name__)
         self.pdf_path = pdf_path
         self.tesseract_lang = resolve_tesseract_lang(ocr_language)
+        self.detect_styles = detect_styles
+        self.workers = max(1, min(workers, os.cpu_count() or 1))
         self.xml = []
         self.total_pages = 0
 
@@ -865,48 +988,113 @@ class TesseractParserTool:
             start_page = max(1, start_page)
             end_page = min(self.total_pages, end_page)
 
-            for page_num in range(start_page, end_page + 1):
+            omp_was_unset = self.workers > 1 and "OMP_THREAD_LIMIT" not in os.environ
 
-                page = doc[page_num - 1]
+            if omp_was_unset:
+                os.environ["OMP_THREAD_LIMIT"] = "1"
 
-                words = self._ocr_page(page)
+            try:
+                with ThreadPoolExecutor(max_workers=self.workers) as executor:
 
-                page_xml = self.build_page_xml(
-                    words=words,
-                    page_number=page_num,
-                    page_width=page.rect.width,
-                    page_height=page.rect.height,
-                )
+                    pending = deque()
 
-                self.xml.append(page_xml)
+                    try:
+                        for page_num in range(start_page, end_page + 1):
+
+                            page = doc[page_num - 1]
+
+                            pix = page.get_pixmap(dpi=300, alpha=False)
+
+                            future = executor.submit(self._ocr_pixmap, pix, page_num)
+
+                            pending.append(
+                                (page_num, page.rect.width, page.rect.height, future)
+                            )
+
+                            if len(pending) >= self.workers * 2:
+                                self._collect_page(pending.popleft())
+
+                        while pending:
+                            self._collect_page(pending.popleft())
+
+                    except BaseException:
+                        for _, _, _, future in pending:
+                            future.cancel()
+                        raise
+
+            finally:
+                if omp_was_unset:
+                    os.environ.pop("OMP_THREAD_LIMIT", None)
 
             return self.xml
 
         finally:
             doc.close()
 
+    def _collect_page(self, entry):
+
+        page_num, page_width, page_height, future = entry
+
+        words = future.result()
+
+        page_xml = self.build_page_xml(
+            words=words,
+            page_number=page_num,
+            page_width=page_width,
+            page_height=page_height,
+        )
+
+        self.xml.append(page_xml)
+
     def _ocr_page(self, page, dpi=300):
 
         pix = page.get_pixmap(dpi=dpi, alpha=False)
 
-        scale = 72.0 / dpi
-        page_number = page.number + 1
+        return self._ocr_pixmap(pix, page.number + 1, dpi)
 
-        words = self._words_from_png_bytes(pix.tobytes("png"), scale, page_number)
+    def _ocr_pixmap(self, pix, page_number, dpi=300):
+
+        scale = 72.0 / dpi
+
+        angle, straightened = straighten_pixmap(pix, self.logger, page_number)
+
+        if straightened is None:
+            png_bytes = pix.tobytes("png")
+        else:
+            buf = io.BytesIO()
+            Image.fromarray(straightened).save(buf, format="PNG")
+            png_bytes = buf.getvalue()
+
+        words = self._words_from_png_bytes(png_bytes, scale, page_number)
 
         if len(words) < 3:
-            image = Image.open(io.BytesIO(pix.tobytes("png")))
+            image = Image.open(io.BytesIO(png_bytes))
             binarized = self._binarize(image)
             buf = io.BytesIO()
             binarized.save(buf, format="PNG")
             words = self._words_from_png_bytes(buf.getvalue(), scale, page_number)
 
         if len(words) < 3:
-            words = self._words_from_ghostscript(page_number, dpi)
+            words = self._words_from_ghostscript(page_number, dpi, angle)
+
+        if self.detect_styles and words:
+            self._annotate_styles(pix, words, scale, page_number, straightened)
 
         return words
 
-    def _words_from_ghostscript(self, page_number, dpi):
+    def _annotate_styles(self, pix, words, scale, page_number, straightened=None):
+
+        try:
+            if straightened is None:
+                image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+                gray = image[:, :, 0] if pix.n == 1 else cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY)
+            else:
+                gray = straightened if straightened.ndim == 2 else cv2.cvtColor(straightened[:, :, :3], cv2.COLOR_RGB2GRAY)
+            ScanStyleDetector(gray, scale).annotate(words)
+        except Exception as e:
+            self.logger.warning(f"Style detection failed on page {page_number}: {e}")
+
+    def _words_from_ghostscript(self, page_number, dpi, angle=0.0):
 
         scale = 72.0 / dpi
 
@@ -922,10 +1110,13 @@ class TesseractParserTool:
             try:
                 subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             except Exception as e:
-                self.logger.warning(f"Ghostscript rendering failed on page {page_number}: {e}")
-                return []
+                self.logger.error(f"Ghostscript rendering failed on page {page_number}: {e}")
+                raise
 
-            binarized = self._binarize(Image.open(f.name))
+            rendered = Image.open(f.name)
+            if angle:
+                rendered = Image.fromarray(rotate_image(np.array(rendered.convert("L")), angle))
+            binarized = self._binarize(rendered)
             buf = io.BytesIO()
             binarized.save(buf, format="PNG")
 
@@ -945,8 +1136,8 @@ class TesseractParserTool:
                 path, lang=self.tesseract_lang, output_type=pytesseract.Output.DICT
             )
         except Exception as e:
-            self.logger.warning(f"Tesseract OCR failed on page {page_number}: {e}")
-            return []
+            self.logger.error(f"Tesseract OCR failed on page {page_number}: {e}")
+            raise
 
         words = []
 
@@ -1080,13 +1271,19 @@ class TesseractParserTool:
                         else:
                             sp_y0, sp_y1 = sp_top, sp_bottom
 
-                        space = ET.SubElement(
-                            textline,
-                            "text",
-                            {
-                                "bbox": self._bbox_string(sp_left, sp_y0, sp_right, sp_y1),
-                            }
+                        space_attrs = {
+                            "bbox": self._bbox_string(sp_left, sp_y0, sp_right, sp_y1),
+                        }
+
+                        shared_style = "".join(
+                            flag for flag in "biu"
+                            if flag in previous_word.get("fstyle", "") and flag in word.get("fstyle", "")
                         )
+
+                        if shared_style:
+                            space_attrs["fstyle"] = shared_style
+
+                        space = ET.SubElement(textline, "text", space_attrs)
 
                         space.text = " "
 
@@ -1106,13 +1303,14 @@ class TesseractParserTool:
                         char_left = current_x
                         char_right = current_x + char_width
 
-                        char_node = ET.SubElement(
-                            textline,
-                            "text",
-                            {
-                                "bbox": self._bbox_string(char_left, ch_y0, char_right, ch_y1),
-                            }
-                        )
+                        char_attrs = {
+                            "bbox": self._bbox_string(char_left, ch_y0, char_right, ch_y1),
+                        }
+
+                        if word.get("fstyle"):
+                            char_attrs["fstyle"] = word["fstyle"]
+
+                        char_node = ET.SubElement(textline, "text", char_attrs)
 
                         char_node.text = ch
 

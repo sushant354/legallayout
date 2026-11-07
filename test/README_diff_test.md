@@ -17,7 +17,7 @@ test/
 └── README_diff_test.md       # This file
 ```
 
-`test_cases.csv`/`test_pdfs/` and `test_judgment_cases.csv`/`test_judgment_pdfs/` are two independent, equally-weighted CSVs registered together (`TestPdfToHtmlDiff.csv_registry`) and run together by default - `--csv test_cases.csv` (repeatable) runs only one of them by filename. They share the same column schema (see below) with one exception: `test_judgment_cases.csv` has no `font_names` column, since `-fn`'s font-name spans are html-only and have nowhere to attach in the judgment pipeline's output (`JudgmentBuilder`, a class of its own rather than a subclass of `HTMLBuilder`).
+`test_cases.csv`/`test_pdfs/` and `test_judgment_cases.csv`/`test_judgment_pdfs/` are two independent, equally-weighted CSVs registered together (`TestPdfToHtmlDiff.csv_registry`) and run together by default - `--csv test_cases.csv` (repeatable) runs only one of them by filename. They share the same column schema (see below) with one exception: `test_judgment_cases.csv` has no `font_names` column, since `-fn`'s font-name spans are html-only and have nowhere to attach in the judgment pipeline's output (`HTMLBaseBuilder`, a class of its own rather than a subclass of `HTMLBuilder`).
 
 ## How to Use
 
@@ -67,7 +67,7 @@ regulations.pdf,sebi,false,3,
   the output, i.e. `-fn` (optional, default false). Html output only, so it does
   nothing for the `acts`/`sebi_circulars` rows, which are written as bluebell,
   and the column does not exist at all in `test_judgment_cases.csv` for the
-  same reason - judgments go through `JudgmentBuilder`, not `HTMLBuilder`.
+  same reason - judgments go through `JudgmentBuilder` (on `HTMLBaseBuilder`), not `HTMLBuilder`.
   `lsdebate.pdf` is the case that covers it, and it covers `data-detected-font`
   with it: it leaves `font_detect` blank (i.e. on), so the fonts detection is
   run on carry the model's verdict in the baseline beside their pdf font name

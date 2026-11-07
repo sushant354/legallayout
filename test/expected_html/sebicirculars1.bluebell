@@ -4545,12 +4545,15 @@ SCHEDULE SCHEDULE III - FEES TO BE PAID ALONG WITH DRAFT OFFER DOCUMENT/ {{^{{FO
 							Five crore rupees ( 5, 00, 00, 000/-) plus 0.025 per cent. of the portion of the issue size in excess of five thousand crore rupees ( 5000, 00, 00, 000/-).
 						TC
 							Two crore fifty lakh rupees ( 2, 50, 00, 000/-) plus 0.0125 per cent. of the portion of the issue size in excess of five thousand crore rupees ( 5000, 00, 00, 000/-).]
+				FOOTNOTE 569
+					Inserted by the Securities and Exchange Board of India (Payment of Fees) (Amendment) Regulations, 2019 w-e-f- 01.04.2019.
+				TABLE
 					TR
-						TC
+						TH
 							{{^{{FOOTNOTE 570}}}}[Size of the issue, including intended retention of oversubscription Less than or equal to ten crore rupees. More than ten crore rupees, but less than or equal to five thousand crore rupees.[Size of the issue, including intended retention of oversubscription
-						TC
+						TH
 							Amount / Rate of fees
-						TC
+						TH
 							Amount / Rate of fees for filing within one year after expiry of SEBI Observation letter
 					TR
 						TC
@@ -4566,12 +4569,13 @@ SCHEDULE SCHEDULE III - FEES TO BE PAID ALONG WITH DRAFT OFFER DOCUMENT/ {{^{{FO
 							0.05 per cent. of the issue size.
 						TC
 							0.025 per cent of the issue size.
+				TABLE
 					TR
-						TC
+						TH
 							More than five thousand crore rupees.
-						TC
+						TH
 							Two crore fifty lakh rupees (2, 50, 00, 000/-) plus 0.0125 per cent. of the portion of the issue size in excess of five thousand crore rupees (5000, 00, 00, 000/-).
-						TC
+						TH
 							One crore twenty five lakh rupees (1, 25, ,00, 000/-) plus
 							0.00625 per cent.
 							of the portion of the issue size in excess of five thousand crore rupees (5000, 00, 00, 000/-).]
@@ -4599,12 +4603,18 @@ SCHEDULE SCHEDULE III - FEES TO BE PAID ALONG WITH DRAFT OFFER DOCUMENT/ {{^{{FO
 							0.05 per cent. of the issue size.
 						TC
 
+				FOOTNOTE 571
+					Omitted by the the SEBI (Issue of Capital and Disclosure Requirements) (Amendment) Regulations, 2025, w.e.f 08.04.2025. Prior to the omission, the column read as under:
+					“ ”
+				FOOTNOTE 572
+					Inserted by the Securities and Exchange Board of India (Payment of Fees) (Amendment) Regulations, 2020 for the period from 01.06.2020 to 31.12.2020.
+				TABLE
 					TR
-						TC
+						TH
 							{{^{{FOOTNOTE 572}}}}[Size of the issue, [Size of the issue, including intended retention of oversubscription
-						TC
+						TH
 							Amount / Rate of fees
-						TC
+						TH
 							Amount / Rate of fees for filing within one year after expiry of SEBI Observation letter
 					TR
 						TC
@@ -4620,11 +4630,6 @@ SCHEDULE SCHEDULE III - FEES TO BE PAID ALONG WITH DRAFT OFFER DOCUMENT/ {{^{{FO
 							0.025 per cent. of the issue
 						TC
 							0.0125 per cent of the issue size.]
-				FOOTNOTE 571
-					Omitted by the the SEBI (Issue of Capital and Disclosure Requirements) (Amendment) Regulations, 2025, w.e.f 08.04.2025. Prior to the omission, the column read as under:
-					“ ”
-				FOOTNOTE 572
-					Inserted by the Securities and Exchange Board of India (Payment of Fees) (Amendment) Regulations, 2020 for the period from 01.06.2020 to 31.12.2020.
 				TABLE
 					TR
 						TH
@@ -8513,7 +8518,18 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 
 				TR
 					TC
-						Net asset value per share (Rs.) Net Profit/(Loss) before tax and extraordinary items
+						Net asset value per share (Rs.) Total income from operations (Net)
+					TC
+
+					TC
+
+					TC
+
+					TC
+
+				TR
+					TC
+						Net Profit/(Loss) before tax and extraordinary items
 					TC
 
 					TC
@@ -8579,7 +8595,7 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 
 				TR
 					TC
-						Diluted earnings per share (Rs.) Return on net worth (%)
+						Diluted earnings per share (Rs.)
 					TC
 
 					TC
@@ -8587,6 +8603,18 @@ SCHEDULE SCHEDULE VI - DISCLOSURES IN THE OFFER DOCUMENT, ABRIDGED
 					TC
 
 					TC
+
+			TABLE
+				TR
+					TH
+						Return on net worth (%)
+					TH
+
+					TH
+
+					TH
+
+					TH
 
 				TR
 					TC
@@ -10851,6 +10879,25 @@ SCHEDULE SCHEDULE XI - FORMAT OF REPORT TO BE SUBMITTED BY THE MONITORING
 
 					TC
 
+			TABLE
+				TR
+					TH
+						\* Where the market value is not feasible, provide NAV/NRV/Book Value of the same ( iv) Delay in implementation of the object(s) \* In case of continuing object(s), please specify latest/revised estimate of the completion date.
+						7 55[5) Details of utilization of proceeds stated as General Corporate Purpose (GCP) amount in the offer document:]
+					TH
+
+					TH
+
+					TH
+
+					TH
+
+					TH
+
+					TH
+
+					TH
+
 				TR
 					TC
 
@@ -10864,6 +10911,8 @@ SCHEDULE SCHEDULE XI - FORMAT OF REPORT TO BE SUBMITTED BY THE MONITORING
 						Delay (no. of days/ months)
 					TC
 						Comments of the Board of Directors
+					TC
+
 					TC
 
 				TR
@@ -10881,22 +10930,28 @@ SCHEDULE SCHEDULE XI - FORMAT OF REPORT TO BE SUBMITTED BY THE MONITORING
 						Reason of delay
 					TC
 						Proposed course of action
-				TR
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-					TC
-
-					TC
-
 					TC
 
 				TR
+					TC
+
+					TC
+
+					TC
+
+					TC
+
+					TC
+
+					TC
+
+					TC
+
+					TC
+
+				TR
+					TC
+
 					TC
 
 					TC
@@ -13233,17 +13288,16 @@ SCHEDULE SCHEDULE XIV - ILLUSTRATION EXPLAINING THE PROCEDURE OF
 						Total no. of shares applied for at each lot
 					TH
 						No. of investors who shall receive lots according to minimum application size (to be selected by a lottery)
-			TABLE
 				TR
-					TH
+					TC
 						A
-					TH
+					TC
 						B
-					TH
+					TC
 						C
-					TH
+					TC
 						D= (B\*C)
-					TH
+					TC
 						E
 				TR
 					TC

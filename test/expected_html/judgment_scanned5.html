@@ -1,0 +1,430 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {
+    line-height: 1.6;
+  }
+
+  p, pre, blockquote {
+    white-space: pre-wrap;
+  }
+
+  ul {
+    list-style-type: none;
+  }
+
+  p.figure-text {
+    display: none;
+  }
+
+  span.header-text, span.footer-text, span.watermark-text {
+    display: none;
+  }
+
+  span.table-header-text, span.table-footer-text {
+    display: none;
+  }
+
+  .footnotes {
+    display: block;
+    font-size: 0.9em;
+    border-top: 1px solid #999;
+    margin-top: 1em;
+  }
+
+  sup a {
+    text-decoration: none;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.95em;
+  }
+
+  table, td, th {
+    border: 1px solid #333;
+  }
+
+  td {
+    white-space: pre-wrap;
+  }
+
+  nav.toc .toc-title {
+    font-weight: bold;
+  }
+
+  nav.toc .toc-table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  nav.toc .toc-table td {
+    border: none;
+    padding: 0.15em 0.4em;
+    white-space: pre-wrap;
+  }
+
+  nav.toc .toc-page {
+    text-align: right;
+    color: #555;
+    white-space: nowrap;
+  }
+
+  img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+  }
+</style>
+<style>
+  .footnote-popup {
+    display: none;
+    position: absolute;
+    z-index: 10;
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(34rem, 85vw);
+    padding: 0.5em 0.75em;
+    background: #fffef5;
+    color: #222;
+    border: 1px solid #999;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .footnote-popup.visible {
+    display: block;
+  }
+</style>
+<script>
+(function () {
+  var popup = null;
+  var timer = null;
+
+  function cancelHide() {
+    clearTimeout(timer);
+  }
+
+  function hide() {
+    if (popup) {
+      popup.className = 'footnote-popup';
+    }
+  }
+
+  function scheduleHide() {
+    cancelHide();
+    timer = setTimeout(hide, 200);
+  }
+
+  function ensurePopup() {
+    if (!popup) {
+      popup = document.createElement('div');
+      popup.className = 'footnote-popup';
+      popup.addEventListener('mouseenter', cancelHide);
+      popup.addEventListener('mouseleave', scheduleHide);
+      document.body.appendChild(popup);
+    }
+    return popup;
+  }
+
+  function markerOf(node) {
+    return node && node.closest ? node.closest('sup[id^="fnref-"] a[href^="#fn-"]') : null;
+  }
+
+  function place(box, link) {
+    var rect = link.getBoundingClientRect();
+    var scrollX = window.pageXOffset;
+    var scrollY = window.pageYOffset;
+    var viewWidth = document.documentElement.clientWidth;
+    var width = box.offsetWidth;
+    var height = box.offsetHeight;
+    var room = viewWidth - width - 8;
+    var left = Math.max(8, Math.min(rect.left, room));
+    var below = window.innerHeight - rect.bottom;
+    var flip = height + 8 > below && rect.top >= height + 8;
+    var top = flip ? rect.top - height - 4 : rect.bottom + 4;
+    box.style.left = (left + scrollX) + 'px';
+    box.style.top = (top + scrollY) + 'px';
+  }
+
+  function show(link) {
+    var note = document.getElementById(link.getAttribute('href').slice(1));
+    if (!note) {
+      return;
+    }
+    cancelHide();
+    var box = ensurePopup();
+    box.textContent = '';
+    Array.prototype.forEach.call(note.childNodes, function (child) {
+      box.appendChild(child.cloneNode(true));
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('a[href^="#fnref-"]'), function (back) {
+      back.parentNode.removeChild(back);
+    });
+    box.className = 'footnote-popup visible';
+    place(box, link);
+  }
+
+  document.addEventListener('mouseover', function (event) {
+    var link = markerOf(event.target);
+    if (link) {
+      show(link);
+    }
+  });
+  document.addEventListener('mouseout', function (event) {
+    if (markerOf(event.target)) {
+      scheduleHide();
+    }
+  });
+  document.addEventListener('focusin', function (event) {
+    var link = markerOf(event.target);
+    if (link) {
+      show(link);
+    }
+  });
+  document.addEventListener('focusout', function (event) {
+    if (markerOf(event.target)) {
+      scheduleHide();
+    }
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      hide();
+    }
+  });
+})();
+</script>
+</head>
+<body>
+<pre>
+i
+<span class="header-text">1</span>
+              GUJARAT  APPELLATE AUTHORITY  FOR ADVANCE  RULING
+                               GOODS AND SERVICES  TAX                             . rffl'o'uUmRnxrr
+                       D/5, RAJYA  KAR BHAVAN,  ASHRAM  ROAD,
+                                  AIIMI,IDAIIAI)  - <sup id="fnref-1-3"><a href="#fn-1-3">3</a></sup>tt<sup id="fnref-1-0"><a href="#fn-1-0">0</a></sup> <sup id="fnref-1-009"><a href="#fn-1-009">009</a></sup>.
+             ADVANCE RULTNG (AppEAL) NO. GUJ/GAAAR/APPEAL12}25  107
+               (IN APPLICATION  NO. Advance  Ruling/SGST&CGST  120221 AR/09)
+                                                                             Date: 2{.2.2025
+</pre>
+<table style='white-space: pre-wrap;' border="1" class="dataframe">
+  <tbody>
+    <tr>
+      <td>Name and address of the appellant</td>
+      <td></td>
+      <td>M/s. Troikaa Pharmaceuticals Ltd., GF- 1, Ground floor, Commercial House- 1, Satya Marg, Boadakdev, Ahmedabad, Gu.jarat- 380 054.</td>
+    </tr>
+    <tr>
+      <td>GSTIN of the appellant</td>
+      <td></td>
+      <td>24AABCT6866HIZ4</td>
+    </tr>
+    <tr>
+      <td>Jurisdiction Office&#10;Advance Ruling No. and Date</td>
+      <td></td>
+      <td>Office of the Assistant Commissioner of State Tax, Unit-9, Range-3, Division- I , Ahmedabad.&#10;GUJ/GAAA[VW2022138 dated 1 0. 0 8 .2022</td>
+    </tr>
+    <tr>
+      <td>Date of appeal</td>
+      <td></td>
+      <td>30.09.2022</td>
+    </tr>
+    <tr>
+      <td>Date ol' Personal  I.{earing&#10;Pr.r"nt loi thc appcllani</td>
+      <td></td>
+      <td>2r.1.2025 Shri Sandip Gupta, CA & Shri Arun Govlani, CA</td>
+    </tr>
+  </tbody>
+</table>
+<p>At the outset we would like to make it cle ar that the provisions of the Central Goods and Services Tax Act, 2017 and Gujarat Goods and Services 'fax Act, 2017 (hereinafter referred to as the 'CGS'| Ac! 2017 ' and the 'GGST Act, 2017 ') are pari materia and have the same provisions in like matter and differ from cach other only on a few specific provisions. Thcreforc, unless a mention is particularly made to such dissimilar provisions, a reference to the CGST Act, 2017 would also mean reference to the coffesponding similar provisions in the GGST Act,2017 .</p>
+<p>2. The present appeal is filed under Section 100 of the CGST Act, 2017 and the GGST Act, 2017 by N4/s. Troikaa Pharmaceuticals Limited, (hereinafter referred to as'appellant') against the Advance Ituling No. GIJJ/GAAAIV P.U2022138 dated 1 0.08 .2022.</p>
+<p>.| J. Briefly, the facts are enumerated below for ease of reference:</p>
+<p>o</p>
+<pre>
+the appcllant is engaged  in thc manufacture,  salc & distribution of pharma  products
+and is registcrcd with thc department;                                     ,4,
+</pre>
+<p></, !"</p>
+<pre>
+t-
+E
+<span class="header-text">2</span>
+</pre>
+<p>. the appcllant has appointed a CSPI; . the appellant provides subsidized canteen facilitics to its employees & contractual workers; o the appellant recovers 50% of the amount from the employees; . that as far as security service contract workers is concerned, the canteen service provider raiscs bill lbr only 50% of thc amount as thc rest of thc amount is being dircctly paid by thc individual workcrs to thc scrvice providcr.</p>
+<p>4. In view of the foregoing facts, the appellant had sought Advance Ruling on the following questions, viz: l- Whether GST' shall be applicable on the amount recovered by the company, Troikaa Pharmaceuticals Limited, -fro* employees or contractual workers, when provision of third-party canteen service is obligatory under section 46 of the Factories Act, 1948?</p>
+<p>2. Whether input tax credit of GST paid onfood bill of the Canteen Service Provider shall be available, since providing this canteen facility is mandatory as per the Section 46 of the l,.actories Act, 1948?</p>
+<p>5. Consequent to hearing the applicant, the Gr.rj arat Authority for Advance Ituling [GAAR.], recordcd the following findings viz o a a that in terms of the circular No. 1721412022-GST dated 6.7.2022, the benefit provided by employer to its employees in terms of contractual agreement is not supply; that in terms of section 17(5)(b), ITC is available on GST paid where it is obligatory to provide a benefit by an employer to an employee; that the said sub-section read with the clarification issued vide circular No. 1721412022-GS1' datcd 6.7.2022, I'l'C of the GST paid on canteen charges is available to the applicant on the goods supplied to the employees of the applicant as it is mandatory to provide canteen facility uls 46 of the Factories Act, 1948; that as far as providing cantccn facility to contractual workcrs are concerned, it was hcld as undcr: o thc contractual workcrs do not form part of the employce as they are not on the pay roll of the appellant; o that the term 'employed' is not defined under GST & hence in terms of the dictionary meaning, it means engaged or occupied in the performance of the work or hired to perform labour; o that relying on thc tcst of establishing cmployer-employce relationship as spelt out in the case of Balwant Rai Saluja, by the Hon'ble SC, the appellant has entered into a contract with the contractor; that the amount towards salary/wages is paid to the contractor; that the instant case does not pass the test of employee-employee relationship &. hence not covered under the ambit of cntry 1, Schcdule III of the CGST Act, 2017. o that even though therc is no profit, as claimed by the appellant on the supply of food to contractual workers, there is supply in terms of section <sup id="fnref-2-7"><a href="#fn-2-7">7</a></sup>(<sup id="fnref-2-1"><a href="#fn-2-1">1</a></sup>)(a), ibid; o since the appellant recovers the cost of food from its contractual workers thcre is consideration as dcfincd u/s 2(31), ibid; a that as far as availment ol I'l'C on cantecn chargcs on the lood supplicd to contractual workers is conccrned, the ruling held that: o the contractual workers are not covered under the employee-employer relationship;</p>
+<pre>
+   I
+p
+<span class="header-text">3</span>
+</pre>
+<p>o that in terms of provision of chapter V of CLRA2, 1970, the labour contractor shall provide the canteen facility to the labour employed by the contractor; o that there is no mandate that the appellant is required to provide canteen facility to the contractual worker; o that since providing canteen facility to contractual workers is not obligatory, ITC is blocked in terms of section 17(5) of the CGS'| Act, 2017.</p>
+<p>6. The GAAR, vide the impugned ruling dated 10.08.2022, held as follows:</p>
+<pre>
+                                      8U!,{NG
+l.  (;S"l'. at the hands  ot'Mis  '[roikua.  i.s not leuinblq on thc an]ounl  reprcscnting  thc
+   emnlLvees portion  tr|. c*nl*cn  chargcs.  which is collscted  h5' IVls "l'roikta  and
+</pre>
+<p>prid to thu Canteen scn,icc prosidcr.</p>
+<p>i. (iSl. at thc halrds ol'|vl,is I'roikua. i: lcviable on thc antount rcprcscntirlg thc r:onfr$cttrut wnrkrr portion ol cilnlecn charg*s. u'hiuh is r:tlllcr:tcd h<sup id="fnref-3-1"><a href="#fn-3-1">1</a></sup>' Mls I roikaa and paid to thc Canteen sen'icc pnn'itltr.</p>
+<p>L l'f(l on GS'l' puid on catltc.:n facilitl is tdnrissible to Mls 'l'roikaa undcr Sectintt l7 (5Xbl of CGS"I' Act on the ltxxl supplir;d to Empl*Jecs ol'tlrc c$mpan]' suhicet to the contlition that burdc'n nf (iS'l'hal't nut lrccn ptsscd on to thc r:rrrpkr.r'cts tl' the corupnl.</p>
+<p>4. l'l( on GS'l'paid on canteen lirr:ilit3'is ngt-dil-Uj$j-blg to Mis'l'roikaa undcr Scctinn l? (sxh) uf'CtiS't'Att or! thc lbod supplied to qsuttractual rvorktrr supplicd by' lahour contrilctor.</p>
+<p>7. Bcing aggricved by the impugncd ruling i.e. dcnial of I'fC on canteen services provided by the appellant to contractual workers and levy of GST on food charges recovered from contractual workers, the appellant is belorc us, raising the following contentions, viz a a thc GAAIT did not give the appellant an opportunity of being heard and hence there is violation of natural justice; that in terms of clarification at issue no. 3 vide circular dated 6.7.2022 & Schedule- III of thc CGST Act, 2017, the appellant is eligible for IfC on canteen serviccs as it is undcr lcgal obligation; that no GS't' amount is lcviablc on thc amount rccovcrcd from contractual workers for canteen services, respectively; a a a that while relying on section 16 of the CLRA,1970, the authority ignored sections 20, 2l &. 29, ibid; that the appellant is the principal employer of thc contractual employees in tcrms of scction 2(9; that in terms of the CI-ltA, 1970, iI thc contractor docs not provide thc canteen facility it is to be provided by the applicant being a principal employer; that in terms of section 2(I) of the Factories Act, 1948, a worker includes a contractual worker; a a that the authority ignored paragraph 30(3) of the IIPF Scheme wherein the main and primary rcsponsibility for dcpositing providcnt fund is with the appcllant &. therefore there is an employer-employee relationship;</p>
+<p>that in terms of the term 'employed' as defined in the impugned ruling, it includes employees hired to perform labour;</p>
+<pre>
+                                                                                                                                            't'
+<sup id="fnref-3-2"><a href="#fn-3-2">2</a></sup> Contract  Labour (Itcgulation & Abolition)  Act, 1970                                       H0,{,
+                                                                                                                                          AUt-      v/'
+                                                                                                                                                     a
+                                                                                                                                ^Y                       9-.:,
+                                                                                                                              'Y
+                                                                                                                              ,l-
+                                                                                                                                                          v
+                                                                                                                              oa
+                                                                                                                              <r
+                                                                                                                                  i'>
+</pre>
+<p>fl' 't_ a that the contractual workers arc huge in numbers & all of them are working in the factory premises of the appellant which is possible when they are working under the a complete control and supervision of the appellant;<span class="header-text">4</span> that though there is no formal employer-employee relationship, the appellant as principal employer will still be responsible for all workcrs dircctly or indircctly cmployed by thc appcllant.</p>
+<p>8. Personal hearing in the matter was held on 21.1.2025, wherein Shri Sandip Gupta, CA 8L Shri Arun Govlani, CA appeared on behalf of the appellant and reiterated the grounds of appeal.</p>
+<p>9. The appellant thereafter vide additional submission through email dated 29.1 .2025, addressed to Registry, stated as follows:</p>
+<p>Witlr reference to onr heorirg held on Zt{1-2025, we ore ottochirg herenith followirgr Hence, in view o{ the okve, we ogoin would like to reiterute ard drw your kind ottention torruds followirq,</p>
+<pre>
+!*l
+    'd.vort
+</pre>
+<p>tllerrd.l0 it a{plqE ! udeory lorforlkli'rE hi,9 hfg.cc ot rtctd .rpb!rr.</p>
+<p>. l{e ore sttoihirg the r.elermnt pnovisions of OnI Act od Foctories act vhich }Ew drcdy been inchdd in our s6rnission, . We hsve dnead mentioneo ow detoile/ orglmmts in our suhnission.</p>
+<p>The relevant extracts of the contract entered into with M/s. Tirupati Enterprises, are reproduced below for ease of reference viz ilON.I'I(ACT AGRLET4 IJN'I' IJOR I,,,\BOT JR S [,I I)I}I-,\T AN ARTICLE OF AGIIF:IiMENT MADE ON ]'HlS 2l'1 Jusc 2024 betrvcen l\t/s T'roikrr* I'harmtc*uticals Ltd., in coryroration under the cornpany.ACT 1950 having its rugister officc at Conrnterce House 1, Satyamarg Bodakdev, Ahmedabatl - -l[I0054 (which cxpression shall include llrat hcirs e.tecutors and assigns), herein aftcr rcfirred to as the 'Comparly' txr orle piln and N{/S Tirupati Entcrprise* having thuir ntTrce at Lrrnc No.-8. Post Oflir.:c lload. (llcrnent Tuwn, Dehradun. {R'}rich exprcssir.xr shall inch.rcle tlrr"ir heirs executors nnd assigns), herein aliur rcli:rrerl to trs thc 'Contra$tor' on the other part.</p>
+<p>a of9 1-1.1-hc conttactor n:ust courllly w'ith all the: appliuuble intlustrial lau,s such as Faclorics act" Employcus Frovideut Fund and lltisc. Ilrovisions acl, ESIC Acl, Minimunr Wages Acl, Pa.vment of Wages Act, Bonus Act. Cratuity Act, 1"he contract labour (Rcgulotion and aholition) Aut l9?0 ctc, and shall suhnrit all the f<rrms and rcturns in tinre *nd nlsn maintain records and registers rcquirc<l as p$r thc act. Thc Contractrlr shall producc thc rrxords to lhc cornpillly sxesutive rrs and u,[lt:.n demanded. 'l]rc contrtctor will be responsible for all the cclilsequqncrls including penalties if any for non cornpliance with respert to the applicablc Introur lurvs. Any deviation in statutory cornpliancu *"ill lend to pennlty as pcr Aq$till$gc B No A,RFcxu re,-!l-Ls ? ttnchffl) .<span class="header-text">5</span></p>
+<p>14. The corrtractor shall alsei c.olnply with all uthrr lahnur anrl industrial lnr+'s and such other Acts and $tatus fls miry be applicahlc to the contrrctor ltom tirne to tinre and maitrtaitr thc nccessary documents/rccords atrd submit tei crtncent Authorities.</p>
+<p>16. Thc c$trtrflctor shnll milke *ll thc stlltutory dctluctions ti'rx"lt tltc sirl{{^{{FOOTNOTE *}}}}r)'/u'a${{^{{FOOTNOTE *}}}}s p{{^{{FOOTNOTE *3}}}}'fihlc trr t[c 11'6rk$r's lou';rrtls HSIC'. ff. Litl",()ur'\\rcltirre Furtcl artd prolcssilrt;.rl lit,\ r:tc its II]aY llu applicnhlc ft'rlnr time to timc and suhnlit ir copy of tlre uerlillcats I prcof that all thc $t4tutury ducs i*clutling HSIC ilnd P[; hns bccn F$id hy hirrr in li*tc. Stfitcrncttt ot'such tle$uutions and fa),"nlcills firir{lc shtll bc sutrrttitt*tl alons witlt tlts cnnlrilctor's nrorrthly hill.</p>
+<p>t?. f"trc c$rlrp*ny *'ill not in any rvny hc rr;rFonsihlc llrr not'l*c(xllpliancc ol'arly lubtlur larvs, applicutrle to the contrfict anurloy'ec*. lf thc erltnpilrur is reqmired to nrake any Pit)ryItrnts undcr llny st*tuteiry regulatiorrs orr lrehnlf n{'thc sontrflct(rr" r' duc t{} non c{}n}pliilIlL<sup id="fnref-5-1"><a href="#fn-5-1">1</a></sup>e or lirilurc ot-tire corllr$ct(rr, tlrc cornllln),sltall tlutluct tlte sltt:e trurn tltt ittnuunt pxy{{^{{FOOTNOTE *}}}}ilhlc to tire crurtractor" duriltg tlte pcri*d ol'c()ntra*t or tltcrcaficr.</p>
+<p>19. Bs it clcarly unr.lerstood and agreed that by this dced, no rclationship of the ernploytrr flnd employcc is crctterl bet*,een the ccxnpany and thc rvorkcrs errgaged bv the contractor.</p>
+<p>10. We have carefully gone through and considered the appeal papers, written submissions filed by the appellant, submissions made at the time of personal hearing, the impugned ruling, additional submissions made post hearing and other materials available on record.</p>
+<p>1 1. Before dwelling on to the issue, we would like to reproduce relevant portions of GS-l' Act and circular lclarification for easc of rcfcrence viz ODS AND SERVICES ACT. 2017 Section 17. Apportionment of credit and blocked credits.-</p>
+<pre>
+ (5) Ir{otwithstanding  anything contained in sub-section (1) of section l6 and sub-
+section  (1) o./'section  lB, input tax credil shall not be at,oilable  inrespect  of the
+.fbllowing,  namely:-                                                    ,r-'ffi     h\
+</pre>
+<p>t7 \i" (b) <sup id="fnref-5-3"><a href="#fn-5-3">3</a></sup> [the following supply of goods or services or both- i- d{-) 9 .:+\<span class="header-text">6</span></p>
+<p>(i) food and beverages, outdoor catering, berruty treatment, health services, cosmetic and plastic surgery, leasing, renting or hiring of motor vehicles, vessels or aircraft referred to in clause (a) or clause (aa) except when used for the purposes specffied therein, ldb insurance and health insurance: Provided that the input tax credit in respect of such goods or services or both shall be available where an inward supply of such goods or services or bolh is used by , registered personfor making an outward taxable supply of the same category of goods or services or both or as an element of a taxable composite or mixed supply,'</p>
+<p>(ii) membership of a club, health and/itness centre; and</p>
+<p>(iii) travel benefits extended to employees on vacation such as leave or home travel concession: Provided that the input tax credit in respect of such goods or services or both shall be available, where it is obligatory for an employer to provide the same to its employees under any law.frtr the time being in /brce. I 2-GST dated 6.7.2022 Clarification on various issues of section l7 5 of the CGST Act a J Whethcr thc proviso at thc cnd o[ clausc (b) of sub-scction (5) of scction I1 of the CGST Act is</p>
+<pre>
+                                Vidc thc Central  Goods  and Scrvicc'l'ax (Amcndrnent  Act)
+                                2018, clausc (b) ol'sub-scction  (5) o[ soction  17 of thc
+                                CGSI' Act was substituted with effccrfrom  01.02.2019.
+                                Afler the said substitution, the proviso  after sub-clause
+                                (iii) of clause  (b) of sub-section  (5) of section 17 of the
+applicable to the entire        CGST  Act provides  as under:
+clause  (b)   or   the
+said  proviso  is                     "Provided  that thc input tax credit in rcspect of such
+applicablc only  to                   goods or scrviccs  or both shall be available, wherc it is
+sub-clause (iii)  of                  obligatory  for an employer  to provide the same to
+clause  (b)?                          its employees  under any law for the time bcing in
+                                      force."
+</pre>
+<p>2. 'l'hc said amcndmcnt in sr"rb-scction (5) of scclion l7 ol'thc cGSl' Act was made bascd on tl-rc recornrncndations ol'GS'l' council in its 28tl'meeting. J'he intent of the said amendment in sub-section (5) of section 77, as recommended by the GST Council in its 28tl'meeting, was made known to the tradc and industry through thc Press Notc on Itccommcndations madc during thc 28t1, mccting of thc GS'l' council, datcd 21.01.2018. It had bccn clarificd "that scope of input tax credit is being widcned, and it would rlow be made available in respect of Goods or services whioh are obligatory for an employer to provide to its employees, under any law for the tirnc being in force."</p>
+<pre>
+                                  3.  Accordingly,  it  is  clarified that the proviso aftcr sub-
+                                      clausc (iii) of clause (b) of sub-scction  (5) of sccrion l7 ol'the
+                                      CGSTAct  is applicable to the whole  of  clause (b) ol' sub-
+                                      section 5   of section 17 of the CGST Act.
+      uisites   vided         I   r to the cm Icm   AS     contractual agrcement
+5   Whcther various               1. Schedule III to the cGS'l'  Act provides  that  "services by
+    perquisites  providcd            cmployee  to the employer  in the colrrse of or in relation
+    by thc cmployer to its           to  his  cmployment"  will not bc considcred as supply
+    employees  in terms of           of  goods  or services  and  hence  GST is not applicable  on
+    contractual  agreement           services rendered by employee  to employer  provided  they
+    entered into between             are in the course of or in relation to employment.
+    thc ernploycr and the
+    crnploycc  arc liable
+    for GSI'?
+</pre>
+<p>the ided em 2. Any pcrquisitcs provided by thc cmployer to its employecs in terms of contractual agreement cntered into between the employer and the employee are in servlces to the em</p>
+<pre>
+                                                a
+                                                  t,)
+                                          il:.  \
+                                           11.,:\           ,
+                                                        -/-r.<sup id="fnref-7-1"><a href="#fn-7-1">1</a></sup>'ff""
+<span class="header-text">7</span>
+his employmcnt. It follows  thcre from that perquisites
+provided  by       the employer  to the employee in terms of
+contractual  agreement  entered into between  the
+employer and the employee,  will not be subjected to GST
+when the same are provided  in  terms of  the contract
+between  thc erl          and em
+</pre>
+<p>12. On going through the prayer, we find that the appellant is aggrieved against the impugned ruling dated 10.08.2022, only to the extent that: tal it holds that GST at the hands of the appellant is leviable on the amount representing contractual worker portion of canteen charges which is collected by the appellant & paid to cSP; and tb] it holds ITC on canteen facility is not admissible under section f Z1S)1U) of the CGST Act, <sup id="fnref-7-2"><a href="#fn-7-2">2</a></sup>Ol<sup id="fnref-7-7"><a href="#fn-7-7">7</a></sup> , on the food supplied to contractual workers.</p>
+<p>13. The primary averment raised by the appellant is that while relying on section l6 of the CLI{A, <sup id="fnref-7-1970"><a href="#fn-7-1970">1970</a></sup>, GAAIT ignored sections 20,21 &" 29, ibid;thatin terms of section 2(g),the appellant is the principal employer of the contractual employees and under CLRA if the contractor does not provide the canteen facility it is to be provided by the appellant; that in terms of section 2(l) of the Factories Act, <sup id="fnref-7-1948"><a href="#fn-7-1948">1948</a></sup>, worker includes a contractual worker. The other averments have already been listed in para graph 7 and is not being repeated for the sake of brevity.</p>
+<pre>
+t4.
+referen  ce viz
+</pre>
+<p>20. Liability of principal employer in certain cases</p>
+<p>(t) If any i*iiityrequiredio be providedunder Section <sup id="fnref-7-16"><a href="#fn-7-16">16</a></sup>, Section <sup id="fnref-7-17"><a href="#fn-7-17">17</a></sup>, Section <sup id="fnref-7-18"><a href="#fn-7-18">18</a></sup> or iection l9 for the-benefit of the contract labour employed in an establishment is not providecl by the contractor within the time prescribed therefor, such amenity ;;hail be proviied by the principal employer within such time as may be prescribed.</p>
+<p>(2) All expenses incurred by the principal employer in providing the amenity may be recoverea Oy the principal employer from the contractor either by deduction fro* any amount payable rc- the contractor under any contract or as a debt payable by the contractor.</p>
+<p><sup id="fnref-7-2"><a href="#fn-7-2">2</a></sup> t. Responsibility for payment of wages.- (l) A contractor shill be responsible for payment oJ'wages to each worker employed by him as contract labour and such wages shall be paid before the expiry o.f such period as may be prescribed.</p>
+<p><sup id="fnref-7-1"><a href="#fn-7-1">1</a></sup></p>
+<p>\j! % (2) livery principal emplol,er shall nominate 0 representctlive duly O him to be present at the time oJ'disbursement of wages by the contrac be the duty of such representative to certify the amounts paid __)</p>
+<p>:r</p>
+<p>P !q$</p>
+<p>I</p>
+<pre>
+i\      ,qB&'' t.1.-
+,(      i,"*.
+</pre>
+<p>'j,l'.<span class="header-text">8</span></p>
+<p>manner AS may be prescribed.</p>
+<p>(<sup id="fnref-8-3"><a href="#fn-8-3">3</a></sup>) It shall be the duty of the contractor to ensure the disbursement ofwages in the presence of the authorised representative o.f the principal employer.</p>
+<p>Q) In case the contractor fails to make payment of wages within the prescribed period or makes short payment, then the principal employer shall be liable to make payment of wages in full or the unpaid balance due, as the case may be, to the contracl labour employed by the contractor and recover the amount so paid .fro* the contractor eilher by deduction./iom any amount payable to the contructor crnv contracl as a debt payable by the contractor.</p>
+<p>Relying on sections <sup id="fnref-8-20"><a href="#fn-8-20">20</a></sup>(<sup id="fnref-8-2"><a href="#fn-8-2">2</a></sup>) and 2l(2), it is averred that though statutorily it is thc contractor who is rcquircd to providc the amcnity to thc contractual workers in terms of section 16, ibid, the onus shifts on the principal employer ie the appellant in case the contractor is not providing the same. Two things are therefore clear [a] that statutorily it is the contractor on whom the CLRA Act has entrusted the task of providing the amenity; and [b] the responsibility shifts on the principal employer ie appellant in case of the contractor is not providing the same. However, one cannot ignore the fact that the section also states that all expenses incurred by the principal employer in providing such amenity may be recovered from the contractor either by deduction from any amount payable under any contract or as a debt payable by the contractor.</p>
+<p>evidence. Further, the copy of the invoice rcproduced at paragraph 21.6 of the to the appellant.</p>
+<p>Ente SCS, 16. Further, in the agreement with M/s. Tirupati .tt AUTHg l:</p>
+<p>z. \, () b</p>
+<pre>
+ q
+rr
+.d
+.)
+<span class="header-text">9</span>
+</pre>
+<p>t explicitly states that no rclationship of employcr-employcc is creatcd bctwcen the appellant and the workers engaged by the contractor. This being so, the clarification at serial no. 5, vide circular no. 1721412022-GST dated 6.7.2022 relied upon by the appellant to aver that no GST amount is leviable on the amount recovered from contractual workers for canteen services, fails since the clarification states that perquisites provided by the employer to its employees in terms of contractual agreement entered into between them will not be subject to GST. Further, the clarification at serial no. 3 of the said circular dated 6.7.2022, regarding availment of ITC, would also not be applicable since it is available only in respect of the goods supplied to the employees of the appellant in terms of scction 46 of thc Factories Act, 1948, which mandates provision of canteen facilities to the employees. Further, in terms of clause 17 of the agreement, appellant also indemnifies himself for any payment made on behalf of the contractor.</p>
+<p>17. The GAAR has dealt with the issue in depth in the paragraphs mentioned above. Nothing new is produced before us forcing us to interfere with the impugned ruling.</p>
+<p>18. We therefore, uphold the impugned ruling dated 10.8.2022.</p>
+<p>19. In view of the foregoing, we reject the appeal filed by appellant M/s. Troikaa Pharmaceuticals Ltd, against the Advance Ruling No. GUJ/GAAIVIV2022138 dated 10.08.2022, passed by the Gujarat Authority for Advance Ruling.</p>
+<p>F' 'fi/E AUTHo (B V Siva Naga Kumari) k( Rajeev Topno )</p>
+<pre>
+                              9-        )-
+      Member  (SGST)         v            c         Member (CGST)
+                                          9
+                            v&             I v
+                                           7-
+                            :)
+                            q              tn
+Place: Ahmedabad                   '4ic
+Date:L{.02.2025
+</pre>
+<p>Page 9 of 9</p>
+<section class="footnotes">
+<hr>
+<ol>
+<li id="fn-2-1" value="1">Cantccn Service Providcr <a href="#fnref-2-1">↩</a></li>
+<li id="fn-7-1970" value="1970">, is reproduced below for ease of <a href="#fnref-7-1970">↩</a></li>
+<li id="fn-8-3" value="3">| , has provided its reasoning, which has not been rebutted by the appellant. The appellant in his averments assumes of a situation wherein he is thrusted with the responsibility as a primary employer, which would arise only in case the contractor fails in his statutory obligation. The assumption so made is not supported by factual impugned ruling, the facts belie these averments and assumptions. It clearly depicts that the contractor has been paid the gross amount which includes salary, allowances such as cantecn facility, provident fund, etc. Wc arc also unable to pinpoint any averment by the appellant that the contractor has failed to fulfill his statutory obligation, the primary requirement for the onus to shift Dehradun, the relevant extracts of which are reproduced supra, \\ <a href="#fnref-8-3">↩</a></li>
+</ol>
+</section>
+
+</body>
+</html>
